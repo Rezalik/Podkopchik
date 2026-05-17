@@ -31,7 +31,7 @@ check_openwrt() {
 }
 
 install_deps() {
-	pkgs="luci-base rpcd ucode ucode-mod-fs ucode-mod-uci ucode-mod-ubus curl ca-bundle jsonfilter nftables firewall4 dnsmasq xray-core"
+	pkgs="luci-base rpcd ucode ucode-mod-fs ucode-mod-uci ucode-mod-ubus curl ca-bundle jsonfilter nftables kmod-nft-tproxy firewall4 dnsmasq xray-core"
 	opkg update || warn "opkg update failed; trying installed packages anyway"
 	for pkg in $pkgs; do
 		if ! opkg status "$pkg" >/dev/null 2>&1; then
