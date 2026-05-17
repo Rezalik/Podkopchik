@@ -1,0 +1,208 @@
+#!/bin/sh
+
+set -u
+
+APP="podkopchik"
+LIB="/usr/libexec/podkopchik"
+TMP_DIR="/tmp/podkopchik"
+STATE="$TMP_DIR/state.json"
+
+xray_bin() {
+	command -v xray 2>/dev/null || command -v xray-core 2>/dev/null || true
+}
+
+proxy_tag() {
+	i="$1"
+	raw="$(uci -q get "$APP.@proxy[$i].tag" 2>/dev/null || true)"
+	[ -n "$raw" ] || raw="$(uci -q get "$APP.@proxy[$i].name" 2>/dev/null || echo "proxy_$i")"
+	tag="$(printf '%s' "$raw" | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9_]/_/g; s/^_*//; s/_*$//' | cut -c1-48)"
+	case "$tag" in
+		''|[0-9]*) tag="p_$tag" ;;
+	esac
+	printf '%s' "$tag"
+}
+
+record_unknown_all() {
+	results="$1"
+	message="$2"
+	i=0
+	while uci -q get "$APP.@proxy[$i]" >/dev/null 2>&1; do
+		if [ "$(uci -q get "$APP.@proxy[$i].enabled" 2>/dev/null || echo 1)" != "0" ]; then
+			tag="$(proxy_tag "$i")"
+			printf '%s\tunknown\t%s\n' "$tag" "$message" >> "$results"
+		fi
+		i=$((i + 1))
+	done
+}
+
+record_probe() {
+	results="$1"
+	tag="$2"
+	status="$3"
+	message="$4"
+	printf '%s\t%s\t%s\n' "$tag" "$status" "$message" >> "$results"
+}
+
+probe_port_state() {
+	port="$1"
+
+	if command -v netstat >/dev/null 2>&1; then
+		netstat -ln 2>/dev/null | grep -Eq "[:.]$port[[:space:]]" && return 0
+		return 1
+	fi
+
+	return 2
+}
+
+probe_proxy() {
+	tag="$1"
+	port="$2"
+	results="$3"
+	bin="$4"
+
+	cfg="$TMP_DIR/health-$tag.json"
+	log="$TMP_DIR/health-$tag.log"
+	lock="$TMP_DIR/health-port-$port.lock"
+	url="$(uci -q get "$APP.main.probe_url" 2>/dev/null || echo https://www.gstatic.com/generate_204)"
+	timeout="$(uci -q get "$APP.main.timeout" 2>/dev/null || echo 5)"
+
+	if ! mkdir "$lock" >/dev/null 2>&1; then
+		record_probe "$results" "$tag" "unknown" "health probe port is locked"
+		return
+	fi
+
+	probe_port_state "$port"
+	port_state="$?"
+	if [ "$port_state" = "0" ]; then
+		rmdir "$lock" >/dev/null 2>&1 || true
+		record_probe "$results" "$tag" "unknown" "health probe port is already in use"
+		return
+	elif [ "$port_state" = "2" ]; then
+		rmdir "$lock" >/dev/null 2>&1 || true
+		record_probe "$results" "$tag" "unknown" "cannot verify health probe port ownership"
+		return
+	fi
+
+	if ! ucode -L "$LIB" "$LIB/generate.uc" health "$tag" "$port" > "$cfg" 2>"$log"; then
+		msg="$(tr '\n\t' '  ' < "$log")"
+		rmdir "$lock" >/dev/null 2>&1 || true
+		record_probe "$results" "$tag" "unknown" "could not generate health config: $msg"
+		return
+	fi
+
+	if ! "$bin" run -test -config "$cfg" >/dev/null 2>"$log"; then
+		msg="$(tr '\n\t' '  ' < "$log")"
+		rmdir "$lock" >/dev/null 2>&1 || true
+		record_probe "$results" "$tag" "unknown" "health config validation failed: $msg"
+		return
+	fi
+
+	"$bin" run -config "$cfg" >/dev/null 2>"$log" &
+	pid="$!"
+	sleep 1
+
+	if ! kill -0 "$pid" >/dev/null 2>&1; then
+		msg="$(tr '\n\t' '  ' < "$log")"
+		wait "$pid" >/dev/null 2>&1 || true
+		rmdir "$lock" >/dev/null 2>&1 || true
+		record_probe "$results" "$tag" "unknown" "temporary xray probe process exited before curl: ${msg:-no listener}"
+		return
+	fi
+
+	if curl -fsS -I --max-time "$timeout" --socks5-hostname "127.0.0.1:$port" "$url" >/dev/null 2>"$log"; then
+		record_probe "$results" "$tag" "up" ""
+	else
+		msg="$(tr '\n\t' '  ' < "$log")"
+		record_probe "$results" "$tag" "down" "${msg:-probe failed}"
+	fi
+
+	kill "$pid" >/dev/null 2>&1 || true
+	wait "$pid" >/dev/null 2>&1 || true
+	rmdir "$lock" >/dev/null 2>&1 || true
+}
+
+run_once() {
+	mkdir -p "$TMP_DIR"
+	results="$TMP_DIR/health-results.tsv"
+	: > "$results"
+
+	bin="$(xray_bin)"
+	if [ -z "$bin" ]; then
+		record_unknown_all "$results" "xray binary not available"
+	elif ! command -v curl >/dev/null 2>&1; then
+		record_unknown_all "$results" "curl not available for proxy probing"
+	else
+		base="$(uci -q get "$APP.main.health_socks_base_port" 2>/dev/null || echo 20800)"
+		i=0
+		while uci -q get "$APP.@proxy[$i]" >/dev/null 2>&1; do
+			if [ "$(uci -q get "$APP.@proxy[$i].enabled" 2>/dev/null || echo 1)" != "0" ]; then
+				tag="$(proxy_tag "$i")"
+				probe_proxy "$tag" "$((base + i))" "$results" "$bin"
+			fi
+			i=$((i + 1))
+		done
+	fi
+
+	if ucode -L "$LIB" "$LIB/generate.uc" state "$results" > "$STATE.tmp"; then
+		events="$TMP_DIR/health-events.$$"
+		switched="0"
+		applied="0"
+		: > "$events"
+		if command -v jsonfilter >/dev/null 2>&1; then
+			jsonfilter -q -i "$STATE.tmp" -e '@.events[*]' > "$events" 2>/dev/null || true
+			while IFS= read -r event; do
+				[ -n "$event" ] || continue
+				switched="1"
+				logger -t podkopchik "$event"
+			done < "$events"
+		else
+			logger -t podkopchik "jsonfilter not available; failover switch events cannot be detected"
+		fi
+
+		if [ "$switched" = "1" ]; then
+			if [ "$(uci -q get "$APP.main.routing_enabled" 2>/dev/null || echo 0)" = "1" ]; then
+				if /usr/bin/podkopchikctl apply-health-state "$STATE.tmp"; then
+					applied="1"
+				else
+					logger -t podkopchik "failover config apply failed; active Xray config was not changed"
+				fi
+			else
+				logger -t podkopchik "routing inactive; failover state recorded without Xray restart"
+			fi
+		fi
+
+		if ! mv "$STATE.tmp" "$STATE"; then
+			rm -f "$events"
+			logger -t podkopchik "health state update failed"
+			return 1
+		fi
+		chmod 600 "$STATE"
+		logger -t podkopchik "health check completed"
+		if [ "$applied" = "1" ]; then
+			logger -t podkopchik "failover config applied; restarting Xray"
+			( sleep 1; /etc/init.d/podkopchik restart >/dev/null 2>&1 ) &
+		fi
+		rm -f "$events"
+	else
+		rm -f "$STATE.tmp"
+		logger -t podkopchik "health state update failed"
+		return 1
+	fi
+}
+
+case "${1:-once}" in
+	daemon)
+		while :; do
+			run_once || true
+			interval="$(uci -q get "$APP.main.interval" 2>/dev/null || echo 30)"
+			sleep "$interval"
+		done
+		;;
+	once)
+		run_once
+		;;
+	*)
+		echo "Usage: health_check.sh [once|daemon]" >&2
+		exit 2
+		;;
+esac

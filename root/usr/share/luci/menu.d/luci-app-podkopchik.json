@@ -1,0 +1,93 @@
+{
+	"admin/services/podkopchik": {
+		"title": "Podkopchik",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "podkopchik/status"
+		},
+		"depends": {
+			"acl": [ "luci-app-podkopchik" ]
+		}
+	},
+	"admin/services/podkopchik/status": {
+		"title": "Status",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "podkopchik/status"
+		}
+	},
+	"admin/services/podkopchik/proxies": {
+		"title": "Proxy Links",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "podkopchik/proxies"
+		}
+	},
+	"admin/services/podkopchik/groups": {
+		"title": "Proxy Groups",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "podkopchik/groups"
+		}
+	},
+	"admin/services/podkopchik/domain-rules": {
+		"title": "Domain Rules",
+		"order": 40,
+		"action": {
+			"type": "view",
+			"path": "podkopchik/domain-rules"
+		}
+	},
+	"admin/services/podkopchik/ip-rules": {
+		"title": "IP Rules",
+		"order": 50,
+		"action": {
+			"type": "view",
+			"path": "podkopchik/ip-rules"
+		}
+	},
+	"admin/services/podkopchik/lan-devices": {
+		"title": "LAN Devices",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "podkopchik/lan-devices"
+		}
+	},
+	"admin/services/podkopchik/dns": {
+		"title": "DNS",
+		"order": 70,
+		"action": {
+			"type": "view",
+			"path": "podkopchik/dns"
+		}
+	},
+	"admin/services/podkopchik/updates": {
+		"title": "Updates",
+		"order": 80,
+		"action": {
+			"type": "view",
+			"path": "podkopchik/updates"
+		}
+	},
+	"admin/services/podkopchik/logs": {
+		"title": "Logs",
+		"order": 90,
+		"action": {
+			"type": "view",
+			"path": "podkopchik/logs"
+		}
+	},
+	"admin/services/podkopchik/advanced": {
+		"title": "Advanced",
+		"order": 100,
+		"action": {
+			"type": "view",
+			"path": "podkopchik/advanced"
+		}
+	}
+}

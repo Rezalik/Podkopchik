@@ -1,0 +1,19 @@
+{
+	"luci-app-podkopchik": {
+		"description": "Grant access to Podkopchik configuration and commands",
+		"read": {
+			"uci": [ "podkopchik" ],
+			"ubus": {
+				"file": [ "exec", "read" ],
+				"uci": [ "get" ]
+			}
+		},
+		"write": {
+			"uci": [ "podkopchik" ],
+			"ubus": {
+				"file": [ "exec" ],
+				"uci": [ "add", "apply", "delete", "set" ]
+			}
+		}
+	}
+}

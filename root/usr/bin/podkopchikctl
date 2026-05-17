@@ -1,0 +1,373 @@
+#!/bin/sh
+
+set -eu
+
+APP="podkopchik"
+LIB="/usr/libexec/podkopchik"
+CONFIG_DIR="/etc/podkopchik"
+CONFIG="$CONFIG_DIR/config.json"
+UCI_CONFIG="/etc/config/$APP"
+TMP_DIR="/tmp/podkopchik"
+STATE="$TMP_DIR/state.json"
+ROLLBACK="$TMP_DIR/rollback.tar.gz"
+VERSION="1.0.0"
+
+die() {
+	echo "podkopchikctl: $*" >&2
+	exit 1
+}
+
+log() {
+	logger -t podkopchik "$*"
+}
+
+xray_bin() {
+	command -v xray 2>/dev/null || command -v xray-core 2>/dev/null || true
+}
+
+ucode_run() {
+	ucode -L "$LIB" "$@"
+}
+
+section_count() {
+	type="$1"
+	i=0
+	count=0
+	while uci -q get "$APP.@$type[$i]" >/dev/null 2>&1; do
+		count=$((count + 1))
+		i=$((i + 1))
+	done
+	echo "$count"
+}
+
+has_enabled_proxy() {
+	i=0
+	while uci -q get "$APP.@proxy[$i]" >/dev/null 2>&1; do
+		if [ "$(uci -q get "$APP.@proxy[$i].enabled" 2>/dev/null || echo 1)" != "0" ]; then
+			uri="$(uci -q get "$APP.@proxy[$i].uri" 2>/dev/null || true)"
+			[ -n "$uri" ] && return 0
+		fi
+		i=$((i + 1))
+	done
+	return 1
+}
+
+has_enabled_route() {
+	for type in domain_rule ip_rule lan_device; do
+		i=0
+		while uci -q get "$APP.@$type[$i]" >/dev/null 2>&1; do
+			if [ "$(uci -q get "$APP.@$type[$i].enabled" 2>/dev/null || echo 1)" != "0" ]; then
+				case "$type" in
+					domain_rule) [ -n "$(uci -q get "$APP.@$type[$i].domain" 2>/dev/null || true)" ] && return 0 ;;
+					ip_rule) [ -n "$(uci -q get "$APP.@$type[$i].cidr" 2>/dev/null || true)" ] && return 0 ;;
+					lan_device)
+						mode="$(uci -q get "$APP.@$type[$i].mode" 2>/dev/null || echo rules_only)"
+						[ "$mode" != "rules_only" ] && [ -n "$(uci -q get "$APP.@$type[$i].source_ip" 2>/dev/null || true)" ] && return 0
+						;;
+				esac
+			fi
+			i=$((i + 1))
+		done
+	done
+	return 1
+}
+
+refresh_detected() {
+	i=0
+	while uci -q get "$APP.@proxy[$i]" >/dev/null 2>&1; do
+		uri="$(uci -q get "$APP.@proxy[$i].uri" 2>/dev/null || true)"
+		if [ -n "$uri" ]; then
+			if parsed="$(ucode_run "$LIB/parse_vless.uc" "$uri" 2>/tmp/podkopchik-parse.err)"; then
+				network="$(printf '%s\n' "$parsed" | jsonfilter -q -e '@.network' 2>/dev/null || true)"
+				security="$(printf '%s\n' "$parsed" | jsonfilter -q -e '@.security' 2>/dev/null || true)"
+				uci -q set "$APP.@proxy[$i].detected_transport=$network"
+				uci -q set "$APP.@proxy[$i].detected_security=$security"
+			else
+				err="$(cat /tmp/podkopchik-parse.err 2>/dev/null || echo invalid)"
+				uci -q set "$APP.@proxy[$i].detected_transport=invalid"
+				uci -q set "$APP.@proxy[$i].detected_security=invalid"
+				uci -q set "$APP.@proxy[$i].last_error=$err"
+			fi
+		fi
+		i=$((i + 1))
+	done
+	rm -f /tmp/podkopchik-parse.err
+	uci -q commit "$APP"
+}
+
+generate_to() {
+	out="$1"
+	mkdir -p "$TMP_DIR" "$CONFIG_DIR"
+	refresh_detected
+	ucode_run "$LIB/generate.uc" > "$out"
+}
+
+validate_file() {
+	file="$1"
+	bin="$(xray_bin)"
+	[ -n "$bin" ] || die "xray binary not found"
+	"$bin" run -test -config "$file"
+}
+
+replace_active_config() {
+	tmp="$1"
+	[ -s "$tmp" ] || die "generated config is empty"
+	if [ -s "$CONFIG" ]; then
+		cp "$CONFIG" "$CONFIG.prev" || die "could not preserve previous active config"
+	fi
+	mv "$tmp" "$CONFIG" || die "could not replace active config"
+	chmod 600 "$CONFIG" || die "could not secure active config"
+}
+
+restore_previous_config() {
+	if [ -s "$CONFIG.prev" ]; then
+		cp "$CONFIG.prev" "$CONFIG" || die "could not restore previous active config"
+		chmod 600 "$CONFIG" || die "could not secure restored config"
+	else
+		rm -f "$CONFIG"
+	fi
+}
+
+cmd_status() {
+	echo "Podkopchik $VERSION"
+	echo "Service enabled: $(uci -q get "$APP.main.enabled" 2>/dev/null || echo 1)"
+	echo "Routing applied: $(uci -q get "$APP.main.routing_enabled" 2>/dev/null || echo 0)"
+	echo "Configured proxies: $(section_count proxy)"
+	echo "Proxy groups: $(section_count proxy_group)"
+	echo "Domain rules: $(section_count domain_rule)"
+	echo "IP rules: $(section_count ip_rule)"
+	echo "LAN device rules: $(section_count lan_device)"
+	if pidof xray >/dev/null 2>&1 || pidof xray-core >/dev/null 2>&1; then
+		echo "Xray: running"
+	else
+		echo "Xray: not running"
+	fi
+	if [ -s "$STATE" ]; then
+		echo
+		echo "State:"
+		cat "$STATE"
+	else
+		echo
+		echo "State: not recorded yet"
+	fi
+}
+
+cmd_generate() {
+	out="${1:-$CONFIG_DIR/config.json.generated}"
+	generate_to "$out"
+	echo "$out"
+}
+
+cmd_validate() {
+	tmp="$TMP_DIR/config.validate.json"
+	generate_to "$tmp"
+	validate_file "$tmp"
+	echo "Xray config is valid."
+}
+
+cmd_validate_active() {
+	[ -s "$CONFIG" ] || die "active config does not exist"
+	validate_file "$CONFIG"
+}
+
+cmd_apply() {
+	mkdir -p "$TMP_DIR" "$CONFIG_DIR"
+
+	if ! has_enabled_proxy || ! has_enabled_route; then
+		uci -q set "$APP.main.routing_enabled=0"
+		uci -q commit "$APP"
+		"$LIB/cleanup_rules.sh" >/dev/null 2>&1 || true
+		die "configure at least one enabled VLESS proxy and one routing rule before applying interception"
+	fi
+
+	tmp="$TMP_DIR/config.apply.json"
+	generate_to "$tmp"
+	validate_file "$tmp"
+
+	uci -q set "$APP.main.enabled=1"
+	uci -q commit "$APP"
+
+	replace_active_config "$tmp"
+
+	if ! "$LIB/apply_rules.sh" apply; then
+		restore_previous_config
+		uci -q set "$APP.main.routing_enabled=0"
+		uci -q commit "$APP"
+		log "routing rule application failed; restored previous Xray config and left routing inactive"
+		die "failed to apply routing rules; previous config restored"
+	fi
+
+	uci -q set "$APP.main.routing_enabled=1"
+	uci -q commit "$APP"
+	/etc/init.d/podkopchik restart
+	log "routing configuration applied"
+	echo "Podkopchik routing applied."
+}
+
+cmd_apply_health_state() {
+	state_file="${1:-}"
+	[ -s "$state_file" ] || die "health state file does not exist"
+	[ "$(uci -q get "$APP.main.routing_enabled" 2>/dev/null || echo 0)" = "1" ] || die "routing is inactive"
+	[ -s "$CONFIG" ] || die "active config does not exist"
+
+	lock_dir="$TMP_DIR/config-apply.lock"
+	tmp="$TMP_DIR/config.failover.$$.json"
+	cleanup_failover_apply() {
+		rm -f "$tmp"
+		rmdir "$lock_dir" >/dev/null 2>&1 || true
+	}
+
+	if ! mkdir "$lock_dir" >/dev/null 2>&1; then
+		die "another config apply is in progress"
+	fi
+
+	trap 'cleanup_failover_apply' HUP INT TERM EXIT
+
+	if ! ucode_run "$LIB/generate.uc" config-state "$state_file" > "$tmp"; then
+		log "failover config generation failed; keeping previous active config"
+		die "could not generate failover config"
+	fi
+
+	if ! validate_file "$tmp"; then
+		log "failover config validation failed; keeping previous active config"
+		die "failover config validation failed"
+	fi
+
+	replace_active_config "$tmp"
+	tmp=""
+	trap - HUP INT TERM EXIT
+	rmdir "$lock_dir" >/dev/null 2>&1 || true
+	log "failover config replaced after group active proxy change"
+}
+
+cmd_cleanup() {
+	"$LIB/cleanup_rules.sh"
+	uci -q set "$APP.main.routing_enabled=0"
+	uci -q commit "$APP"
+	/etc/init.d/podkopchik restart
+	echo "Podkopchik routing disabled and owned nftables rules removed."
+}
+
+latest_release_json() {
+	repo="$(uci -q get "$APP.main.github_repo" 2>/dev/null || echo rezalik/Podkopchik)"
+	curl -fsSL --connect-timeout 10 "https://api.github.com/repos/$repo/releases/latest"
+}
+
+asset_url() {
+	json_file="$1"
+	suffix="$2"
+	prefix="$(uci -q get "$APP.main.release_asset_prefix" 2>/dev/null || echo luci-app-podkopchik)"
+	i=0
+	while name="$(jsonfilter -q -i "$json_file" -e "@.assets[$i].name" 2>/dev/null)"; do
+		[ -n "$name" ] || break
+		url="$(jsonfilter -q -i "$json_file" -e "@.assets[$i].browser_download_url" 2>/dev/null || true)"
+		case "$name" in
+			"$prefix"*"$suffix") echo "$url"; return 0 ;;
+		esac
+		i=$((i + 1))
+	done
+	return 1
+}
+
+cmd_update_check() {
+	mkdir -p "$TMP_DIR"
+	json_file="$TMP_DIR/latest-release.json"
+	latest_release_json > "$json_file" || die "could not fetch GitHub Releases"
+	current="$VERSION"
+	latest="$(jsonfilter -q -i "$json_file" -e '@.tag_name' 2>/dev/null || echo unknown)"
+	changelog="$(jsonfilter -q -i "$json_file" -e '@.body' 2>/dev/null || true)"
+	archive="$(asset_url "$json_file" ".tar.gz" || true)"
+	sum="$(asset_url "$json_file" ".sha256" || true)"
+
+	echo "current=$current"
+	echo "latest=$latest"
+	echo "archive_url=$archive"
+	echo "sha256_url=$sum"
+	echo
+	echo "changelog:"
+	[ -n "$changelog" ] && echo "$changelog" || echo "No changelog provided."
+}
+
+cmd_update_install() {
+	mkdir -p "$TMP_DIR"
+	update_config_backup=""
+	restore_update_config() {
+		[ -n "$update_config_backup" ] && [ -f "$update_config_backup" ] && cp "$update_config_backup" "$UCI_CONFIG" >/dev/null 2>&1 || true
+	}
+
+	if [ -f "$UCI_CONFIG" ]; then
+		update_config_backup="$TMP_DIR/update.podkopchik.config.$$"
+		cp "$UCI_CONFIG" "$update_config_backup" || die "could not backup user config before update"
+		trap 'restore_update_config' HUP INT TERM EXIT
+	fi
+
+	json_file="$TMP_DIR/latest-release.json"
+	latest_release_json > "$json_file" || die "could not fetch GitHub Releases"
+	archive="$(asset_url "$json_file" ".tar.gz" || true)"
+	sum_url="$(asset_url "$json_file" ".sha256" || true)"
+	[ -n "$archive" ] || die "release archive asset not found"
+	[ -n "$sum_url" ] || die "sha256 asset not found; refusing unverified update"
+
+	archive_file="$TMP_DIR/update.tar.gz"
+	sum_file="$TMP_DIR/update.sha256"
+	extract_dir="$TMP_DIR/update"
+
+	curl -fL "$archive" -o "$archive_file" || die "could not download release archive"
+	curl -fL "$sum_url" -o "$sum_file" || die "could not download sha256 file"
+	expected="$(awk '{print $1; exit}' "$sum_file")"
+	actual="$(sha256sum "$archive_file" | awk '{print $1}')"
+	[ "$expected" = "$actual" ] || die "sha256 verification failed"
+
+	rm -rf "$extract_dir"
+	mkdir -p "$extract_dir"
+	tar -xzf "$archive_file" -C "$extract_dir" || die "could not extract update"
+
+	tar -czf "$ROLLBACK" \
+		/etc/init.d/podkopchik \
+		/usr/bin/podkopchikctl \
+		/usr/libexec/podkopchik \
+		/usr/share/luci/menu.d/luci-app-podkopchik.json \
+		/usr/share/rpcd/acl.d/luci-app-podkopchik.json \
+		/www/luci-static/resources/view/podkopchik 2>/dev/null || true
+
+	installer="$(find "$extract_dir" -name install.sh -type f | head -n 1)"
+	[ -n "$installer" ] || die "install.sh not found in update archive"
+	if ! sh "$installer"; then
+		die "update installer failed; user config restored"
+	fi
+	if [ -n "$update_config_backup" ]; then
+		cp "$update_config_backup" "$UCI_CONFIG" || die "could not restore user config after update"
+		rm -f "$update_config_backup"
+		trap - HUP INT TERM EXIT
+		/etc/init.d/podkopchik restart >/dev/null 2>&1 || true
+	fi
+	echo "Update installed. Rollback is available with: podkopchikctl rollback"
+}
+
+cmd_rollback() {
+	[ -s "$ROLLBACK" ] || die "rollback archive not found"
+	tar -xzf "$ROLLBACK" -C /
+	/etc/init.d/rpcd restart >/dev/null 2>&1 || true
+	/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
+	/etc/init.d/podkopchik restart >/dev/null 2>&1 || true
+	echo "Podkopchik rollback restored."
+}
+
+case "${1:-}" in
+	status) cmd_status ;;
+	generate) shift; cmd_generate "$@" ;;
+	validate) cmd_validate ;;
+	validate-active) cmd_validate_active ;;
+	apply) cmd_apply ;;
+	apply-health-state) shift; cmd_apply_health_state "$@" ;;
+	restart) /etc/init.d/podkopchik restart ;;
+	cleanup) cmd_cleanup ;;
+	health) "$LIB/health_check.sh" once ;;
+	update-check) cmd_update_check ;;
+	update-install) cmd_update_install ;;
+	rollback) cmd_rollback ;;
+	*)
+		echo "Usage: podkopchikctl {status|generate|validate|apply|restart|cleanup|health|update-check|update-install|rollback}" >&2
+		exit 2
+		;;
+esac

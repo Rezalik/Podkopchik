@@ -1,0 +1,102 @@
+'use strict';
+'require view';
+'require form';
+'require fs';
+'require ui';
+
+function runCommand(args) {
+	return fs.exec_direct('/usr/bin/podkopchikctl', args).catch(function(err) {
+		return err && err.message ? err.message : String(err);
+	});
+}
+
+return view.extend({
+	render: function() {
+		var m = new form.Map('podkopchik', _('Podkopchik'));
+		var s = m.section(form.NamedSection, 'main', 'settings', _('Advanced'));
+		s.anonymous = true;
+
+		var o = s.option(form.Flag, 'enabled', _('Service enabled'));
+		o.default = '1';
+
+		o = s.option(form.DummyValue, 'routing_enabled', _('Routing applied'));
+
+		o = s.option(form.Value, 'transparent_port', _('Transparent port'));
+			o.datatype = 'port';
+			o.default = '12345';
+
+			o = s.option(form.Value, 'lan_ifname', _('LAN interface'));
+			o.default = 'br-lan';
+
+		o = s.option(form.Value, 'probe_url', _('Probe URL'));
+		o.datatype = 'url';
+		o.default = 'https://www.gstatic.com/generate_204';
+
+		o = s.option(form.ListValue, 'probe_method', _('Probe method'));
+		o.value('HEAD', 'HEAD');
+		o.default = 'HEAD';
+
+		o = s.option(form.Value, 'interval', _('Health interval'));
+		o.datatype = 'uinteger';
+		o.default = '30';
+
+		o = s.option(form.Value, 'timeout', _('Health timeout'));
+		o.datatype = 'uinteger';
+		o.default = '5';
+
+		o = s.option(form.Value, 'fail_threshold', _('Fail threshold'));
+		o.datatype = 'uinteger';
+		o.default = '3';
+
+		o = s.option(form.Value, 'restore_threshold', _('Restore threshold'));
+		o.datatype = 'uinteger';
+		o.default = '2';
+
+		o = s.option(form.Value, 'github_repo', _('GitHub repository'));
+		o.default = 'rezalik/Podkopchik';
+
+		o = s.option(form.Value, 'release_asset_prefix', _('Release asset prefix'));
+		o.default = 'luci-app-podkopchik';
+
+		o = s.option(form.ListValue, 'loglevel', _('Xray log level'));
+		o.value('debug', 'debug');
+		o.value('info', 'info');
+		o.value('warning', 'warning');
+		o.value('error', 'error');
+		o.value('none', 'none');
+		o.default = 'warning';
+
+		var buttons = E('div', { 'class': 'cbi-section' }, [
+			E('button', {
+				'class': 'btn cbi-button',
+				'click': ui.createHandlerFn(this, function() {
+					return runCommand([ 'validate' ]).then(function(res) {
+						ui.addNotification(null, E('pre', { 'style': 'white-space: pre-wrap' }, res));
+					});
+				})
+			}, _('Validate')),
+			' ',
+			E('button', {
+				'class': 'btn cbi-button',
+				'click': ui.createHandlerFn(this, function() {
+					return runCommand([ 'restart' ]).then(function(res) {
+						ui.addNotification(null, E('pre', { 'style': 'white-space: pre-wrap' }, res || _('Restarted.')));
+					});
+				})
+			}, _('Restart')),
+			' ',
+			E('button', {
+				'class': 'btn cbi-button cbi-button-remove',
+				'click': ui.createHandlerFn(this, function() {
+					return runCommand([ 'cleanup' ]).then(function(res) {
+						ui.addNotification(null, E('pre', { 'style': 'white-space: pre-wrap' }, res));
+					});
+				})
+			}, _('Disable Routing'))
+		]);
+
+		return m.render().then(function(node) {
+			return E([ node, buttons ]);
+		});
+	}
+});
