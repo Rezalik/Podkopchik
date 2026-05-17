@@ -3,15 +3,32 @@
 		"description": "Grant access to Podkopchik configuration and commands",
 		"read": {
 			"uci": [ "podkopchik" ],
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/usr/bin/podkopchikctl status": [ "exec" ],
+				"/usr/bin/podkopchikctl update-check": [ "exec" ],
+				"/sbin/logread -e podkopchik": [ "exec" ],
+				"/usr/sbin/logread -e podkopchik": [ "exec" ],
+				"/tmp/podkopchik/state.json": [ "read" ],
+				"/etc/podkopchik/config.json": [ "read" ]
+			},
 			"ubus": {
-				"file": [ "exec", "read" ],
 				"uci": [ "get" ]
 			}
 		},
 		"write": {
 			"uci": [ "podkopchik" ],
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/usr/bin/podkopchikctl apply": [ "exec" ],
+				"/usr/bin/podkopchikctl health": [ "exec" ],
+				"/usr/bin/podkopchikctl restart": [ "exec" ],
+				"/usr/bin/podkopchikctl cleanup": [ "exec" ],
+				"/usr/bin/podkopchikctl validate": [ "exec" ],
+				"/usr/bin/podkopchikctl update-install": [ "exec" ],
+				"/usr/bin/podkopchikctl rollback": [ "exec" ]
+			},
 			"ubus": {
-				"file": [ "exec" ],
 				"uci": [ "add", "apply", "delete", "set" ]
 			}
 		}

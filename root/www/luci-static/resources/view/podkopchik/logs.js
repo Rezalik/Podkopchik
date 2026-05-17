@@ -5,7 +5,7 @@
 
 function readLogs() {
 	return fs.exec_direct('/sbin/logread', [ '-e', 'podkopchik' ]).catch(function() {
-		return fs.exec_direct('/usr/bin/logread', [ '-e', 'podkopchik' ]).catch(function(err) {
+		return fs.exec_direct('/usr/sbin/logread', [ '-e', 'podkopchik' ]).catch(function(err) {
 			return err && err.message ? err.message : String(err);
 		});
 	});
