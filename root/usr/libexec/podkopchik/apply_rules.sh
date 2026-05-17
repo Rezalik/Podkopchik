@@ -56,6 +56,6 @@ if [ "$dns_redirect" = "1" ]; then
 	run_rule nft add rule inet podkopchik prerouting iifname "$lan" tcp dport 53 redirect to :53
 fi
 
-run_rule nft add rule inet podkopchik prerouting iifname "$lan" meta l4proto tcp meta mark set "$PODKOPCHIK_MARK" tproxy ip to 127.0.0.1:"$port" accept
+run_rule nft add rule inet podkopchik prerouting iifname "$lan" meta l4proto tcp meta mark set "$PODKOPCHIK_MARK" tproxy to :"$port" accept
 
 exit 0
