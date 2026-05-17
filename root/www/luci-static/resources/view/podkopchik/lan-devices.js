@@ -30,7 +30,10 @@ return view.extend({
 		s.sortable = true;
 
 		var o = s.option(form.Flag, 'enabled', _('Enabled'));
+		o.enabled = '1';
+		o.disabled = '0';
 		o.default = '1';
+		o.rmempty = false;
 
 		o = s.option(form.Value, 'name', _('Name'));
 		o.rmempty = false;
