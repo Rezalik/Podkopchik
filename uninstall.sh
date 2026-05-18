@@ -30,6 +30,7 @@ rm -f /usr/bin/podkopchikctl
 rm -rf /usr/libexec/podkopchik
 rm -f /usr/share/luci/menu.d/luci-app-podkopchik.json
 rm -f /usr/share/rpcd/acl.d/luci-app-podkopchik.json
+rm -f /usr/lib/lua/luci/i18n/podkopchik.ru.lmo
 rm -rf /www/luci-static/resources/view/podkopchik
 rm -f /etc/podkopchik/config.json /etc/podkopchik/config.json.prev /etc/podkopchik/config.generated.json
 rm -rf /tmp/podkopchik

@@ -71,6 +71,14 @@ install_tree() {
 	chmod 600 "$CONFIG"
 }
 
+install_i18n() {
+	if [ -f "$BASE_DIR/i18n/ru/podkopchik.ru.lmo" ]; then
+		mkdir -p /usr/lib/lua/luci/i18n
+		cp "$BASE_DIR/i18n/ru/podkopchik.ru.lmo" /usr/lib/lua/luci/i18n/podkopchik.ru.lmo || die "could not install Russian translation catalog"
+		chmod 644 /usr/lib/lua/luci/i18n/podkopchik.ru.lmo
+	fi
+}
+
 restart_luci() {
 	/etc/init.d/rpcd restart >/dev/null 2>&1 || true
 	/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
@@ -85,6 +93,7 @@ need_root
 check_openwrt
 install_deps
 install_tree
+install_i18n
 restart_luci
 start_service
 
