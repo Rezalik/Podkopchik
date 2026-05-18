@@ -27,7 +27,7 @@
 		}
 	},
 	"admin/services/podkopchik/groups": {
-		"title": "Proxy Groups",
+		"title": "Advanced proxy groups",
 		"order": 30,
 		"action": {
 			"type": "view",

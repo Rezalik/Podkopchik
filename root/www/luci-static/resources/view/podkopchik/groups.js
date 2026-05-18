@@ -20,7 +20,7 @@ return view.extend({
 
 	render: function() {
 		var m = new form.Map('podkopchik', _('Podkopchik'));
-		var s = m.section(form.GridSection, 'proxy_group', _('Proxy Groups'));
+		var s = m.section(form.GridSection, 'proxy_group', _('Advanced proxy groups'));
 		s.anonymous = true;
 		s.addremove = true;
 		s.sortable = true;

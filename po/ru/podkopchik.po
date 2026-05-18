@@ -495,3 +495,90 @@ msgstr "Xray запущен"
 
 msgid "Xray is stopped; this is normal while routing is disabled"
 msgstr "Xray остановлен; это нормально, пока маршрутизация отключена"
+
+msgid "%d backup proxies are available"
+msgstr "Доступно резервных прокси: %d"
+
+msgid "%d backup proxies selected"
+msgstr "Выбрано резервных прокси: %d"
+
+msgid "1 backup proxy selected"
+msgstr "Выбран 1 резервный прокси"
+
+msgid "Add your VLESS links, choose one main proxy, and optionally choose up to three backup proxies."
+msgstr "Добавьте VLESS-ссылки, выберите один основной прокси и при желании до трех резервных прокси."
+
+msgid "Advanced proxy groups"
+msgstr "Расширенные группы прокси"
+
+msgid "All backup proxies are unavailable"
+msgstr "Все резервные прокси недоступны"
+
+msgid "Backup priority"
+msgstr "Приоритет резерва"
+
+msgid "Backup proxies"
+msgstr "Резервные прокси"
+
+msgid "Backup proxies need attention."
+msgstr "Резервные прокси требуют внимания."
+
+msgid "Backup proxy"
+msgstr "Резервный прокси"
+
+msgid "Backups are optional, but they help keep routing working if the main proxy is unavailable."
+msgstr "Резервные прокси необязательны, но помогают сохранить маршрутизацию, если основной прокси недоступен."
+
+msgid "Detected security"
+msgstr "Определенная защита"
+
+msgid "Detected transport"
+msgstr "Определенный транспорт"
+
+msgid "Disabled / not used"
+msgstr "Отключен / не используется"
+
+msgid "Domain routing rules"
+msgstr "Доменные правила маршрутизации"
+
+msgid "Main proxy"
+msgstr "Основной прокси"
+
+msgid "Main proxy has not been checked yet"
+msgstr "Основной прокси еще не проверялся"
+
+msgid "Main proxy is available"
+msgstr "Основной прокси доступен"
+
+msgid "Main proxy is unavailable"
+msgstr "Основной прокси недоступен"
+
+msgid "No backup proxies selected."
+msgstr "Резервные прокси не выбраны."
+
+msgid "No domain routing rules configured."
+msgstr "Доменные правила маршрутизации не настроены."
+
+msgid "Only one main proxy can be selected."
+msgstr "Можно выбрать только один основной прокси."
+
+msgid "Open Proxy Links and leave exactly one VLESS link marked as the main proxy."
+msgstr "Откройте «Прокси-ссылки» и оставьте ровно одну VLESS-ссылку как основной прокси."
+
+msgid "Open Proxy Links and mark one VLESS link as the main proxy."
+msgstr "Откройте «Прокси-ссылки» и отметьте одну VLESS-ссылку как основной прокси."
+
+msgid "Role"
+msgstr "Роль"
+
+msgid "Run a proxy availability check after adding or changing proxy links."
+msgstr "Запустите проверку доступности прокси после добавления или изменения прокси-ссылок."
+
+msgid "Select one main proxy."
+msgstr "Выберите один основной прокси."
+
+msgid "Some backup proxies have not been checked yet."
+msgstr "Некоторые резервные прокси еще не проверялись."
+
+msgid "Traffic for domains without rules goes direct by default."
+msgstr "Трафик для доменов без правил по умолчанию идет напрямую."

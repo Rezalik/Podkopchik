@@ -2,6 +2,7 @@
 'require view';
 'require fs';
 'require ui';
+'require uci';
 
 var COLORS = {
 	ok: {
@@ -39,6 +40,35 @@ function asNumber(value) {
 
 function asFlag(value) {
 	return value == '1' || value == 'true' || value == 'yes';
+}
+
+function proxyRole(p) {
+	if (p.role == 'main' || p.role == 'backup' || p.role == 'disabled')
+		return p.role;
+
+	return p.enabled == '0' ? 'disabled' : 'backup';
+}
+
+function simpleProxyModel() {
+	var model = {
+		main: [],
+		backups: []
+	};
+
+	(uci.sections('podkopchik', 'proxy') || []).forEach(function(p) {
+		var tag = p.tag || p.name || '';
+		var role = proxyRole(p);
+
+		if (!tag || role == 'disabled')
+			return;
+
+		if (role == 'main')
+			model.main.push(tag);
+		else if (role == 'backup')
+			model.backups.push(tag);
+	});
+
+	return model;
 }
 
 function parseStatus(text) {
@@ -177,6 +207,18 @@ function proxyHealth(data) {
 	return out;
 }
 
+function healthByTag(health, tag) {
+	for (var i = 0; i < health.items.length; i++)
+		if (health.items[i].tag == tag)
+			return health.items[i];
+
+	return {
+		tag: tag,
+		status: 'unknown',
+		lastError: ''
+	};
+}
+
 function summaryState(data, health) {
 	var hasProxy = data.configuredProxies > 0;
 	var hasRules = data.domainRules + data.ipRules + data.lanDeviceRules > 0;
@@ -245,27 +287,54 @@ function statusLabel(status) {
 	return _('Proxy has not been checked yet');
 }
 
-function proxySummary(data, health) {
-	if (data.configuredProxies == 0)
-		return card(_('Proxy links'), 'error', _('No proxy links configured.'), _('Add a proxy link before applying traffic routing.'));
-
-	if (health.down == 1)
-		return card(_('Proxy links'), 'error', _('1 proxy is unavailable'), _('Open technical details to see the raw proxy error.'));
-
-	if (health.down > 1)
-		return card(_('Proxy links'), 'error', _('%d proxies are unavailable').format(health.down), _('Open technical details to see the raw proxy errors.'));
-
-	if (health.unknown > 0)
-		return card(_('Proxy links'), 'warning', _('Proxy has not been checked yet'), countText(data.configuredProxies, _('1 proxy link configured'), _('%d proxy links configured')));
-
-	if (health.up == 1)
-		return card(_('Proxy links'), 'ok', _('Proxy is available'), _('1 proxy link configured'));
-
-	return card(_('Proxy links'), 'ok', _('%d proxies are available').format(health.up), countText(data.configuredProxies, _('1 proxy link configured'), _('%d proxy links configured')));
-}
-
 function countText(n, one, many) {
 	return n == 1 ? one : many.format(n);
+}
+
+function mainProxySummary(model, health) {
+	if (model.main.length == 0)
+		return card(_('Main proxy'), 'error', _('Select one main proxy.'), _('Open Proxy Links and mark one VLESS link as the main proxy.'));
+
+	if (model.main.length > 1)
+		return card(_('Main proxy'), 'error', _('Only one main proxy can be selected.'), _('Open Proxy Links and leave exactly one VLESS link marked as the main proxy.'));
+
+	var item = healthByTag(health, model.main[0]);
+
+	if (item.status == 'up')
+		return card(_('Main proxy'), 'ok', _('Main proxy is available'), model.main[0]);
+
+	if (item.status == 'down')
+		return card(_('Main proxy'), 'error', _('Main proxy is unavailable'), _('Open technical details to see the raw proxy error.'));
+
+	return card(_('Main proxy'), 'warning', _('Main proxy has not been checked yet'), _('Run a proxy availability check after adding or changing proxy links.'));
+}
+
+function backupProxySummary(model, health) {
+	var up = 0;
+	var down = 0;
+	var unknown = 0;
+
+	for (var i = 0; i < model.backups.length; i++) {
+		var item = healthByTag(health, model.backups[i]);
+
+		if (item.status == 'up')
+			up++;
+		else if (item.status == 'down')
+			down++;
+		else
+			unknown++;
+	}
+
+	if (model.backups.length == 0)
+		return card(_('Backup proxies'), 'inactive', _('No backup proxies selected.'), _('Backups are optional, but they help keep routing working if the main proxy is unavailable.'));
+
+	if (up > 0)
+		return card(_('Backup proxies'), 'ok', countText(model.backups.length, _('1 backup proxy selected'), _('%d backup proxies selected')), _('%d backup proxies are available').format(up));
+
+	if (down == model.backups.length)
+		return card(_('Backup proxies'), 'error', _('All backup proxies are unavailable'), _('Open technical details to see the raw proxy errors.'));
+
+	return card(_('Backup proxies'), 'warning', countText(model.backups.length, _('1 backup proxy selected'), _('%d backup proxies selected')), unknown > 0 ? _('Some backup proxies have not been checked yet.') : _('Backup proxies need attention.'));
 }
 
 function ruleDetails(data) {
@@ -323,6 +392,7 @@ function technicalDetails(data, health) {
 function renderCards(statusText) {
 	var data = parseStatus(statusText);
 	var health = proxyHealth(data);
+	var model = simpleProxyModel();
 	var summary = summaryState(data, health);
 	var hasRules = data.domainRules + data.ipRules + data.lanDeviceRules > 0;
 	var xrayTone = data.xray == 'running' ? 'ok' : (data.routingApplied ? 'error' : 'inactive');
@@ -350,10 +420,11 @@ function renderCards(statusText) {
 			card(_('Xray'), xrayTone,
 				data.xray == 'running' ? _('Xray is running') : (data.routingApplied ? _('Xray is not running although routing is enabled') : _('Xray is stopped; this is normal while routing is disabled')),
 				data.xray == 'running' ? _('Proxy traffic can be handled by Xray.') : ''),
-			proxySummary(data, health),
-			card(_('Proxy groups'), data.proxyGroups > 0 ? 'ok' : 'inactive',
-				data.proxyGroups > 0 ? countText(data.proxyGroups, _('1 proxy group configured'), _('%d proxy groups configured')) : _('No proxy groups configured.'),
-				data.proxyGroups > 0 ? _('Groups can switch between configured proxy links.') : _('Proxy groups are optional.')),
+			mainProxySummary(model, health),
+			backupProxySummary(model, health),
+			card(_('Domain routing rules'), data.domainRules > 0 ? 'ok' : 'inactive',
+				data.domainRules > 0 ? countText(data.domainRules, _('1 domain routing rule configured'), _('%d domain routing rules configured')) : _('No domain routing rules configured.'),
+				_('Traffic for domains without rules goes direct by default.')),
 			card(_('Routing rules'), hasRules ? 'ok' : 'error',
 				hasRules ? ruleDetails(data) : _('No routing rules configured.'),
 				hasRules ? _('Only matching traffic is routed through proxy.') : _('Add a domain, IP, or LAN device rule before applying traffic routing.'))
@@ -370,10 +441,14 @@ function renderCards(statusText) {
 
 return view.extend({
 	load: function() {
-		return runCommand([ 'status' ]);
+		return Promise.all([
+			runCommand([ 'status' ]),
+			uci.load('podkopchik')
+		]);
 	},
 
-	render: function(status) {
+	render: function(data) {
+		var status = data[0];
 		var content = E('div', renderCards(status));
 
 		function refresh() {
