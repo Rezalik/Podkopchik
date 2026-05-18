@@ -54,11 +54,20 @@ function findAutoGroup() {
 	var found = null;
 
 	(uci.sections('podkopchik', 'proxy_group') || []).forEach(function(g) {
-		if ((g.tag || '') == AUTO_GROUP_TAG)
+		if ((g.tag || '') == AUTO_GROUP_TAG && !found)
 			found = g['.name'];
 	});
 
 	return found;
+}
+
+function removeDuplicateAutoGroups(primary_sid) {
+	(uci.sections('podkopchik', 'proxy_group') || []).forEach(function(g) {
+		var sid = g['.name'];
+
+		if ((g.tag || '') == AUTO_GROUP_TAG && sid != primary_sid)
+			uci.remove('podkopchik', sid);
+	});
 }
 
 function ensureAutoGroup() {
@@ -85,6 +94,7 @@ function maintainAutoGroup() {
 	var state = roleState();
 	var sid = ensureAutoGroup();
 
+	removeDuplicateAutoGroups(sid);
 	setAutoGroupEnabled(sid, state.main.length == 1);
 
 	if (state.main.length == 1)
@@ -203,7 +213,9 @@ return view.extend({
 		o.rmempty = true;
 
 		return m.render().then(function(node) {
-			return E([ warningNode(), node ]);
+			var warning = warningNode();
+
+			return warning ? E([ warning, node ]) : node;
 		});
 	}
 });
