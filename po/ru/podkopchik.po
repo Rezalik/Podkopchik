@@ -291,3 +291,207 @@ msgstr "прокси"
 
 msgid "running"
 msgstr "запущен"
+
+msgid "%d IP routing rules configured"
+msgstr "Настроено IP-правил маршрутизации: %d"
+
+msgid "%d LAN device rules configured"
+msgstr "Настроено правил устройств LAN: %d"
+
+msgid "%d domain routing rules configured"
+msgstr "Настроено доменных правил маршрутизации: %d"
+
+msgid "%d proxies are available"
+msgstr "Доступно прокси: %d"
+
+msgid "%d proxies are unavailable"
+msgstr "Недоступно прокси: %d"
+
+msgid "%d proxy groups configured"
+msgstr "Настроено групп прокси: %d"
+
+msgid "%d proxy links configured"
+msgstr "Настроено прокси-ссылок: %d"
+
+msgid "1 IP routing rule configured"
+msgstr "Настроено 1 IP-правило маршрутизации"
+
+msgid "1 LAN device rule configured"
+msgstr "Настроено 1 правило устройства LAN"
+
+msgid "1 domain routing rule configured"
+msgstr "Настроено 1 доменное правило маршрутизации"
+
+msgid "1 proxy group configured"
+msgstr "Настроена 1 группа прокси"
+
+msgid "1 proxy is unavailable"
+msgstr "1 прокси недоступен"
+
+msgid "1 proxy link configured"
+msgstr "Настроена 1 прокси-ссылка"
+
+msgid "Add a domain, IP, or LAN device rule before applying traffic routing."
+msgstr "Добавьте доменное, IP-правило или правило устройства LAN перед применением маршрутизации трафика."
+
+msgid "Add a proxy link before applying traffic routing."
+msgstr "Добавьте прокси-ссылку перед применением маршрутизации трафика."
+
+msgid "Add at least one proxy link and one routing rule before applying traffic routing."
+msgstr "Добавьте хотя бы одну прокси-ссылку и одно правило маршрутизации перед применением маршрутизации трафика."
+
+msgid "Apply settings"
+msgstr "Применить настройки"
+
+msgid "Check proxy availability"
+msgstr "Проверить доступность прокси"
+
+msgid "Disable traffic routing"
+msgstr "Отключить маршрутизацию трафика"
+
+msgid "Enable the service before applying traffic routing."
+msgstr "Включите сервис перед применением маршрутизации трафика."
+
+msgid "Groups can switch between configured proxy links."
+msgstr "Группы могут переключаться между настроенными прокси-ссылками."
+
+msgid "Hide technical details"
+msgstr "Скрыть технические подробности"
+
+msgid "LAN traffic matching your rules is being redirected to Xray."
+msgstr "LAN-трафик, подходящий под ваши правила, перенаправляется в Xray."
+
+msgid "Last check"
+msgstr "Последняя проверка"
+
+msgid "Last check data is not readable."
+msgstr "Данные последней проверки невозможно прочитать."
+
+msgid "Last proxy check: %s"
+msgstr "Последняя проверка прокси: %s"
+
+msgid "No proxy groups configured."
+msgstr "Группы прокси не настроены."
+
+msgid "No proxy links configured."
+msgstr "Прокси-ссылки не настроены."
+
+msgid "No routing rules configured."
+msgstr "Правила маршрутизации не настроены."
+
+msgid "Only matching traffic is routed through proxy."
+msgstr "Через прокси направляется только трафик, подходящий под правила."
+
+msgid "Open technical details to see the raw proxy error."
+msgstr "Откройте технические подробности, чтобы увидеть исходную ошибку прокси."
+
+msgid "Open technical details to see the raw proxy errors."
+msgstr "Откройте технические подробности, чтобы увидеть исходные ошибки прокси."
+
+msgid "Overall status"
+msgstr "Общее состояние"
+
+msgid "Podkopchik is disabled"
+msgstr "Подкопчик отключен"
+
+msgid "Podkopchik is not configured"
+msgstr "Подкопчик не настроен"
+
+msgid "Podkopchik is working"
+msgstr "Подкопчик работает"
+
+msgid "Podkopchik needs attention"
+msgstr "Подкопчик требует внимания"
+
+msgid "Podkopchik service is disabled"
+msgstr "Сервис Подкопчика отключен"
+
+msgid "Podkopchik service is enabled"
+msgstr "Сервис Подкопчика включен"
+
+msgid "Proxy availability has not been checked yet."
+msgstr "Доступность прокси еще не проверялась."
+
+msgid "Proxy details"
+msgstr "Сведения о прокси"
+
+msgid "Proxy groups are optional."
+msgstr "Группы прокси необязательны."
+
+msgid "Proxy has not been checked yet"
+msgstr "Прокси еще не проверялся"
+
+msgid "Proxy is available"
+msgstr "Прокси доступен"
+
+msgid "Proxy is unavailable"
+msgstr "Прокси недоступен"
+
+msgid "Proxy links"
+msgstr "Прокси-ссылки"
+
+msgid "Proxy traffic can be handled by Xray."
+msgstr "Прокси-трафик может обрабатываться Xray."
+
+msgid "Raw state JSON"
+msgstr "Исходный JSON состояния"
+
+msgid "Raw status output"
+msgstr "Исходный вывод состояния"
+
+msgid "Restart service"
+msgstr "Перезапустить сервис"
+
+msgid "Routing rules"
+msgstr "Правила маршрутизации"
+
+msgid "Service"
+msgstr "Сервис"
+
+msgid "Settings are present, but traffic routing is not applied"
+msgstr "Настройки есть, но маршрутизация трафика не применена"
+
+msgid "Settings exist, but traffic routing is not applied."
+msgstr "Настройки есть, но маршрутизация трафика не применена."
+
+msgid "Show technical details"
+msgstr "Показать технические подробности"
+
+msgid "State data could not be parsed."
+msgstr "Не удалось разобрать данные состояния."
+
+msgid "Technical details"
+msgstr "Технические подробности"
+
+msgid "The background service can start when needed."
+msgstr "Фоновый сервис сможет запуститься при необходимости."
+
+msgid "The service is disabled and will not route traffic."
+msgstr "Сервис отключен и не будет маршрутизировать трафик."
+
+msgid "Traffic is not currently routed through proxy"
+msgstr "Сейчас трафик не направляется через прокси"
+
+msgid "Traffic is not currently routed through proxy."
+msgstr "Сейчас трафик не направляется через прокси."
+
+msgid "Traffic routing"
+msgstr "Маршрутизация трафика"
+
+msgid "Traffic routing is active"
+msgstr "Маршрутизация трафика активна"
+
+msgid "Traffic routing is active."
+msgstr "Маршрутизация трафика активна."
+
+msgid "Traffic routing is enabled, but one or more required parts are not working."
+msgstr "Маршрутизация трафика включена, но один или несколько необходимых компонентов не работают."
+
+msgid "Xray is not running although routing is enabled"
+msgstr "Xray не запущен, хотя маршрутизация включена"
+
+msgid "Xray is running"
+msgstr "Xray запущен"
+
+msgid "Xray is stopped; this is normal while routing is disabled"
+msgstr "Xray остановлен; это нормально, пока маршрутизация отключена"
