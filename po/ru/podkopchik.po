@@ -19,6 +19,9 @@ msgstr "Применить"
 msgid "Archive URL"
 msgstr "URL архива"
 
+msgid "Branch"
+msgstr "Ветка"
+
 msgid "Auto-return"
 msgstr "Автовозврат"
 
@@ -48,6 +51,9 @@ msgstr "Настроено прокси"
 
 msgid "Current version"
 msgstr "Текущая версия"
+
+msgid "Development update from branch; no release checksum available."
+msgstr "Обновление из ветки разработки; контрольная сумма релиза недоступна."
 
 msgid "DNS"
 msgstr "DNS"
@@ -130,6 +136,9 @@ msgstr "Ручное переопределение"
 msgid "Manual override is active for this group."
 msgstr "Для этой группы активно ручное переопределение."
 
+msgid "Main branch update is for development/testing. Stable releases are safer."
+msgstr "Обновление из ветки main предназначено для разработки и тестирования. Стабильные релизы безопаснее."
+
 msgid "Mode"
 msgstr "Режим"
 
@@ -187,6 +196,9 @@ msgstr "Обновить"
 msgid "Release asset prefix"
 msgstr "Префикс файла релиза"
 
+msgid "Repository"
+msgstr "Репозиторий"
+
 msgid "Restart"
 msgstr "Перезапустить"
 
@@ -243,6 +255,9 @@ msgstr "Транспорт"
 
 msgid "Updates"
 msgstr "Обновления"
+
+msgid "Update channel"
+msgstr "Канал обновлений"
 
 msgid "VLESS URI"
 msgstr "URI VLESS"

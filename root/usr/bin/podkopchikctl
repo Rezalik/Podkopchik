@@ -248,8 +248,30 @@ cmd_cleanup() {
 	echo "Podkopchik routing disabled and owned nftables rules removed."
 }
 
+update_repo() {
+	uci -q get "$APP.main.github_repo" 2>/dev/null || echo rezalik/Podkopchik
+}
+
+update_branch() {
+	uci -q get "$APP.main.github_branch" 2>/dev/null || echo main
+}
+
+update_channel() {
+	channel="$(uci -q get "$APP.main.update_channel" 2>/dev/null || echo main)"
+	case "$channel" in
+		main|stable) echo "$channel" ;;
+		*) echo main ;;
+	esac
+}
+
+branch_archive_url() {
+	repo="$(update_repo)"
+	branch="$(update_branch)"
+	echo "https://github.com/$repo/archive/refs/heads/$branch.tar.gz"
+}
+
 latest_release_json() {
-	repo="$(uci -q get "$APP.main.github_repo" 2>/dev/null || echo rezalik/Podkopchik)"
+	repo="${1:-$(update_repo)}"
 	curl -fsSL --connect-timeout 10 "https://api.github.com/repos/$repo/releases/latest"
 }
 
@@ -271,15 +293,34 @@ asset_url() {
 
 cmd_update_check() {
 	mkdir -p "$TMP_DIR"
-	json_file="$TMP_DIR/latest-release.json"
-	latest_release_json > "$json_file" || die "could not fetch GitHub Releases"
 	current="$VERSION"
+	channel="$(update_channel)"
+	repo="$(update_repo)"
+
+	if [ "$channel" = "main" ]; then
+		branch="$(update_branch)"
+		archive="$(branch_archive_url)"
+
+		echo "current=$current"
+		echo "channel=main"
+		echo "repo=$repo"
+		echo "branch=$branch"
+		echo "archive_url=$archive"
+		echo "latest=$branch"
+		echo "warning=Development update from branch; no release checksum available."
+		return 0
+	fi
+
+	json_file="$TMP_DIR/latest-release.json"
+	latest_release_json "$repo" > "$json_file" || die "could not fetch GitHub Releases"
 	latest="$(jsonfilter -q -i "$json_file" -e '@.tag_name' 2>/dev/null || echo unknown)"
 	changelog="$(jsonfilter -q -i "$json_file" -e '@.body' 2>/dev/null || true)"
 	archive="$(asset_url "$json_file" ".tar.gz" || true)"
 	sum="$(asset_url "$json_file" ".sha256" || true)"
 
 	echo "current=$current"
+	echo "channel=stable"
+	echo "repo=$repo"
 	echo "latest=$latest"
 	echo "archive_url=$archive"
 	echo "sha256_url=$sum"
@@ -292,31 +333,43 @@ cmd_update_install() {
 	mkdir -p "$TMP_DIR"
 	update_config_backup=""
 	restore_update_config() {
-		[ -n "$update_config_backup" ] && [ -f "$update_config_backup" ] && cp "$update_config_backup" "$UCI_CONFIG" >/dev/null 2>&1 || true
+		[ -n "$update_config_backup" ] && [ -f "$update_config_backup" ] && cp -p "$update_config_backup" "$UCI_CONFIG" >/dev/null 2>&1 || true
+	}
+	restart_update_services() {
+		/etc/init.d/rpcd restart >/dev/null 2>&1 || true
+		/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
+		/etc/init.d/podkopchik restart >/dev/null 2>&1 || true
 	}
 
 	if [ -f "$UCI_CONFIG" ]; then
 		update_config_backup="$TMP_DIR/update.podkopchik.config.$$"
-		cp "$UCI_CONFIG" "$update_config_backup" || die "could not backup user config before update"
+		cp -p "$UCI_CONFIG" "$update_config_backup" || die "could not backup user config before update"
 		trap 'restore_update_config' HUP INT TERM EXIT
 	fi
 
-	json_file="$TMP_DIR/latest-release.json"
-	latest_release_json > "$json_file" || die "could not fetch GitHub Releases"
-	archive="$(asset_url "$json_file" ".tar.gz" || true)"
-	sum_url="$(asset_url "$json_file" ".sha256" || true)"
-	[ -n "$archive" ] || die "release archive asset not found"
-	[ -n "$sum_url" ] || die "sha256 asset not found; refusing unverified update"
-
+	channel="$(update_channel)"
+	repo="$(update_repo)"
 	archive_file="$TMP_DIR/update.tar.gz"
 	sum_file="$TMP_DIR/update.sha256"
 	extract_dir="$TMP_DIR/update"
 
-	curl -fL "$archive" -o "$archive_file" || die "could not download release archive"
-	curl -fL "$sum_url" -o "$sum_file" || die "could not download sha256 file"
-	expected="$(awk '{print $1; exit}' "$sum_file")"
-	actual="$(sha256sum "$archive_file" | awk '{print $1}')"
-	[ "$expected" = "$actual" ] || die "sha256 verification failed"
+	if [ "$channel" = "main" ]; then
+		archive="$(branch_archive_url)"
+		curl -fL "$archive" -o "$archive_file" || die "could not download main branch archive"
+	else
+		json_file="$TMP_DIR/latest-release.json"
+		latest_release_json "$repo" > "$json_file" || die "could not fetch GitHub Releases"
+		archive="$(asset_url "$json_file" ".tar.gz" || true)"
+		sum_url="$(asset_url "$json_file" ".sha256" || true)"
+		[ -n "$archive" ] || die "release archive asset not found"
+		[ -n "$sum_url" ] || die "sha256 asset not found; refusing unverified update"
+
+		curl -fL "$archive" -o "$archive_file" || die "could not download release archive"
+		curl -fL "$sum_url" -o "$sum_file" || die "could not download sha256 file"
+		expected="$(awk '{print $1; exit}' "$sum_file")"
+		actual="$(sha256sum "$archive_file" | awk '{print $1}')"
+		[ "$expected" = "$actual" ] || die "sha256 verification failed"
+	fi
 
 	rm -rf "$extract_dir"
 	mkdir -p "$extract_dir"
@@ -336,10 +389,13 @@ cmd_update_install() {
 		die "update installer failed; user config restored"
 	fi
 	if [ -n "$update_config_backup" ]; then
-		cp "$update_config_backup" "$UCI_CONFIG" || die "could not restore user config after update"
+		cp -p "$update_config_backup" "$UCI_CONFIG" || die "could not restore user config after update"
 		rm -f "$update_config_backup"
 		trap - HUP INT TERM EXIT
-		/etc/init.d/podkopchik restart >/dev/null 2>&1 || true
+	fi
+	restart_update_services
+	if [ "$channel" = "main" ]; then
+		echo "Development update from branch installed. No release checksum was available."
 	fi
 	echo "Update installed. Rollback is available with: podkopchikctl rollback"
 }

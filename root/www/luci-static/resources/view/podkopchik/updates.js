@@ -12,10 +12,18 @@ function runCommand(args) {
 function localizeInfo(text) {
 	var labels = {
 		'current': _('Current version'),
+		'channel': _('Update channel'),
+		'repo': _('Repository'),
+		'branch': _('Branch'),
 		'latest': _('Latest version'),
 		'archive_url': _('Archive URL'),
 		'sha256_url': _('SHA256 URL'),
-		'changelog': _('Changelog')
+		'changelog': _('Changelog'),
+		'warning': _('Warning')
+	};
+
+	var values = {
+		'Development update from branch; no release checksum available.': _('Development update from branch; no release checksum available.')
 	};
 
 	return (text || '').split('\n').map(function(line) {
@@ -23,8 +31,12 @@ function localizeInfo(text) {
 		if (!m || !labels[m[1]])
 			return line == 'No changelog provided.' ? _('No changelog provided.') : line;
 
-		return labels[m[1]] + m[2] + m[3];
+		return labels[m[1]] + m[2] + (values[m[3]] || m[3]);
 	}).join('\n');
+}
+
+function isMainChannel(text) {
+	return /(^|\n)channel=main(\n|$)/.test(text || '');
 }
 
 return view.extend({
@@ -34,10 +46,16 @@ return view.extend({
 
 	render: function(info) {
 		var output = E('pre', { 'class': 'cbi-section', 'style': 'white-space: pre-wrap' }, localizeInfo(info));
+		var warning = E('div', {
+			'class': 'alert-message warning',
+			'style': isMainChannel(info) ? '' : 'display: none'
+		}, _('Main branch update is for development/testing. Stable releases are safer.'));
 
 		function action(args) {
 			return runCommand(args).then(function(res) {
 				output.textContent = args[0] == 'update-check' ? localizeInfo(res) : res;
+				if (args[0] == 'update-check')
+					warning.style.display = isMainChannel(res) ? '' : 'none';
 				ui.addNotification(null, E('pre', { 'style': 'white-space: pre-wrap' }, res));
 			});
 		}
@@ -60,6 +78,7 @@ return view.extend({
 					'click': ui.createHandlerFn(this, action, [ 'rollback' ])
 				}, _('Rollback'))
 			]),
+			warning,
 			output
 		]);
 	}
