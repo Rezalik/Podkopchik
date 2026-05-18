@@ -26,16 +26,8 @@
 			"path": "podkopchik/proxies"
 		}
 	},
-	"admin/services/podkopchik/groups": {
-		"title": "Advanced proxy groups",
-		"order": 30,
-		"action": {
-			"type": "view",
-			"path": "podkopchik/groups"
-		}
-	},
 	"admin/services/podkopchik/domain-rules": {
-		"title": "Domain Rules",
+		"title": "Domain Groups",
 		"order": 40,
 		"action": {
 			"type": "view",

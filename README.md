@@ -10,9 +10,10 @@ Runtime state: `/tmp/podkopchik/state.json`
 
 ## What v1.0 Includes
 
-- LuCI JavaScript pages for status, proxy links, groups, rules, DNS, updates, logs, and advanced settings.
+- LuCI JavaScript pages for status, proxy links, domain groups, IP rules, LAN devices, DNS, updates, logs, and advanced settings.
 - UCI-backed VLESS TCP/REALITY and VLESS XHTTP/REALITY proxy definitions.
-- Strict-primary and fixed-proxy groups with manual override, backup selection, and auto-return.
+- Simple proxy roles: one main proxy, optional backup proxies, and disabled links.
+- Internal strict-primary proxy group support for automatic main/backup failover.
 - Domain, destination CIDR, and LAN source IP routing rules.
 - Xray transparent inbound with sniffing enabled and FakeDNS disabled.
 - dnsmasq-based DNS with optional LAN UDP/TCP 53 redirect.
@@ -64,16 +65,18 @@ Do not expect these links to connect.
 
 ## Configure
 
-1. Add one or more proxy links under **Proxy Links**. Use safe tags such as `proxy_main` and `proxy_backup`.
-2. Create a proxy group under **Proxy Groups**:
-   - `strict_primary` uses the primary while healthy, then moves to the first healthy backup after thresholded failures.
-   - `fixed_proxy` stays on the selected proxy unless `failure_action` is `switch_to_backup`.
-3. Add routing rules:
-   - **Domain Rules** for domains such as `chatgpt.com`.
+1. Add proxy links under **Proxy Links**. Choose exactly one **Main proxy** and, optionally, up to three **Backup proxy** links.
+2. Create **Domain Groups** such as YouTube, ChatGPT, or Instagram. Put one domain per line and choose a target:
+   - **Automatic proxy group** uses the main proxy and backups.
+   - **Specific proxy** sends the group to one selected proxy.
+   - **Direct** bypasses the proxy.
+3. Add optional routing rules:
    - **IP Rules** for CIDRs such as `8.8.8.8/32`.
    - **LAN Devices** for source IP behavior: `full_proxy`, `rules_only`, or `direct`.
 4. Optional: enable LAN DNS redirect on the **DNS** page.
 5. Click **Apply** on the **Status** page.
+
+Traffic for domains and IPs not listed in a rule goes direct by default.
 
 Podkopchik validates the generated Xray config before replacing `/etc/podkopchik/config.json`. If validation fails, the previous working config remains in place.
 

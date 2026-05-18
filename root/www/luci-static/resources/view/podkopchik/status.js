@@ -71,6 +71,24 @@ function simpleProxyModel() {
 	return model;
 }
 
+function domainGroupModel() {
+	var groups = {};
+	var ruleCount = 0;
+
+	(uci.sections('podkopchik', 'domain_rule') || []).forEach(function(rule) {
+		if ((rule.enabled || '1') == '0')
+			return;
+
+		ruleCount++;
+		groups[rule.group_tag || ('legacy:' + rule['.name'])] = true;
+	});
+
+	return {
+		groupCount: Object.keys(groups).length,
+		ruleCount: ruleCount
+	};
+}
+
 function parseStatus(text) {
 	var data = {
 		raw: text || '',
@@ -393,6 +411,7 @@ function renderCards(statusText) {
 	var data = parseStatus(statusText);
 	var health = proxyHealth(data);
 	var model = simpleProxyModel();
+	var domainGroups = domainGroupModel();
 	var summary = summaryState(data, health);
 	var hasRules = data.domainRules + data.ipRules + data.lanDeviceRules > 0;
 	var xrayTone = data.xray == 'running' ? 'ok' : (data.routingApplied ? 'error' : 'inactive');
@@ -422,8 +441,8 @@ function renderCards(statusText) {
 				data.xray == 'running' ? _('Proxy traffic can be handled by Xray.') : ''),
 			mainProxySummary(model, health),
 			backupProxySummary(model, health),
-			card(_('Domain routing rules'), data.domainRules > 0 ? 'ok' : 'inactive',
-				data.domainRules > 0 ? countText(data.domainRules, _('1 domain routing rule configured'), _('%d domain routing rules configured')) : _('No domain routing rules configured.'),
+			card(_('Domain groups'), domainGroups.groupCount > 0 ? 'ok' : 'inactive',
+				domainGroups.groupCount > 0 ? countText(domainGroups.groupCount, _('1 domain group configured'), _('%d domain groups configured')) : _('No domain groups configured.'),
 				_('Traffic for domains without rules goes direct by default.')),
 			card(_('Routing rules'), hasRules ? 'ok' : 'error',
 				hasRules ? ruleDetails(data) : _('No routing rules configured.'),
