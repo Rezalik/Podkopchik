@@ -7,12 +7,12 @@ function addTargets(o) {
 	(uci.sections('podkopchik', 'proxy_group') || []).forEach(function(g) {
 		var tag = g.tag || g.name;
 		if (tag)
-			o.value(tag, (g.name || tag) + ' (group)');
+			o.value(tag, (g.name || tag) + ' (' + _('group') + ')');
 	});
 	(uci.sections('podkopchik', 'proxy') || []).forEach(function(p) {
 		var tag = p.tag || p.name;
 		if (tag)
-			o.value(tag, (p.name || tag) + ' (proxy)');
+			o.value(tag, (p.name || tag) + ' (' + _('proxy') + ')');
 	});
 }
 

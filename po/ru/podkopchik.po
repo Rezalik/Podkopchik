@@ -1,0 +1,278 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-podkopchik 1.0.0\n"
+"PO-Revision-Date: 2026-05-18 00:00+0300\n"
+"Last-Translator: Podkopchik maintainers\n"
+"Language-Team: Russian\n"
+"Language: ru\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=4; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<12 || n%100>14) ? 1 : n%10==0 || (n%10>=5 && n%10<=9) || (n%100>=11 && n%100<=14) ? 2 : 3);\n"
+
+msgid "Advanced"
+msgstr "Дополнительно"
+
+msgid "Apply"
+msgstr "Применить"
+
+msgid "Archive URL"
+msgstr "URL архива"
+
+msgid "Auto-return"
+msgstr "Автовозврат"
+
+msgid "Backup 1"
+msgstr "Резервный прокси 1"
+
+msgid "Backup 2"
+msgstr "Резервный прокси 2"
+
+msgid "Backup 3"
+msgstr "Резервный прокси 3"
+
+msgid "Backup Proxies"
+msgstr "Резервные прокси"
+
+msgid "Changelog"
+msgstr "Журнал изменений"
+
+msgid "Check"
+msgstr "Проверить"
+
+msgid "Cleanup"
+msgstr "Очистить"
+
+msgid "Configured proxies"
+msgstr "Настроено прокси"
+
+msgid "Current version"
+msgstr "Текущая версия"
+
+msgid "DNS"
+msgstr "DNS"
+
+msgid "Destination CIDR"
+msgstr "CIDR назначения"
+
+msgid "Direct"
+msgstr "Напрямую"
+
+msgid "Disable Routing"
+msgstr "Отключить маршрутизацию"
+
+msgid "DoH, DoT, and Apple Private Relay can bypass normal DNS redirect."
+msgstr "DoH, DoT и Apple Private Relay могут обходить обычное перенаправление DNS."
+
+msgid "Domain"
+msgstr "Домен"
+
+msgid "Domain Rules"
+msgstr "Доменные правила"
+
+msgid "Domain rules"
+msgstr "Доменные правила"
+
+msgid "Enabled"
+msgstr "Включено"
+
+msgid "Fail threshold"
+msgstr "Порог сбоев"
+
+msgid "Failure action"
+msgstr "Действие при сбое"
+
+msgid "Fixed proxy"
+msgstr "Фиксированный прокси"
+
+msgid "Full proxy"
+msgstr "Полный прокси"
+
+msgid "GitHub repository"
+msgstr "Репозиторий GitHub"
+
+msgid "Health check"
+msgstr "Проверка доступности"
+
+msgid "Health interval"
+msgstr "Интервал проверки доступности"
+
+msgid "Health timeout"
+msgstr "Тайм-аут проверки доступности"
+
+msgid "IP Rules"
+msgstr "IP-правила"
+
+msgid "IP rules"
+msgstr "IP-правила"
+
+msgid "Install Update"
+msgstr "Установить обновление"
+
+msgid "LAN Devices"
+msgstr "Устройства LAN"
+
+msgid "LAN device rules"
+msgstr "Правила устройств LAN"
+
+msgid "LAN interface"
+msgstr "Интерфейс LAN"
+
+msgid "Latest version"
+msgstr "Последняя версия"
+
+msgid "Logs"
+msgstr "Журнал"
+
+msgid "Manual override"
+msgstr "Ручное переопределение"
+
+msgid "Manual override is active for this group."
+msgstr "Для этой группы активно ручное переопределение."
+
+msgid "Mode"
+msgstr "Режим"
+
+msgid "Name"
+msgstr "Имя"
+
+msgid "No Podkopchik log entries."
+msgstr "Нет записей журнала Подкопчика."
+
+msgid "No changelog provided."
+msgstr "Журнал изменений не предоставлен."
+
+msgid "None"
+msgstr "Нет"
+
+msgid "Note"
+msgstr "Примечание"
+
+msgid "Override warning"
+msgstr "Предупреждение о переопределении"
+
+msgid "Podkopchik"
+msgstr "Подкопчик"
+
+msgid "Podkopchik Logs"
+msgstr "Журнал Подкопчика"
+
+msgid "Podkopchik Updates"
+msgstr "Обновления Подкопчика"
+
+msgid "Primary proxy"
+msgstr "Основной прокси"
+
+msgid "Probe URL"
+msgstr "URL проверки"
+
+msgid "Probe method"
+msgstr "Метод проверки"
+
+msgid "Proxy Groups"
+msgstr "Группы прокси"
+
+msgid "Proxy Links"
+msgstr "Прокси-ссылки"
+
+msgid "Proxy groups"
+msgstr "Группы прокси"
+
+msgid "Redirect LAN DNS to router"
+msgstr "Перенаправлять DNS LAN на роутер"
+
+msgid "Refresh"
+msgstr "Обновить"
+
+msgid "Release asset prefix"
+msgstr "Префикс файла релиза"
+
+msgid "Restart"
+msgstr "Перезапустить"
+
+msgid "Restarted."
+msgstr "Перезапущено."
+
+msgid "Restore threshold"
+msgstr "Порог восстановления"
+
+msgid "Rollback"
+msgstr "Откатить"
+
+msgid "Routing applied"
+msgstr "Маршрутизация применена"
+
+msgid "Rules only"
+msgstr "Только правила"
+
+msgid "SHA256 URL"
+msgstr "URL SHA256"
+
+msgid "Security"
+msgstr "Безопасность"
+
+msgid "Service enabled"
+msgstr "Сервис включен"
+
+msgid "Source IP"
+msgstr "IP источника"
+
+msgid "State"
+msgstr "Состояние"
+
+msgid "Status"
+msgstr "Состояние"
+
+msgid "Strict primary"
+msgstr "Строгий основной"
+
+msgid "Switch to backup"
+msgstr "Переключиться на резерв"
+
+msgid "Tag"
+msgstr "Тег"
+
+msgid "Target"
+msgstr "Цель"
+
+msgid "Transparent port"
+msgstr "Порт прозрачного прокси"
+
+msgid "Transport"
+msgstr "Транспорт"
+
+msgid "Updates"
+msgstr "Обновления"
+
+msgid "VLESS URI"
+msgstr "URI VLESS"
+
+msgid "Validate"
+msgstr "Проверить конфиг"
+
+msgid "Warn only"
+msgstr "Только предупреждать"
+
+msgid "Warning"
+msgstr "Предупреждение"
+
+msgid "Xray"
+msgstr "Xray"
+
+msgid "Xray log level"
+msgstr "Уровень журнала Xray"
+
+msgid "group"
+msgstr "группа"
+
+msgid "not recorded yet"
+msgstr "пока не записано"
+
+msgid "not running"
+msgstr "не запущен"
+
+msgid "proxy"
+msgstr "прокси"
+
+msgid "running"
+msgstr "запущен"
