@@ -474,7 +474,10 @@ return view.extend({
 	render: function(data) {
 		var state = data[1] || {};
 		var items = collectProxyItems(state);
-		var list = E('div', { 'id': 'podkopchik-proxy-list' }, items.map(function(item) {
+		var list = E('div', {
+			'id': 'podkopchik-proxy-list',
+			'data-renderer': 'compact-proxy-cards'
+		}, items.map(function(item) {
 			return renderCard(item, false);
 		}));
 		var warnings = E('div', {
