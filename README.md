@@ -13,7 +13,7 @@ Runtime state: `/tmp/podkopchik/state.json`
 - LuCI JavaScript pages for status, proxy links, domain groups, IP rules, LAN devices, DNS, updates, logs, and advanced settings.
 - UCI-backed VLESS TCP/REALITY and VLESS XHTTP/REALITY proxy definitions.
 - Simple proxy roles: one main proxy, optional backup proxies, and disabled links.
-- Internal strict-primary proxy group support for automatic main/backup failover.
+- Internal automatic failover support for the selected main proxy and backups.
 - Domain, destination CIDR, and LAN source IP routing rules.
 - Xray transparent inbound with sniffing enabled and FakeDNS disabled.
 - dnsmasq-based DNS with optional LAN UDP/TCP 53 redirect.
@@ -67,7 +67,7 @@ Do not expect these links to connect.
 
 1. Add proxy links under **Proxy Links**. Choose exactly one **Main proxy** and, optionally, up to three **Backup proxy** links.
 2. Create **Domain Groups** such as YouTube, ChatGPT, or Instagram. Put one domain per line and choose a target:
-   - **Automatic proxy group** uses the main proxy and backups.
+   - **Automatic: main + backups** uses the main proxy and backups.
    - **Specific proxy** sends the group to one selected proxy.
    - **Direct** bypasses the proxy.
 3. Add optional routing rules:

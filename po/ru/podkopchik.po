@@ -645,3 +645,75 @@ msgstr "Ошибка проверки"
 
 msgid "YouTube"
 msgstr "YouTube"
+
+msgid "Add VLESS links, choose one main proxy and backups. Podkopchik will use the main proxy and switch to an available backup if needed."
+msgstr "Добавьте VLESS-ссылки, выберите один основной прокси и резервные. Подкопчик будет использовать основной прокси, а при сбое переключится на доступный резервный."
+
+msgid "Add proxy link"
+msgstr "Добавить прокси-ссылку"
+
+msgid "Automatic: main + backups"
+msgstr "Автоматически: основной + резервные"
+
+msgid "Available"
+msgstr "Доступен"
+
+msgid "Backup #%d"
+msgstr "Резерв №%d"
+
+msgid "Backup priorities must be unique."
+msgstr "Приоритеты резервных прокси не должны повторяться."
+
+msgid "Create groups of domains and choose whether each group uses automatic main/backup routing, a specific proxy, or direct connection. Traffic for domains not listed here goes direct by default."
+msgstr "Создавайте группы доменов и выбирайте, будет ли каждая группа использовать автоматическую маршрутизацию через основной и резервные прокси, конкретный прокси или прямое подключение. Трафик для доменов, которых нет в списке, по умолчанию идет напрямую."
+
+msgid "Current backend supports up to 3 active backup proxies. Disable extra backups or keep them unused."
+msgstr "Текущий backend поддерживает до 3 активных резервных прокси. Отключите лишние резервные прокси или оставьте их неиспользуемыми."
+
+msgid "Delete"
+msgstr "Удалить"
+
+msgid "Detected connection: %s"
+msgstr "Определенное подключение: %s"
+
+msgid "Disabled"
+msgstr "Не используется"
+
+msgid "Duplicate proxy tag: %s"
+msgstr "Повторяющийся тег прокси: %s"
+
+msgid "Edit"
+msgstr "Изменить"
+
+msgid "No tag"
+msgstr "Нет тега"
+
+msgid "Not checked yet"
+msgstr "Ещё не проверялся"
+
+msgid "Proxy link"
+msgstr "Прокси-ссылка"
+
+msgid "Proxy name is required."
+msgstr "Укажите имя прокси."
+
+msgid "Proxy tag can contain only letters, numbers, and underscores, and must not start with a number."
+msgstr "Тег прокси может содержать только буквы, цифры и подчёркивания и не должен начинаться с цифры."
+
+msgid "Proxy tag is required."
+msgstr "Укажите тег прокси."
+
+msgid "Simple mode supports up to 10 proxy links. Disable or delete unused links."
+msgstr "Простой режим поддерживает до 10 прокси-ссылок. Отключите или удалите неиспользуемые ссылки."
+
+msgid "Unavailable"
+msgstr "Недоступен"
+
+msgid "VLESS URI is required."
+msgstr "Укажите VLESS URI."
+
+msgid "VLESS URI must start with vless://."
+msgstr "VLESS URI должен начинаться с vless://."
+
+msgid "VLESS link saved"
+msgstr "VLESS-ссылка сохранена"

@@ -172,7 +172,7 @@ function renderDomainGroup(group) {
 			updateProxySelectVisibility(ev.currentTarget.closest('.podkopchik-domain-group'));
 		}
 	}, [
-		selectOption('auto', _('Automatic proxy group'), group.targetMode == 'auto'),
+		selectOption('auto', _('Automatic: main + backups'), group.targetMode == 'auto'),
 		selectOption('proxy', _('Specific proxy'), group.targetMode == 'proxy'),
 		selectOption('direct', _('Direct'), group.targetMode == 'direct')
 	]);
@@ -332,7 +332,7 @@ return view.extend({
 
 		return E([
 			E('h2', _('Domain Groups')),
-			E('div', { 'class': 'cbi-map-descr' }, _('Create groups of domains and choose whether each group uses the automatic proxy group, a specific proxy, or direct connection. Traffic for domains not listed here goes direct by default.')),
+			E('div', { 'class': 'cbi-map-descr' }, _('Create groups of domains and choose whether each group uses automatic main/backup routing, a specific proxy, or direct connection. Traffic for domains not listed here goes direct by default.')),
 			container,
 			E('div', { 'class': 'cbi-section' }, [
 				E('button', {
