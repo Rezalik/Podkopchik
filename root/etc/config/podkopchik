@@ -1,7 +1,7 @@
 config settings 'main'
 	option enabled '1'
 	option routing_enabled '0'
-	option version '1.0.0'
+	option version '0.1.0-beta'
 	option transparent_port '12345'
 	option lan_ifname 'br-lan'
 	option dns_redirect '0'

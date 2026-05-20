@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-podkopchik
-PKG_VERSION:=1.0.0
+PKG_VERSION:=0.1.0-beta
 PKG_RELEASE:=1
 PKG_LICENSE:=MIT
 PKG_MAINTAINER:=Podkopchik maintainers

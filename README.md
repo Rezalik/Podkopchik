@@ -8,7 +8,9 @@ UCI config: `/etc/config/podkopchik`
 Generated Xray config: `/etc/podkopchik/config.json`  
 Runtime state: `/tmp/podkopchik/state.json`
 
-## What v1.0 Includes
+Release: `0.1.0-beta`
+
+## What 0.1.0-beta Includes
 
 - LuCI JavaScript pages for status, proxy links, domain groups, IP rules, LAN devices, DNS, updates, logs, and advanced settings.
 - UCI-backed VLESS TCP/REALITY and VLESS XHTTP/REALITY proxy definitions.
@@ -21,7 +23,7 @@ Runtime state: `/tmp/podkopchik/state.json`
 - Config validation before apply, preserving the previous working Xray config on failure.
 - GitHub update checks with a development `main` branch channel and a future verified stable release channel.
 
-v1.0 does not include subscription URLs, geoip/geosite databases, traffic statistics, QR import/export, FakeDNS by default, Xray core auto-updates, Docker, or router-side Python/Node.js runtimes.
+This beta does not include subscription URLs, geoip/geosite databases, traffic statistics, QR import/export, FakeDNS by default, Xray core auto-updates, Docker, or router-side Python/Node.js runtimes.
 
 ## Install On OpenWrt 24.10
 
@@ -116,7 +118,7 @@ podkopchikctl update-install
 
 The default update channel is `main`, which downloads the configured GitHub branch archive directly for development and VM testing. This mode does not require a GitHub Release or `.sha256` file.
 
-For future stable v1.0 releases, set `podkopchik.main.update_channel=stable`. Stable mode uses GitHub Releases, requires a matching `.tar.gz` release asset and `.sha256` asset, verifies the archive, preserves `/etc/config/podkopchik`, restarts needed services, and stores a local rollback archive.
+For future stable releases, set `podkopchik.main.update_channel=stable`. Stable mode uses GitHub Releases, requires a matching `.tar.gz` release asset and `.sha256` asset, verifies the archive, preserves `/etc/config/podkopchik`, restarts needed services, and stores a local rollback archive.
 
 Rollback:
 
@@ -124,7 +126,7 @@ Rollback:
 podkopchikctl rollback
 ```
 
-Podkopchik v1.0 never auto-updates Xray core.
+Podkopchik `0.1.0-beta` never auto-updates Xray core.
 
 ## Uninstall
 

@@ -1,3 +1,5 @@
 .DS_Store
 *.md
-.DS_Store
+!README.md
+!docs/
+!docs/*.md

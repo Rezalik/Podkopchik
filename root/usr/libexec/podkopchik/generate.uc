@@ -549,7 +549,7 @@ function build_state(results_path) {
 	}
 
 	return {
-		version: '1.0.0',
+		version: '0.1.0-beta',
 		updated_at: time(),
 		proxies: proxy_state,
 		groups: group_state,
