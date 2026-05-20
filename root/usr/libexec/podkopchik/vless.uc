@@ -52,8 +52,23 @@ function require_value(v, name) {
 	return '' + v;
 }
 
+function strip_hostport_tail(hostport) {
+	let end = length(hostport);
+
+	for (let sep in [ '/', '?', '#' ]) {
+		let pos = index(hostport, sep);
+
+		if (pos >= 0 && pos < end)
+			end = pos;
+	}
+
+	return substr(hostport, 0, end);
+}
+
 function parse_host_port(hostport) {
 	let host, port;
+
+	hostport = strip_hostport_tail(hostport);
 
 	if (substr(hostport, 0, 1) == '[') {
 		let end = index(hostport, ']');
@@ -95,7 +110,9 @@ function parse(uri) {
 	let fp = split(rest, '#', 2);
 	let name = length(fp) > 1 ? urldecode(fp[1]) : '';
 	let mp = split(fp[0], '?', 2);
-	let auth = mp[0];
+	let path_start = index(mp[0], '/');
+	let uri_path = path_start >= 0 ? substr(mp[0], path_start) : '';
+	let auth = path_start >= 0 ? substr(mp[0], 0, path_start) : mp[0];
 	let params = query_params(length(mp) > 1 ? mp[1] : '');
 	let at = index(auth, '@');
 
@@ -136,7 +153,7 @@ function parse(uri) {
 		shortId: short_id,
 		fingerprint: fingerprint,
 		flow: params.flow || null,
-		path: params.path ? urldecode(params.path) : null,
+		path: params.path ? urldecode(params.path) : (length(uri_path) ? urldecode(uri_path) : null),
 		headerHost: params.host ? urldecode(params.host) : null,
 		name: name
 	};
