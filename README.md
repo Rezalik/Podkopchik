@@ -20,6 +20,7 @@ Release: `0.1.0-beta`
 - Xray transparent inbound with sniffing enabled and FakeDNS disabled.
 - dnsmasq-based DNS with optional LAN UDP/TCP 53 redirect.
 - Podkopchik-owned nftables/firewall4 table and cleanup.
+- LAN device speed limit configuration and diagnostics only. Real `tc`/`ifb` enforcement is not active in this beta.
 - Config validation before apply, preserving the previous working Xray config on failure.
 - GitHub update checks with a development `main` branch channel and a future verified stable release channel.
 
@@ -74,7 +75,7 @@ Do not expect these links to connect.
    - **Direct** bypasses the proxy.
 3. Add optional routing rules:
    - **IP Rules** for CIDRs such as `8.8.8.8/32`.
-   - **LAN Devices** for source IP behavior: `full_proxy`, `rules_only`, or `direct`.
+   - **LAN Devices** for source IP behavior: `full_proxy`, `rules_only`, or `direct`. LAN device speed limit settings can be saved here, but enforcement is diagnostic-only in this beta.
 4. Optional: enable LAN DNS redirect on the **DNS** page.
 5. Click **Apply** on the **Status** page.
 
@@ -92,12 +93,33 @@ podkopchikctl apply
 podkopchikctl restart
 podkopchikctl cleanup
 podkopchikctl health
+podkopchikctl shaping-status
 podkopchikctl update-check
 podkopchikctl update-install
 podkopchikctl rollback
 ```
 
 `cleanup` disables routing interception and removes only the Podkopchik-owned nftables table and matching policy routing entries.
+
+## LAN Device Speed Limits
+
+Podkopchik can store per-LAN-device speed limit settings and show diagnostics for them. This is Phase 1 only: no `tc`, `ifb`, qdisc, nft mark, or interface shaping rules are created yet.
+
+Ordinary WAN-side QoS rules matching a LAN source IP can fail for proxied traffic. After TPROXY hands traffic to Xray, the WAN connection is usually from the router to the VLESS server, so the original LAN source IP is no longer visible on the WAN side.
+
+The intended enforcement design is LAN-side classification before or around TPROXY, where the original LAN source IP is still visible:
+
+- upload: classify client-to-router traffic at LAN ingress
+- download: classify router-to-client traffic at LAN egress
+- cleanup: remove only Podkopchik-owned shaping state
+
+Check configured speed limit diagnostics with:
+
+```sh
+podkopchikctl shaping-status
+```
+
+Real enforcement requires physical-router testing with proxied LAN traffic before it is enabled.
 
 ## Health And Failover
 

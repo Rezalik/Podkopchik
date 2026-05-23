@@ -717,3 +717,105 @@ msgstr "VLESS URI должен начинаться с vless://."
 
 msgid "VLESS link saved"
 msgstr "VLESS-ссылка сохранена"
+
+msgid "1 speed limit rule configured"
+msgstr "Настроено 1 правило ограничения скорости"
+
+msgid "%d speed limit rules configured"
+msgstr "Настроено правил ограничения скорости: %d"
+
+msgid "Always limited"
+msgstr "Ограничивать всегда"
+
+msgid "Configured devices: %s"
+msgstr "Настроенные устройства: %s"
+
+msgid "diagnostics only"
+msgstr "только диагностика"
+
+msgid "Download limit, Mbit/s"
+msgstr "Ограничение загрузки, Мбит/с"
+
+msgid "Enforcement is not active in this beta."
+msgstr "Применение ограничений в этой beta-версии не активно."
+
+msgid "LAN device"
+msgstr "Устройство LAN"
+
+msgid "Limit for N hours"
+msgstr "Ограничить на N часов"
+
+msgid "No speed limits configured"
+msgstr "Ограничения скорости не настроены"
+
+msgid "Schedule"
+msgstr "Расписание"
+
+msgid "Schedule days"
+msgstr "Дни расписания"
+
+msgid "Schedule end"
+msgstr "Окончание расписания"
+
+msgid "Schedule start"
+msgstr "Начало расписания"
+
+msgid "Speed limit"
+msgstr "Ограничение скорости"
+
+msgid "Speed limit diagnostics are available with podkopchikctl shaping-status."
+msgstr "Диагностика ограничений скорости доступна через podkopchikctl shaping-status."
+
+msgid "Speed limit enabled"
+msgstr "Ограничение скорости включено"
+
+msgid "Speed limit enforcement is diagnostic-only in this beta."
+msgstr "Применение ограничения скорости в этой beta-версии работает только в режиме диагностики."
+
+msgid "Speed limit enforcement is not active in this beta. Configuration and diagnostics are available for testing."
+msgstr "Ограничение скорости в этой beta-версии ещё не применяется. Сейчас доступны настройка и диагностика."
+
+msgid "Speed limit mode"
+msgstr "Режим ограничения скорости"
+
+msgid "Speed limit must be a positive number in Mbit/s."
+msgstr "Ограничение скорости должно быть положительным числом в Мбит/с."
+
+msgid "Speed limit status"
+msgstr "Состояние ограничения скорости"
+
+msgid "Speed limits"
+msgstr "Ограничения скорости"
+
+msgid "Speed limits configured, diagnostics only"
+msgstr "Ограничения скорости настроены, доступна только диагностика"
+
+msgid "Temporary limit duration"
+msgstr "Длительность временного ограничения"
+
+msgid "Temporary limit duration must be a positive number of hours."
+msgstr "Длительность временного ограничения должна быть положительным числом часов."
+
+msgid "Unlimited during time window"
+msgstr "Без ограничения в заданный период"
+
+msgid "Unlimited window end"
+msgstr "Окончание периода без ограничения"
+
+msgid "Unlimited window start"
+msgstr "Начало периода без ограничения"
+
+msgid "unknown IP"
+msgstr "неизвестный IP"
+
+msgid "Upload limit, Mbit/s"
+msgstr "Ограничение отдачи, Мбит/с"
+
+msgid "Use 1, 3, 6, or any custom number of hours."
+msgstr "Укажите 1, 3, 6 или любое другое число часов."
+
+msgid "Use day names such as: mon tue wed thu fri"
+msgstr "Используйте названия дней, например: mon tue wed thu fri"
+
+msgid "Use HH:MM time, for example 18:00."
+msgstr "Используйте время в формате ЧЧ:ММ, например 18:00."

@@ -248,6 +248,154 @@ cmd_cleanup() {
 	echo "Podkopchik routing disabled and owned nftables rules removed."
 }
 
+time_to_minutes() {
+	t="$1"
+	case "$t" in
+		[0-2][0-9]:[0-5][0-9]) ;;
+		*) return 1 ;;
+	esac
+
+	h="${t%:*}"
+	m="${t#*:}"
+	h="${h#0}"
+	m="${m#0}"
+	[ -n "$h" ] || h=0
+	[ -n "$m" ] || m=0
+	[ "$h" -le 23 ] || return 1
+	echo $((h * 60 + m))
+}
+
+time_in_window() {
+	now="$(time_to_minutes "$1")" || return 1
+	start="$(time_to_minutes "$2")" || return 1
+	end="$(time_to_minutes "$3")" || return 1
+
+	if [ "$start" -lt "$end" ]; then
+		[ "$now" -ge "$start" ] && [ "$now" -lt "$end" ]
+	elif [ "$start" -gt "$end" ]; then
+		[ "$now" -ge "$start" ] || [ "$now" -lt "$end" ]
+	else
+		return 1
+	fi
+}
+
+weekday_name() {
+	case "$(date +%u 2>/dev/null || echo 1)" in
+		1) echo mon ;;
+		2) echo tue ;;
+		3) echo wed ;;
+		4) echo thu ;;
+		5) echo fri ;;
+		6) echo sat ;;
+		7) echo sun ;;
+		*) echo mon ;;
+	esac
+}
+
+day_is_selected() {
+	days="$1"
+	day="$2"
+
+	[ -n "$days" ] || return 0
+
+	case " $days " in
+		*" $day "*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+speed_limit_decision() {
+	section="$1"
+	mode="$(uci -q get "$APP.$section.speed_limit_mode" 2>/dev/null || echo always)"
+	now_time="$(date +%H:%M 2>/dev/null || echo 00:00)"
+
+	case "$mode" in
+		always)
+			echo "active now"
+			;;
+		duration)
+			until="$(uci -q get "$APP.$section.speed_limit_until" 2>/dev/null || true)"
+			now_epoch="$(date +%s 2>/dev/null || echo 0)"
+			case "$until" in
+				''|*[!0-9]*)
+					echo "inactive now (temporary limit has no active timer)"
+					;;
+				*)
+					if [ "$until" -gt "$now_epoch" ]; then
+						echo "active now (temporary limit timer is active)"
+					else
+						echo "inactive now (temporary limit expired)"
+					fi
+					;;
+			esac
+			;;
+		schedule)
+			days="$(uci -q get "$APP.$section.schedule_days" 2>/dev/null || true)"
+			start="$(uci -q get "$APP.$section.schedule_start" 2>/dev/null || echo 18:00)"
+			end="$(uci -q get "$APP.$section.schedule_end" 2>/dev/null || echo 22:00)"
+			if day_is_selected "$days" "$(weekday_name)" && time_in_window "$now_time" "$start" "$end"; then
+				echo "active now"
+			else
+				echo "inactive now"
+			fi
+			;;
+		unlimited_window)
+			start="$(uci -q get "$APP.$section.unlimited_window_start" 2>/dev/null || echo 00:00)"
+			end="$(uci -q get "$APP.$section.unlimited_window_end" 2>/dev/null || echo 06:00)"
+			if time_in_window "$now_time" "$start" "$end"; then
+				echo "inactive now (unlimited window)"
+			else
+				echo "active now"
+			fi
+			;;
+		*)
+			echo "inactive now (unknown speed limit mode)"
+			;;
+	esac
+}
+
+cmd_shaping_status() {
+	lan="$(uci -q get "$APP.main.lan_ifname" 2>/dev/null || echo br-lan)"
+
+	echo "mode=diagnostic-only"
+	echo "lan_interface=$lan"
+	echo "enforcement=inactive"
+	echo "reason=tc/ifb enforcement not implemented in this phase"
+	echo "warning=WAN-side QoS by original LAN source IP may fail for proxied traffic because Xray creates router-to-proxy-server connections."
+
+	tmp="$TMP_DIR/shaping-status.$$"
+	mkdir -p "$TMP_DIR"
+	: > "$tmp"
+
+	i=0
+	count=0
+	while uci -q get "$APP.@lan_device[$i]" >/dev/null 2>&1; do
+		section="@lan_device[$i]"
+		enabled="$(uci -q get "$APP.$section.enabled" 2>/dev/null || echo 1)"
+		limit_enabled="$(uci -q get "$APP.$section.speed_limit_enabled" 2>/dev/null || echo 0)"
+
+		if [ "$enabled" != "0" ] && [ "$limit_enabled" = "1" ]; then
+			count=$((count + 1))
+			{
+				echo "device[$count].name=$(uci -q get "$APP.$section.name" 2>/dev/null || echo "LAN device $count")"
+				echo "device[$count].ip=$(uci -q get "$APP.$section.source_ip" 2>/dev/null || echo unknown)"
+				echo "device[$count].mode=$(uci -q get "$APP.$section.mode" 2>/dev/null || echo rules_only)"
+				echo "device[$count].target=$(uci -q get "$APP.$section.target" 2>/dev/null || echo auto_proxy_group)"
+				echo "device[$count].download_mbit=$(uci -q get "$APP.$section.download_mbit" 2>/dev/null || echo 0)"
+				echo "device[$count].upload_mbit=$(uci -q get "$APP.$section.upload_mbit" 2>/dev/null || echo 0)"
+				echo "device[$count].speed_limit_mode=$(uci -q get "$APP.$section.speed_limit_mode" 2>/dev/null || echo always)"
+				echo "device[$count].schedule_decision=$(speed_limit_decision "$section")"
+			} >> "$tmp"
+		fi
+
+		i=$((i + 1))
+	done
+
+	echo "configured_devices=$count"
+	cat "$tmp"
+	rm -f "$tmp"
+}
+
 update_repo() {
 	uci -q get "$APP.main.github_repo" 2>/dev/null || echo rezalik/Podkopchik
 }
@@ -419,11 +567,12 @@ case "${1:-}" in
 	restart) /etc/init.d/podkopchik restart ;;
 	cleanup) cmd_cleanup ;;
 	health) "$LIB/health_check.sh" once ;;
+	shaping-status) cmd_shaping_status ;;
 	update-check) cmd_update_check ;;
 	update-install) cmd_update_install ;;
 	rollback) cmd_rollback ;;
 	*)
-		echo "Usage: podkopchikctl {status|generate|validate|apply|restart|cleanup|health|update-check|update-install|rollback}" >&2
+		echo "Usage: podkopchikctl {status|generate|validate|apply|restart|cleanup|health|shaping-status|update-check|update-install|rollback}" >&2
 		exit 2
 		;;
 esac

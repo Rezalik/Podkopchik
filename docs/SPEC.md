@@ -259,12 +259,30 @@ Fields:
 * source_ip
 * mode
 * target group/proxy/direct
+* speed_limit_enabled
+* download_mbit
+* upload_mbit
+* speed_limit_mode
+* speed_limit_hours
+* speed_limit_until
+* schedule_days
+* schedule_start
+* schedule_end
+* unlimited_window_start
+* unlimited_window_end
 
 Required modes:
 
 * full_proxy
 * rules_only
 * direct
+
+Speed limit phase:
+
+* `0.1.0-beta` stores LAN device speed limit configuration and exposes diagnostics only.
+* Do not create `tc`, `ifb`, qdisc, nft mark, or interface shaping rules in this phase.
+* Ordinary WAN-side QoS by original LAN source IP is not a valid design for proxied traffic because Xray creates router-to-proxy-server connections after TPROXY.
+* Future enforcement must classify traffic on the LAN side before or around TPROXY, where the original LAN source IP is still visible.
 
 DNS
 

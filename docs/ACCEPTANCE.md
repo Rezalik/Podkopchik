@@ -31,6 +31,7 @@
 - Route domain groups to the automatic proxy group, a specific proxy, or direct.
 - Route destination IP/CIDR to proxy groups.
 - Route source LAN IP devices to proxy groups/direct.
+- Store LAN device speed limit settings and expose diagnostics without enabling real `tc`/`ifb` enforcement.
 - Use dnsmasq as default DNS.
 - Optionally redirect LAN UDP/TCP 53 DNS to router DNS.
 - Enable Xray sniffing.
@@ -58,6 +59,7 @@ podkopchikctl apply
 podkopchikctl restart
 podkopchikctl cleanup
 podkopchikctl health
+podkopchikctl shaping-status
 podkopchikctl update-check
 podkopchikctl update-install
 podkopchikctl rollback

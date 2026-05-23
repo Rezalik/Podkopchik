@@ -89,6 +89,25 @@ function domainGroupModel() {
 	};
 }
 
+function speedLimitModel() {
+	var items = [];
+
+	(uci.sections('podkopchik', 'lan_device') || []).forEach(function(device) {
+		if ((device.enabled || '1') == '0' || device.speed_limit_enabled != '1')
+			return;
+
+		items.push({
+			name: device.name || device.source_ip || _('LAN device'),
+			sourceIp: device.source_ip || _('unknown IP'),
+			download: device.download_mbit || '0',
+			upload: device.upload_mbit || '0',
+			mode: device.speed_limit_mode || 'always'
+		});
+	});
+
+	return items;
+}
+
 function parseStatus(text) {
 	var data = {
 		raw: text || '',
@@ -370,6 +389,23 @@ function ruleDetails(data) {
 	return parts.join('\n');
 }
 
+function speedLimitSummary(items) {
+	if (!items.length)
+		return card(_('Speed limits'), 'inactive', _('No speed limits configured'), _('Speed limit diagnostics are available with podkopchikctl shaping-status.'));
+
+	var names = items.map(function(item) {
+		return '%s (%s, %s)'.format(item.name, item.sourceIp, _('diagnostics only'));
+	}).join(', ');
+
+	return card(_('Speed limits'), 'warning',
+		countText(items.length, _('1 speed limit rule configured'), _('%d speed limit rules configured')),
+		[
+			_('Speed limits configured, diagnostics only'),
+			_('Enforcement is not active in this beta.'),
+			_('Configured devices: %s').format(names)
+		].join('\n'));
+}
+
 function lastCheckText(data) {
 	if (data.state && data.state.updated_at)
 		return _('Last proxy check: %s').format(new Date(data.state.updated_at * 1000).toLocaleString());
@@ -412,6 +448,7 @@ function renderCards(statusText) {
 	var health = proxyHealth(data);
 	var model = simpleProxyModel();
 	var domainGroups = domainGroupModel();
+	var speedLimits = speedLimitModel();
 	var summary = summaryState(data, health);
 	var hasRules = data.domainRules + data.ipRules + data.lanDeviceRules > 0;
 	var xrayTone = data.xray == 'running' ? 'ok' : (data.routingApplied ? 'error' : 'inactive');
@@ -444,10 +481,11 @@ function renderCards(statusText) {
 			card(_('Domain groups'), domainGroups.groupCount > 0 ? 'ok' : 'inactive',
 				domainGroups.groupCount > 0 ? countText(domainGroups.groupCount, _('1 domain group configured'), _('%d domain groups configured')) : _('No domain groups configured.'),
 				_('Traffic for domains without rules goes direct by default.')),
-			card(_('Routing rules'), hasRules ? 'ok' : 'error',
-				hasRules ? ruleDetails(data) : _('No routing rules configured.'),
-				hasRules ? _('Only matching traffic is routed through proxy.') : _('Add a domain, IP, or LAN device rule before applying traffic routing.'))
-		]),
+				card(_('Routing rules'), hasRules ? 'ok' : 'error',
+					hasRules ? ruleDetails(data) : _('No routing rules configured.'),
+					hasRules ? _('Only matching traffic is routed through proxy.') : _('Add a domain, IP, or LAN device rule before applying traffic routing.')),
+				speedLimitSummary(speedLimits)
+			]),
 		card(_('Last check'), data.state && data.state.updated_at ? (health.down > 0 ? 'error' : 'ok') : 'inactive',
 			lastCheckText(data),
 			data.state && data.state.events && data.state.events.length ? data.state.events.join('\n') : ''),
