@@ -47,6 +47,13 @@ sh install.sh
 
 The installer uses `opkg`, installs required packages where possible, preserves an existing `/etc/config/podkopchik`, enables and starts the `podkopchik` service, restarts `rpcd` and `uhttpd`, and does not reboot.
 
+`ip-full` is a required runtime dependency. BusyBox `/sbin/ip` is not sufficient because Podkopchik needs `iproute2` fwmark policy routing for TPROXY:
+
+```sh
+opkg install ip-full
+ip -V
+```
+
 After install, the service is enabled and its health loop can run. Traffic interception remains inactive until you configure at least one valid VLESS proxy, one routing rule, and click **Apply** in LuCI or run:
 
 ```sh
@@ -192,6 +199,7 @@ logread -e podkopchik
 ## Troubleshooting
 
 - If **Apply** fails, run `podkopchikctl validate` and inspect the error.
+- If Apply reports `Missing required dependency: ip-full`, install `ip-full`; BusyBox `ip` cannot add Podkopchik fwmark policy rules.
 - If routing is inactive after reboot, check `uci get podkopchik.main.routing_enabled` and `podkopchikctl status`.
 - If DNS redirect appears ineffective, check whether the client uses DoH, DoT, or Apple Private Relay.
 - If health status is `unknown`, install/verify `xray-core`, `curl`, and `ca-bundle`, then run `podkopchikctl health`.

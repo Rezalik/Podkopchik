@@ -31,13 +31,21 @@ check_openwrt() {
 }
 
 install_deps() {
-	pkgs="luci-base rpcd ucode ucode-mod-fs ucode-mod-uci ucode-mod-ubus curl ca-bundle jsonfilter nftables kmod-nft-tproxy firewall4 dnsmasq xray-core"
+	pkgs="luci-base rpcd ucode ucode-mod-fs ucode-mod-uci ucode-mod-ubus curl ca-bundle jsonfilter nftables kmod-nft-tproxy firewall4 ip-full dnsmasq xray-core"
 	opkg update || warn "opkg update failed; trying installed packages anyway"
 	for pkg in $pkgs; do
 		if ! opkg status "$pkg" >/dev/null 2>&1; then
-			opkg install "$pkg" || warn "could not install dependency $pkg"
+			if ! opkg install "$pkg"; then
+				[ "$pkg" = "ip-full" ] && die "Missing required dependency: ip-full. BusyBox ip is not sufficient for fwmark policy routing."
+				warn "could not install dependency $pkg"
+			fi
 		fi
 	done
+
+	case "$(ip -V 2>&1 || true)" in
+		*iproute2*) ;;
+		*) die "Missing required dependency: ip-full. BusyBox ip is not sufficient for fwmark policy routing." ;;
+	esac
 }
 
 install_tree() {

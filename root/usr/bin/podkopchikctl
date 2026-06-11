@@ -109,6 +109,14 @@ validate_file() {
 	"$bin" run -test -config "$file"
 }
 
+require_ip_full() {
+	case "$(ip -V 2>&1 || true)" in
+		*iproute2*) return 0 ;;
+	esac
+
+	die "Missing required dependency: ip-full. BusyBox ip is not sufficient for fwmark policy routing."
+}
+
 replace_active_config() {
 	tmp="$1"
 	[ -s "$tmp" ] || die "generated config is empty"
@@ -180,6 +188,8 @@ cmd_apply() {
 		die "configure at least one enabled VLESS proxy and one routing rule before applying interception"
 	fi
 
+	require_ip_full
+
 	tmp="$TMP_DIR/config.apply.json"
 	generate_to "$tmp"
 	validate_file "$tmp"
@@ -189,13 +199,21 @@ cmd_apply() {
 
 	replace_active_config "$tmp"
 
-	if ! "$LIB/apply_rules.sh" apply; then
+	apply_err="$TMP_DIR/apply-rules.err"
+	if ! "$LIB/apply_rules.sh" apply >"$apply_err" 2>&1; then
+		apply_reason="$(sed -n '1,8p' "$apply_err" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//' || true)"
+		rm -f "$apply_err"
 		restore_previous_config
 		uci -q set "$APP.main.routing_enabled=0"
 		uci -q commit "$APP"
+		if [ -n "$apply_reason" ]; then
+			log "routing rule application failed: $apply_reason; restored previous Xray config and left routing inactive"
+			die "failed to apply routing rules; previous config restored: $apply_reason"
+		fi
 		log "routing rule application failed; restored previous Xray config and left routing inactive"
 		die "failed to apply routing rules; previous config restored"
 	fi
+	rm -f "$apply_err"
 
 	uci -q set "$APP.main.routing_enabled=1"
 	uci -q commit "$APP"

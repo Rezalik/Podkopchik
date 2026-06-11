@@ -25,6 +25,7 @@ Target platform:
 - OpenWrt 24.10+
 - LuCI openwrt-24.10 branch
 - firewall4 / nftables
+- ip-full for fwmark policy routing
 - opkg package manager
 - no Python, Node.js, npm, Docker, or heavy runtime dependencies on the router
 
@@ -377,6 +378,7 @@ Podkopchik must use nftables/firewall4 style rules.
 
 Requirements:
 
+* require `ip-full`; BusyBox `ip` is not sufficient for fwmark policy routing
 * create only Podkopchik-owned table/chains
 * do not flush the whole ruleset
 * do not modify unrelated OpenWrt firewall rules
