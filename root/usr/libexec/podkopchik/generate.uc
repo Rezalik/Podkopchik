@@ -261,6 +261,18 @@ function source_value(ip) {
 	return ip + '/32';
 }
 
+function domain_values(s) {
+	let value = opt(s, 'domain', []);
+	let values = type(value) == 'array' ? value : [ value ];
+	let out = [];
+
+	for (let domain in values)
+		if (domain != null && length('' + domain))
+			push(out, '' + domain);
+
+	return out;
+}
+
 function build_config() {
 	let main = first_section('settings') || {};
 	let proxies = collect_proxies(true, true);
@@ -295,11 +307,18 @@ function build_config() {
 	}
 
 	for (let d in sections('domain_rule', true)) {
-		push(rules, {
-			type: 'field',
-			domain: [ 'domain:' + require_value(opt(d, 'domain', ''), 'domain') ],
-			outboundTag: resolve_target(opt(d, 'target', ''), proxies, groups, state)
-		});
+		let domains = domain_values(d);
+		let target = resolve_target(opt(d, 'target', ''), proxies, groups, state);
+
+		if (!length(domains))
+			die('missing required value: domain');
+
+		for (let domain in domains)
+			push(rules, {
+				type: 'field',
+				domain: [ 'domain:' + require_value(domain, 'domain') ],
+				outboundTag: target
+			});
 	}
 
 	for (let r in sections('ip_rule', true)) {

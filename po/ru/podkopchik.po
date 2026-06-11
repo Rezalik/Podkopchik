@@ -625,6 +625,9 @@ msgstr "Повторяющийся тег группы доменов: %s"
 msgid "Invalid domain: %s"
 msgstr "Некорректный домен: %s"
 
+msgid "Invalid domain value %d: %s"
+msgstr "Некорректное значение домена %d: %s"
+
 msgid "New domain group"
 msgstr "Новая группа доменов"
 

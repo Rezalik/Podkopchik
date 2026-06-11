@@ -73,6 +73,7 @@ Do not expect these links to connect.
    - **Automatic: main + backups** uses the main proxy and backups.
    - **Specific proxy** sends the group to one selected proxy.
    - **Direct** bypasses the proxy.
+   - Each visual domain group is stored as one `domain_rule` UCI section with multiple `list domain` entries. Older one-section-per-domain configs are still read and are migrated on save.
 3. Add optional routing rules:
    - **IP Rules** for CIDRs such as `8.8.8.8/32`.
    - **LAN Devices** for source IP behavior: `full_proxy`, `rules_only`, or `direct`. LAN device speed limit settings can be saved here, but enforcement is diagnostic-only in this beta.

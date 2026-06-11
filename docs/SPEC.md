@@ -228,8 +228,18 @@ Domain rules
 Fields:
 
 * enabled
-* domain
+* domain list
 * target group/proxy
+* group_name
+* group_tag
+* group_order
+
+Storage:
+
+* one visual domain group is stored as one `domain_rule` UCI section
+* domains are stored as repeated `list domain` values inside that section
+* legacy configs with one `domain_rule` section per domain and matching `group_tag` or `group_name` must still be read
+* saving a legacy group may migrate it to the one-section list format without losing domains
 
 Examples:
 

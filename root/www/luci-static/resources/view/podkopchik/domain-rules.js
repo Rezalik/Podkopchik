@@ -35,16 +35,17 @@ function domainLooksValid(domain) {
 function normalizeDomains(text) {
 	var seen = {};
 	var out = [];
-	var lines = (text || '').split(/\r?\n/);
+	var tokens = (text || '').split(/[\s,;]+/);
 
-	for (var i = 0; i < lines.length; i++) {
-		var domain = lines[i].trim().toLowerCase();
+	for (var i = 0; i < tokens.length; i++) {
+		var raw = tokens[i].trim();
+		var domain = raw.toLowerCase();
 
 		if (!domain)
 			continue;
 
 		if (!domainLooksValid(domain))
-			throw new Error(_('Invalid domain: %s').format(domain));
+			throw new Error(_('Invalid domain value %d: %s').format(i + 1, raw));
 
 		if (!seen[domain]) {
 			seen[domain] = true;
@@ -53,6 +54,36 @@ function normalizeDomains(text) {
 	}
 
 	return out;
+}
+
+function domainValues(rule) {
+	var value = rule.domain;
+	var values = Array.isArray(value) ? value : (value ? [ value ] : []);
+	var out = [];
+
+	for (var i = 0; i < values.length; i++) {
+		var tokens = String(values[i] || '').split(/[\s,;]+/);
+
+		for (var j = 0; j < tokens.length; j++) {
+			var domain = tokens[j].trim().toLowerCase();
+
+			if (domain)
+				out.push(domain);
+		}
+	}
+
+	return out;
+}
+
+function addUniqueDomains(group, domains) {
+	group.domainSeen = group.domainSeen || {};
+
+	for (var i = 0; i < domains.length; i++) {
+		if (!group.domainSeen[domains[i]]) {
+			group.domainSeen[domains[i]] = true;
+			group.domains.push(domains[i]);
+		}
+	}
 }
 
 function proxyOptions() {
@@ -100,9 +131,11 @@ function collectDomainGroups() {
 
 	(uci.sections('podkopchik', 'domain_rule') || []).forEach(function(rule) {
 		var sid = rule['.name'];
-		var domain = rule.domain || '';
+		var domains = domainValues(rule);
+		var firstDomain = domains[0] || '';
 		var tag = rule.group_tag || '';
-		var key = tag ? 'group:' + tag : 'legacy:' + sid;
+		var name = rule.group_name || rule.name || firstDomain || _('Domain group');
+		var key = tag ? 'group:' + tag : (rule.group_name ? 'name:' + rule.group_name : 'legacy:' + sid);
 		var info = targetInfo(rule.target || AUTO_GROUP_TAG);
 
 		if (!groups[key]) {
@@ -110,9 +143,10 @@ function collectDomainGroups() {
 				key: key,
 				sids: [],
 				enabled: rule.enabled != '0',
-				name: rule.group_name || rule.name || rule.domain || _('Domain group'),
-				tag: tag || cleanTag(rule.tag || rule.group_name || rule.name || rule.domain || sid),
+				name: name,
+				tag: tag || cleanTag(rule.tag || rule.group_name || rule.name || firstDomain || sid),
 				domains: [],
+				domainSeen: {},
 				targetMode: info.mode,
 				targetProxy: info.proxy,
 				order: parseInt(rule.group_order || rule['.index'] || index, 10) || index
@@ -121,8 +155,7 @@ function collectDomainGroups() {
 		}
 
 		groups[key].sids.push(sid);
-		if (domain)
-			groups[key].domains.push(domain);
+		addUniqueDomains(groups[key], domains);
 
 		index++;
 	});
@@ -287,20 +320,19 @@ function writeGroupsToUci(groups) {
 
 	for (var i = 0; i < groups.length; i++) {
 		var group = groups[i];
+		var sid = group.sids[0] || uci.add('podkopchik', 'domain_rule');
+		var target = group.target || (group.targetMode == 'direct' ? 'direct' : (group.targetMode == 'proxy' ? group.targetProxy : AUTO_GROUP_TAG));
 
-		for (var j = 0; j < group.domains.length; j++) {
-			var sid = group.sids[j] || uci.add('podkopchik', 'domain_rule');
+		keep[sid] = true;
+		uci.set('podkopchik', sid, 'enabled', group.enabled ? '1' : '0');
+		uci.unset('podkopchik', sid, 'domain');
+		uci.set('podkopchik', sid, 'domain', group.domains);
+		uci.set('podkopchik', sid, 'target', target);
+		uci.set('podkopchik', sid, 'group_name', group.name);
+		uci.set('podkopchik', sid, 'group_tag', group.tag);
+		uci.set('podkopchik', sid, 'group_order', String(group.order));
 
-			keep[sid] = true;
-			uci.set('podkopchik', sid, 'enabled', group.enabled ? '1' : '0');
-			uci.set('podkopchik', sid, 'domain', group.domains[j]);
-			uci.set('podkopchik', sid, 'target', group.target);
-			uci.set('podkopchik', sid, 'group_name', group.name);
-			uci.set('podkopchik', sid, 'group_tag', group.tag);
-			uci.set('podkopchik', sid, 'group_order', String(group.order));
-		}
-
-		for (var k = group.domains.length; k < group.sids.length; k++)
+		for (var k = 1; k < group.sids.length; k++)
 			uci.remove('podkopchik', group.sids[k]);
 	}
 
