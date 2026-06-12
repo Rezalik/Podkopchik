@@ -311,6 +311,8 @@ Requirements:
 * Do not proxy DNS resolution of proxy server hostnames before proxy connection exists.
 * Enable Xray sniffing for transparent inbound.
 * Do not enable FakeDNS by default.
+* Experimental Xray FakeDNS Step 1 only adds generated Xray config when `podkopchik.main.fakedns_enabled=1`.
+* Step 1 must not add nft DNS hijack, UDP/443 blocking, or UDP TPROXY.
 * LuCI must warn that DoH, DoT, and Apple Private Relay can bypass normal DNS redirect.
 
 Health check and failover
@@ -363,6 +365,17 @@ The generated config must include:
 * routing rules for source LAN IP
 * selected active proxy for each group
 * private/reserved networks routed direct by default
+
+When `fakedns_enabled=1`, generated config must additionally include:
+
+* top-level `dns` using Xray FakeDNS
+* top-level `fakedns` pool configured from UCI
+* `dns-in` loopback inbound on `fakedns_port`
+* `dns-out` outbound with protocol `dns`
+* routing rule from `dns-in` to `dns-out`
+* `fakedns` in transparent inbound sniffing `destOverride`
+
+When `fakedns_enabled=0`, these FakeDNS sections must be absent.
 
 Generated config must be valid JSON.
 

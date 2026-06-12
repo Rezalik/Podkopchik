@@ -310,16 +310,74 @@ function domain_values(s) {
 	return out;
 }
 
+function transparent_inbound(main, fakedns_enabled) {
+	let dest_override = [ 'http', 'tls', 'quic' ];
+
+	if (fakedns_enabled)
+		push(dest_override, 'fakedns');
+
+	return {
+		tag: 'transparent',
+		port: intopt(main, 'transparent_port', 12345),
+		protocol: 'dokodemo-door',
+		settings: {
+			network: 'tcp,udp',
+			followRedirect: true
+		},
+		streamSettings: {
+			sockopt: {
+				tproxy: 'tproxy'
+			}
+		},
+		sniffing: {
+			enabled: true,
+			destOverride: dest_override,
+			routeOnly: false
+		}
+	};
+}
+
+function fakedns_inbound(main) {
+	return {
+		tag: 'dns-in',
+		listen: '127.0.0.1',
+		port: intopt(main, 'fakedns_port', 1053),
+		protocol: 'dokodemo-door',
+		settings: {
+			network: 'tcp,udp',
+			address: '8.8.8.8',
+			port: 53
+		}
+	};
+}
+
 function build_config() {
 	let main = first_section('settings') || {};
 	let proxies = collect_proxies(true, true);
 	let groups = collect_groups();
 	let state = read_state();
-	let rules = [ private_direct_rule() ];
+	let fakedns_enabled = boolopt(main, 'fakedns_enabled', false);
+	let inbounds = [ transparent_inbound(main, fakedns_enabled) ];
+	let rules = [];
 	let outbounds = [
 		{ tag: 'direct', protocol: 'freedom' },
 		{ tag: 'blocked', protocol: 'blackhole' }
 	];
+
+	if (fakedns_enabled) {
+		push(inbounds, fakedns_inbound(main));
+		push(outbounds, {
+			tag: 'dns-out',
+			protocol: 'dns'
+		});
+		push(rules, {
+			type: 'field',
+			inboundTag: [ 'dns-in' ],
+			outboundTag: 'dns-out'
+		});
+	}
+
+	push(rules, private_direct_rule());
 
 	for (let p in proxies.list)
 		push(outbounds, vless_outbound(p));
@@ -366,35 +424,30 @@ function build_config() {
 		});
 	}
 
-	return {
+	let config = {
 		log: {
 			loglevel: opt(main, 'loglevel', 'warning')
 		},
-		inbounds: [ {
-			tag: 'transparent',
-			port: intopt(main, 'transparent_port', 12345),
-			protocol: 'dokodemo-door',
-			settings: {
-				network: 'tcp,udp',
-				followRedirect: true
-			},
-			streamSettings: {
-				sockopt: {
-					tproxy: 'tproxy'
-				}
-			},
-			sniffing: {
-				enabled: true,
-				destOverride: [ 'http', 'tls', 'quic' ],
-				routeOnly: false
-			}
-		} ],
+		inbounds: inbounds,
 		outbounds: outbounds,
 		routing: {
 			domainStrategy: 'AsIs',
 			rules: rules
 		}
 	};
+
+	if (fakedns_enabled) {
+		config.dns = {
+			queryStrategy: 'UseIPv4',
+			servers: [ 'fakedns' ]
+		};
+		config.fakedns = {
+			ipPool: opt(main, 'fakedns_pool_v4', '198.18.0.0/15'),
+			poolSize: intopt(main, 'fakedns_pool_size', 65535)
+		};
+	}
+
+	return config;
 }
 
 function build_health_config(tag, port) {
