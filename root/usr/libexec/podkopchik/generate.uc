@@ -261,26 +261,50 @@ function source_value(ip) {
 	return ip + '/32';
 }
 
+function domain_separator(ch) {
+	return ch == ' ' || ch == "\n" || ch == "\r" || ch == "\t" || ch == ',' || ch == ';';
+}
+
+function add_domain_value(out, seen, domain) {
+	domain = trim(lc('' + domain));
+
+	if (length(domain) && !seen[domain]) {
+		seen[domain] = true;
+		push(out, domain);
+	}
+}
+
+function add_scalar_domains(out, seen, value) {
+	let text = '' + value;
+	let token = '';
+
+	for (let i = 0; i < length(text); i++) {
+		let ch = substr(text, i, 1);
+
+		if (domain_separator(ch)) {
+			add_domain_value(out, seen, token);
+			token = '';
+		}
+		else {
+			token = token + ch;
+		}
+	}
+
+	add_domain_value(out, seen, token);
+}
+
 function domain_values(s) {
 	let value = opt(s, 'domain', []);
-	let values = type(value) == 'array' ? value : [ value ];
 	let out = [];
 	let seen = {};
 
-	for (let entry in values) {
-		if (entry == null)
-			continue;
-
-		let normalized = replace(lc('' + entry), /[\s,;]+/g, ' ');
-
-		for (let domain in split(normalized, ' ')) {
-			domain = trim(domain);
-
-			if (length(domain) && !seen[domain]) {
-				seen[domain] = true;
-				push(out, domain);
-			}
-		}
+	if (type(value) == 'array') {
+		for (let domain in value)
+			if (domain != null)
+				add_domain_value(out, seen, domain);
+	}
+	else if (value != null) {
+		add_scalar_domains(out, seen, value);
 	}
 
 	return out;
