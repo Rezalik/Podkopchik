@@ -225,6 +225,9 @@ mode="${1:-uci}"
 port="$(uci -q get "$APP.main.transparent_port" 2>/dev/null || echo 12345)"
 lan="$(uci -q get "$APP.main.lan_ifname" 2>/dev/null || echo br-lan)"
 dns_redirect="$(uci -q get "$APP.main.dns_redirect" 2>/dev/null || echo 0)"
+fakedns_enabled="$(uci -q get "$APP.main.fakedns_enabled" 2>/dev/null || echo 0)"
+fakedns_hijack_dns="$(uci -q get "$APP.main.fakedns_hijack_dns" 2>/dev/null || echo 0)"
+fakedns_port="$(uci -q get "$APP.main.fakedns_port" 2>/dev/null || echo 1053)"
 
 require_ip_full
 
@@ -238,6 +241,11 @@ run_rule "$IP" route add local default dev lo table "$PODKOPCHIK_TABLE"
 
 run_rule "$NFT" add table inet podkopchik
 run_rule "$NFT" 'add chain inet podkopchik prerouting { type filter hook prerouting priority mangle; policy accept; }'
+if [ "$fakedns_enabled" = "1" ] && [ "$fakedns_hijack_dns" = "1" ]; then
+	run_rule "$NFT" 'add chain inet podkopchik dns_prerouting { type nat hook prerouting priority dstnat; policy accept; }'
+	run_rule "$NFT" add rule inet podkopchik dns_prerouting iifname "$lan" udp dport 53 redirect to :"$fakedns_port"
+	run_rule "$NFT" add rule inet podkopchik dns_prerouting iifname "$lan" tcp dport 53 redirect to :"$fakedns_port"
+fi
 run_rule "$NFT" add set inet podkopchik reserved4 '{ type ipv4_addr; flags interval; }'
 run_rule "$NFT" add element inet podkopchik reserved4 '{ 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/4, 240.0.0.0/4 }'
 run_rule "$NFT" add set inet podkopchik reserved6 '{ type ipv6_addr; flags interval; }'

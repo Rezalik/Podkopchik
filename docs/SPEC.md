@@ -311,8 +311,11 @@ Requirements:
 * Do not proxy DNS resolution of proxy server hostnames before proxy connection exists.
 * Enable Xray sniffing for transparent inbound.
 * Do not enable FakeDNS by default.
-* Experimental Xray FakeDNS Step 1 only adds generated Xray config when `podkopchik.main.fakedns_enabled=1`.
-* Step 1 must not add nft DNS hijack, UDP/443 blocking, or UDP TPROXY.
+* Experimental Xray FakeDNS config is generated only when `podkopchik.main.fakedns_enabled=1`.
+* Experimental LAN DNS hijack to Xray FakeDNS is active only when both `fakedns_enabled=1` and `fakedns_hijack_dns=1`.
+* FakeDNS hijack must use a dedicated nft `dns_prerouting` nat chain.
+* FakeDNS hijack must not add DNS redirect rules to the existing TPROXY/mangle chain.
+* Do not add UDP/443 blocking or UDP TPROXY in this step.
 * LuCI must warn that DoH, DoT, and Apple Private Relay can bypass normal DNS redirect.
 
 Health check and failover
@@ -376,6 +379,14 @@ When `fakedns_enabled=1`, generated config must additionally include:
 * `fakedns` in transparent inbound sniffing `destOverride`
 
 When `fakedns_enabled=0`, these FakeDNS sections must be absent.
+
+When `fakedns_enabled=1` and `fakedns_hijack_dns=1`, nftables apply must add:
+
+* `chain dns_prerouting { type nat hook prerouting priority dstnat; policy accept; }`
+* LAN UDP 53 redirect to `fakedns_port`
+* LAN TCP 53 redirect to `fakedns_port`
+
+When `fakedns_hijack_dns=0`, `dns_prerouting` must be absent.
 
 Generated config must be valid JSON.
 

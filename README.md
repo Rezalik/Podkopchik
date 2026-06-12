@@ -21,7 +21,7 @@ Release: `0.1.0-beta`
 - dnsmasq-based DNS with optional LAN UDP/TCP 53 redirect.
 - Podkopchik-owned nftables/firewall4 table and cleanup.
 - Proxy endpoint destinations are bypassed before transparent proxy interception so LAN clients can still connect to the same VLESS servers directly.
-- Experimental Xray FakeDNS config generation, disabled by default. Step 1 does not hijack LAN DNS yet.
+- Experimental Xray FakeDNS config generation and optional LAN DNS hijack, disabled by default.
 - LAN device speed limit configuration and diagnostics only. Real `tc`/`ifb` enforcement is not active in this beta.
 - Config validation before apply, preserving the previous working Xray config on failure.
 - GitHub update checks with a development `main` branch channel and a future verified stable release channel.
@@ -97,7 +97,7 @@ When routing is applied, Podkopchik resolves configured VLESS endpoint hosts and
 
 ## Experimental FakeDNS
 
-FakeDNS is off by default. In this beta step, enabling it only changes generated Xray config: it adds Xray `dns`, `fakedns`, `dns-in`, and `dns-out` sections and adds `fakedns` to transparent inbound sniffing. It does not redirect LAN DNS to Xray yet; DNS hijack is planned as a separate step.
+FakeDNS is off by default. Enabling `fakedns_enabled` changes generated Xray config: it adds Xray `dns`, `fakedns`, `dns-in`, and `dns-out` sections and adds `fakedns` to transparent inbound sniffing. LAN DNS hijack is separate and only active when `fakedns_hijack_dns=1`.
 
 Enable for config validation experiments:
 
@@ -108,12 +108,23 @@ podkopchikctl generate
 xray run -test -config /etc/podkopchik/config.generated.json
 ```
 
+Enable experimental LAN DNS hijack to Xray FakeDNS:
+
+```sh
+uci set podkopchik.main.fakedns_enabled='1'
+uci set podkopchik.main.fakedns_hijack_dns='1'
+uci commit podkopchik
+podkopchikctl apply
+nft list table inet podkopchik
+```
+
 Rollback:
 
 ```sh
 uci set podkopchik.main.fakedns_enabled='0'
+uci set podkopchik.main.fakedns_hijack_dns='0'
 uci commit podkopchik
-podkopchikctl generate
+podkopchikctl apply
 ```
 
 ## CLI
