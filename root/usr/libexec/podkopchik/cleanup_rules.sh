@@ -4,6 +4,7 @@ set -u
 
 TMP_DIR="/tmp/podkopchik"
 ROUTE_STATE="$TMP_DIR/routing.env"
+BYPASS_STATE="$TMP_DIR/proxy_bypass.env"
 PODKOPCHIK_MARK="0x100000"
 PODKOPCHIK_TABLE="10991"
 PODKOPCHIK_PRIO="10991"
@@ -22,5 +23,7 @@ cleanup_policy_route() {
 nft list table inet podkopchik >/dev/null 2>&1 && nft delete table inet podkopchik >/dev/null 2>&1 || true
 
 cleanup_policy_route
+
+rm -f "$BYPASS_STATE"
 
 exit 0

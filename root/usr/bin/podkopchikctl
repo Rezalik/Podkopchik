@@ -9,6 +9,7 @@ CONFIG="$CONFIG_DIR/config.json"
 UCI_CONFIG="/etc/config/$APP"
 TMP_DIR="/tmp/podkopchik"
 STATE="$TMP_DIR/state.json"
+BYPASS_STATE="$TMP_DIR/proxy_bypass.env"
 ROLLBACK="$TMP_DIR/rollback.tar.gz"
 VERSION="0.1.0-beta"
 
@@ -150,6 +151,11 @@ cmd_status() {
 	else
 		echo "Xray: not running"
 	fi
+	if [ -s "$BYPASS_STATE" ]; then
+		echo
+		echo "Proxy endpoint bypass:"
+		cat "$BYPASS_STATE"
+	fi
 	if [ -s "$STATE" ]; then
 		echo
 		echo "State:"
@@ -213,6 +219,7 @@ cmd_apply() {
 		log "routing rule application failed; restored previous Xray config and left routing inactive"
 		die "failed to apply routing rules; previous config restored"
 	fi
+	[ -s "$apply_err" ] && cat "$apply_err" >&2
 	rm -f "$apply_err"
 
 	uci -q set "$APP.main.routing_enabled=1"

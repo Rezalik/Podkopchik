@@ -265,10 +265,23 @@ function domain_values(s) {
 	let value = opt(s, 'domain', []);
 	let values = type(value) == 'array' ? value : [ value ];
 	let out = [];
+	let seen = {};
 
-	for (let domain in values)
-		if (domain != null && length('' + domain))
-			push(out, '' + domain);
+	for (let entry in values) {
+		if (entry == null)
+			continue;
+
+		let normalized = replace(lc('' + entry), /[\s,;]+/g, ' ');
+
+		for (let domain in split(normalized, ' ')) {
+			domain = trim(domain);
+
+			if (length(domain) && !seen[domain]) {
+				seen[domain] = true;
+				push(out, domain);
+			}
+		}
+	}
 
 	return out;
 }

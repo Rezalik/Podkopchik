@@ -20,6 +20,7 @@ Release: `0.1.0-beta`
 - Xray transparent inbound with sniffing enabled and FakeDNS disabled.
 - dnsmasq-based DNS with optional LAN UDP/TCP 53 redirect.
 - Podkopchik-owned nftables/firewall4 table and cleanup.
+- Proxy endpoint destinations are bypassed before transparent proxy interception so LAN clients can still connect to the same VLESS servers directly.
 - LAN device speed limit configuration and diagnostics only. Real `tc`/`ifb` enforcement is not active in this beta.
 - Config validation before apply, preserving the previous working Xray config on failure.
 - GitHub update checks with a development `main` branch channel and a future verified stable release channel.
@@ -90,6 +91,8 @@ Do not expect these links to connect.
 Traffic for domains and IPs not listed in a rule goes direct by default.
 
 Podkopchik validates the generated Xray config before replacing `/etc/podkopchik/config.json`. If validation fails, the previous working config remains in place.
+
+When routing is applied, Podkopchik resolves configured VLESS endpoint hosts and adds their IP addresses to a Podkopchik-owned nftables bypass set. This prevents LAN devices with their own VLESS clients from being transparently redirected back into the router Xray when they connect to the same proxy server, for example on TCP/443. If an endpoint hostname cannot be resolved during apply, routing still applies and Podkopchik logs a warning.
 
 ## CLI
 
@@ -200,6 +203,7 @@ logread -e podkopchik
 
 - If **Apply** fails, run `podkopchikctl validate` and inspect the error.
 - If Apply reports `Missing required dependency: ip-full`, install `ip-full`; BusyBox `ip` cannot add Podkopchik fwmark policy rules.
+- If a phone or laptop inside LAN runs its own VLESS client to the same server, verify that the server IP appears in `nft list table inet podkopchik` under `proxy_bypass4` or `proxy_bypass6`.
 - If routing is inactive after reboot, check `uci get podkopchik.main.routing_enabled` and `podkopchikctl status`.
 - If DNS redirect appears ineffective, check whether the client uses DoH, DoT, or Apple Private Relay.
 - If health status is `unknown`, install/verify `xray-core`, `curl`, and `ca-bundle`, then run `podkopchikctl health`.

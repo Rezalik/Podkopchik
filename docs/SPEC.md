@@ -59,6 +59,7 @@ Podkopchik `0.1.0-beta` must allow a user to:
 15. Install from GitHub.
 16. Update Podkopchik from LuCI.
 17. Preserve user configuration during updates.
+18. Bypass configured proxy endpoint destinations before transparent proxy interception.
 
 ## Non-goals for 0.1.0-beta
 
@@ -383,9 +384,19 @@ Requirements:
 * do not flush the whole ruleset
 * do not modify unrelated OpenWrt firewall rules
 * exclude local/private/reserved networks from loops
+* exclude configured proxy endpoint destination IPs from TPROXY interception
 * cleanup must be idempotent
 * cleanup must remove only Podkopchik-created rules
 * DNS redirect rules must also be Podkopchik-owned
+
+Proxy endpoint bypass:
+
+* Podkopchik must collect endpoint hosts from configured VLESS links during nftables apply
+* endpoint IP literals are added directly to Podkopchik-owned `proxy_bypass4` or `proxy_bypass6` sets
+* endpoint hostnames are resolved during apply and resolved IPs are added to those sets
+* unresolved endpoint hostnames must warn but must not fail apply
+* bypass return rules must run before the final generic TPROXY rule
+* this prevents LAN clients with their own VLESS clients from being transparently redirected into the router Xray when connecting to the same proxy server
 
 Installer
 

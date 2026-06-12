@@ -32,6 +32,32 @@ config domain_rule
 
 config domain_rule
 	option enabled '1'
+	list domain 'youtube.com'
+	list domain 'youtu.be'
+	list domain 'googlevideo.com'
+	list domain 'ytimg.com'
+	option target 'direct'
+	option group_name 'YouTube'
+	option group_tag 'youtube'
+
+config domain_rule
+	option enabled '1'
+	list domain 'x.com'
+	list domain 'twitter.com'
+	list domain 'twimg.com'
+	option target 'direct'
+	option group_name 'X / Twitter'
+	option group_tag 'twitter'
+
+config domain_rule
+	option enabled '1'
+	option domain 'mixed.example.com, mixed2.example.com; mixed3.example.com'
+	option target 'direct'
+	option group_name 'Mixed'
+	option group_tag 'mixed'
+
+config domain_rule
+	option enabled '1'
 	option target 'direct'
 	option group_name 'Hundred'
 	option group_tag 'hundred'
@@ -49,6 +75,16 @@ UCI_CONFIG_DIR="$tmp" ucode -L root/usr/libexec/podkopchik root/usr/libexec/podk
 grep -q '"domain:legacy.example.com"' "$out"
 grep -q '"domain:list1.example.com"' "$out"
 grep -q '"domain:list2.example.com"' "$out"
+grep -q '"domain:youtube.com"' "$out"
+grep -q '"domain:youtu.be"' "$out"
+grep -q '"domain:googlevideo.com"' "$out"
+grep -q '"domain:ytimg.com"' "$out"
+grep -q '"domain:x.com"' "$out"
+grep -q '"domain:twitter.com"' "$out"
+grep -q '"domain:twimg.com"' "$out"
+grep -q '"domain:mixed.example.com"' "$out"
+grep -q '"domain:mixed2.example.com"' "$out"
+grep -q '"domain:mixed3.example.com"' "$out"
 grep -q '"domain:bulk001.example.com"' "$out"
 grep -q '"domain:bulk100.example.com"' "$out"
 

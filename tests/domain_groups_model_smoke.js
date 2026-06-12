@@ -105,6 +105,38 @@ assert(JSON.stringify(api.normalizeDomains('ONE.example.com, two.example.com; on
 for (const count of [10, 100, 500])
 	saveOneGroup(count);
 
+reset([]);
+api.writeGroupsToUci([
+	{
+		sids: [],
+		enabled: true,
+		name: 'YouTube',
+		tag: 'youtube',
+		domains: [ 'youtube.com', 'youtu.be', 'googlevideo.com', 'ytimg.com' ],
+		target: 'auto_proxy_group',
+		order: 0
+	},
+	{
+		sids: [],
+		enabled: true,
+		name: 'X / Twitter',
+		tag: 'twitter',
+		domains: [ 'x.com', 'twitter.com', 'twimg.com' ],
+		target: 'auto_proxy_group',
+		order: 1
+	}
+]);
+
+let visualGroups = api.collectDomainGroups();
+assert(sections.filter(s => s['.type'] === 'domain_rule').length === 2, 'two visual groups should create two domain_rule sections');
+assert(visualGroups.length === 2, 'two saved visual groups should read back as two groups');
+assert(visualGroups[0].tag === 'youtube', 'first group tag should be preserved');
+assert(visualGroups[1].tag === 'twitter', 'second group tag should be preserved');
+assert(visualGroups[1].domains.indexOf('x.com') >= 0, 'second group lost x.com');
+assert(visualGroups[1].domains.indexOf('twitter.com') >= 0, 'second group lost twitter.com');
+assert(visualGroups[1].domains.indexOf('twimg.com') >= 0, 'second group lost twimg.com');
+assert(visualGroups[1].targetMode === 'auto', 'second group target should be preserved');
+
 reset([
 	{ '.type': 'domain_rule', '.name': 'legacy1', enabled: '1', domain: 'youtube.com', target: 'auto_proxy_group', group_name: 'YouTube', group_tag: 'youtube', group_order: '0' },
 	{ '.type': 'domain_rule', '.name': 'legacy2', enabled: '1', domain: 'youtu.be', target: 'auto_proxy_group', group_name: 'YouTube', group_tag: 'youtube', group_order: '0' },
