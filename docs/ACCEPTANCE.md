@@ -30,6 +30,7 @@
 - Support manual override.
 - Route domain groups to the automatic proxy group, a specific proxy, or direct.
 - Route destination IP/CIDR to proxy groups.
+- Changing IP Rules in LuCI and pressing Save & Apply updates the active Xray routing by running the Podkopchik runtime apply path; manual SSH apply is not required.
 - Route source LAN IP devices to proxy groups/direct.
 - Store LAN device speed limit settings and expose diagnostics without enabling real `tc`/`ifb` enforcement.
 - Use dnsmasq as default DNS.

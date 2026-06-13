@@ -257,6 +257,8 @@ Fields:
 * cidr
 * target group/proxy
 
+LuCI Save & Apply for IP rules must save UCI changes, apply LuCI changes, and then run the same Podkopchik runtime apply path as `podkopchikctl apply`, so the active Xray routing config is regenerated and restarted without requiring manual SSH commands.
+
 Examples:
 
 * 8.8.8.8/32 -> group_dns
