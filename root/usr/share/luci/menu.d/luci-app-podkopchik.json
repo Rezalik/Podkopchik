@@ -34,6 +34,14 @@
 			"path": "podkopchik/domain-rules"
 		}
 	},
+	"admin/services/podkopchik/presets": {
+		"title": "Presets",
+		"order": 45,
+		"action": {
+			"type": "view",
+			"path": "podkopchik/presets"
+		}
+	},
 	"admin/services/podkopchik/ip-rules": {
 		"title": "IP Rules",
 		"order": 50,

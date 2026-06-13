@@ -12,10 +12,11 @@ Release: `0.1.0-beta`
 
 ## What 0.1.0-beta Includes
 
-- LuCI JavaScript pages for status, proxy links, domain groups, IP rules, direct exclusions, LAN devices, DNS, updates, logs, and advanced settings.
+- LuCI JavaScript pages for status, proxy links, rule presets, domain groups, IP rules, direct exclusions, LAN devices, DNS, updates, logs, and advanced settings.
 - UCI-backed VLESS TCP/REALITY and VLESS XHTTP/REALITY proxy definitions.
 - Simple proxy roles: one main proxy, optional backup proxies, and disabled links.
 - Internal automatic failover support for the selected main proxy and backups.
+- Rule presets for popular services. Presets create ordinary editable domain and IP rules.
 - Domain, destination CIDR, and LAN source IP routing rules.
 - Manual direct exclusions for host/IP/CIDR entries that must bypass the transparent proxy.
 - Xray transparent inbound with sniffing enabled and FakeDNS disabled.
@@ -79,17 +80,21 @@ Do not expect these links to connect.
 ## Configure
 
 1. Add proxy links under **Proxy Links**. Choose exactly one **Main proxy** and, optionally, up to three **Backup proxy** links.
-2. Create **Domain Groups** such as YouTube, ChatGPT, or Instagram. Put one domain per line and choose a target:
+2. Optional: open **Presets**, choose a service and target, then click **Add preset**. Presets create normal rules that can be edited or deleted later.
+   - Telegram adds domain rules and Telegram IP ranges.
+   - YouTube, Instagram, TikTok, X / Twitter, Discord, OpenAI / ChatGPT / Codex, and Canva are domain-only in this beta step.
+   - OpenAI, ChatGPT, Codex, Canva, Discord, and CDN domain lists can change over time, so presets are a starting point rather than a permanent guarantee.
+3. Create or edit **Domain Groups** such as YouTube, ChatGPT, or Instagram. Put one domain per line and choose a target:
    - **Automatic: main + backups** uses the main proxy and backups.
    - **Specific proxy** sends the group to one selected proxy.
    - **Direct** bypasses the proxy.
    - Each visual domain group is stored as one `domain_rule` UCI section with multiple `list domain` entries. Older one-section-per-domain configs are still read and are migrated on save.
-3. Add optional routing rules:
+4. Add optional routing rules:
    - **IP Rules** for CIDRs such as `8.8.8.8/32`.
    - **LAN Devices** for source IP behavior: `full_proxy`, `rules_only`, or `direct`. LAN device speed limit settings can be saved here, but enforcement is diagnostic-only in this beta.
-4. Add optional **Exclusions** for direct access to hosts, IPs, or CIDR networks that should never be transparently proxied, for example `famalymovi.ru`, `5.42.117.16`, or `panel.example.com`. Do not include scheme, path, or port.
-5. Optional: enable LAN DNS redirect on the **DNS** page.
-6. Click **Apply** on the **Status** page.
+5. Add optional **Exclusions** for direct access to hosts, IPs, or CIDR networks that should never be transparently proxied, for example `famalymovi.ru`, `5.42.117.16`, or `panel.example.com`. Do not include scheme, path, or port.
+6. Optional: enable LAN DNS redirect on the **DNS** page.
+7. Click **Apply** on the **Status** page.
 
 Traffic for domains and IPs not listed in a rule goes direct by default.
 

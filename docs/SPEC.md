@@ -61,6 +61,7 @@ Podkopchik `0.1.0-beta` must allow a user to:
 17. Preserve user configuration during updates.
 18. Bypass configured proxy endpoint destinations before transparent proxy interception.
 19. Let users add manual direct exclusions for host/IP/CIDR destinations without port matching.
+20. Add rule presets for popular services as a quick way to create ordinary editable routing rules.
 
 ## Non-goals for 0.1.0-beta
 
@@ -100,6 +101,7 @@ Xray
 nftables / TPROXY
         ↓
 LAN traffic routing
+```
 
 Components
 
@@ -127,15 +129,16 @@ Podkopchik must provide these LuCI pages:
 
 1. Status
 2. Proxy Links
-3. Domain Groups
-4. IP Rules
-5. LAN Devices
-6. DNS
-7. Updates
-8. Logs
-9. Advanced
+3. Presets
+4. Domain Groups
+5. IP Rules
+6. LAN Devices
+7. DNS
+8. Updates
+9. Logs
+10. Advanced
 
-Pages that change active routing inputs must not stop at a UCI save. Save & Apply on Proxy Links, Domain Groups, IP Rules, Exclusions, LAN Devices, DNS, and active Advanced settings must invoke the Podkopchik runtime apply path, or cleanup when the service is disabled, so the active Xray config and Podkopchik-owned nftables state match the saved settings.
+Pages that change active routing inputs must not stop at a UCI save. Save & Apply on Proxy Links, Domain Groups, IP Rules, Exclusions, LAN Devices, DNS, and active Advanced settings, plus Add preset on Presets, must invoke the Podkopchik runtime apply path, or cleanup when the service is disabled, so the active Xray config and Podkopchik-owned nftables state match the saved settings.
 
 Proxy links
 
@@ -227,6 +230,32 @@ For strict_primary groups:
 Routing rules
 
 Required routing types:
+
+Presets
+
+Presets are a LuCI convenience layer, not a separate routing system.
+
+Required behavior:
+
+* Presets create ordinary `domain_rule` and `ip_rule` UCI sections.
+* Created preset rules must be editable and removable through the normal Domain Groups and IP Rules pages.
+* Duplicate protection is based on rule type, value, and target.
+* If part of a preset already exists for the selected target, only missing values are added.
+* After adding a preset, LuCI must save UCI changes, apply LuCI changes, and run the Podkopchik runtime apply path.
+* If runtime apply fails, UCI changes remain saved and the user sees a clear runtime apply error.
+
+Required presets:
+
+* Telegram: 8 domain entries and 7 IP CIDR entries.
+* YouTube: 15 domain entries, no IP entries in this beta step.
+* Instagram: 14 domain entries, no IP entries in this beta step.
+* TikTok: 14 domain entries, no IP entries in this beta step.
+* X / Twitter: 19 domain entries, no IP entries in this beta step.
+* Discord: 11 domain entries, no IP entries in this beta step.
+* OpenAI / ChatGPT / Codex: 14 domain entries, no IP entries in this beta step.
+* Canva: 10 domain entries, no IP entries in this beta step.
+
+The OpenAI / ChatGPT / Codex, Canva, Discord, and CDN-related domain lists can change over time. Presets are a user-editable starting point and are not a permanent guarantee that every future service hostname is covered.
 
 Domain rules
 
@@ -417,6 +446,52 @@ FakeDNS MVP validation milestone:
 * LAN client DNS queries for `x.com` through the router returned FakeDNS addresses from `198.18.0.0/15`.
 * X/Twitter app on iPhone worked through this path.
 * Xray logs showed `[dns-in -> dns-out]` and `[transparent -> gerwarp]` for FakeDNS-routed traffic.
+
+Stability pass verified on GL-MT6000 / OpenWrt 24.10.4:
+
+* Verified on GL.iNet Flint 2 / GL-MT6000 running OpenWrt 24.10.4 after `podkopchikctl update-install` from GitHub `main`.
+* No critical stability issues were found.
+* `podkopchikctl validate`, `podkopchikctl generate`, and `xray run -test -config /etc/podkopchik/config.generated.json` passed.
+* Repeated `podkopchikctl apply` was idempotent.
+* The final process state had exactly one main Xray using `/etc/podkopchik/config.json`.
+* Health-check cleanup left no stale `/tmp/podkopchik/health-*.json` Xray processes and no stale health locks after checks completed.
+* nftables order kept `reserved4/6` and `proxy_bypass4/6` before the final TCP TPROXY rule.
+* FakeDNS stayed coherent: `dns_prerouting` existed, `198.18.0.0/15` was present as the Xray FakeDNS pool, and the same pool was absent from nft `reserved4` and the Xray private/reserved direct rule.
+* Direct FakeDNS queries to `127.0.0.1:1053` returned `198.18.x.x` or `198.19.x.x`.
+* Telegram IP rules for `91.108.*` and `149.154.160.0/20` were present in the active Xray config.
+* Exclusions were present in UCI, nft `proxy_bypass4`, and Xray direct domain routing.
+* LuCI runtime apply behavior was verified on the installed version.
+* `health check skipped; another health check is already running` during race sanity checks is expected and indicates lock protection.
+* A temporary health probe Xray may appear during a mid-check snapshot; it is not a stale leak if it disappears after the health check completes.
+* `ucode -V` can report `unrecognized option: V` on OpenWrt and is not a Podkopchik stability failure.
+
+Router stability recheck command memo:
+
+```sh
+podkopchikctl update-install
+/etc/init.d/rpcd restart
+/etc/init.d/uhttpd restart
+podkopchikctl validate
+podkopchikctl generate
+xray run -test -config /etc/podkopchik/config.generated.json
+podkopchikctl apply
+sleep 2
+podkopchikctl apply
+sleep 2
+podkopchikctl status
+pgrep -a xray || true
+pgrep -af '/etc/podkopchik/config.json' | wc -l
+pgrep -af '/tmp/podkopchik/health-.*.json' || echo 'OK: no stale health Xray'
+ls -d /tmp/podkopchik/health-port-*.lock /tmp/podkopchik/health-check.lock 2>/dev/null || echo 'OK: no stale health locks'
+nft -a list table inet podkopchik | grep -nE 'proxy_bypass|reserved|dns_prerouting|tproxy|chain prerouting|chain dns_prerouting'
+jsonfilter -q -i /etc/podkopchik/config.generated.json -e '@.fakedns.ipPool' || true
+jsonfilter -q -i /etc/podkopchik/config.generated.json -e '@.routing.rules[*].ip[*]' | grep '198.18.0.0/15' && echo 'WARNING: FakeDNS pool direct-routed' || echo 'OK: FakeDNS pool not direct-routed'
+nft list set inet podkopchik reserved4 | grep '198.18.0.0/15' && echo 'WARNING: FakeDNS pool in reserved4' || echo 'OK: FakeDNS pool not in reserved4'
+nslookup -port=1053 x.com 127.0.0.1 || true
+grep -oE '91\.108\.[0-9.]+/[0-9]+|149\.154\.[0-9.]+/[0-9]+' /etc/podkopchik/config.json | sort -u
+uci show podkopchik | grep -iE 'bypass_rule|host|comment' || true
+nft list set inet podkopchik proxy_bypass4 || true
+```
 
 Generated config must be valid JSON.
 

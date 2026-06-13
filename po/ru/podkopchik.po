@@ -852,3 +852,51 @@ msgstr "Используйте названия дней, например: mon 
 
 msgid "Use HH:MM time, for example 18:00."
 msgstr "Используйте время в формате ЧЧ:ММ, например 18:00."
+
+msgid "Add preset"
+msgstr "Добавить пресет"
+
+msgid "Added"
+msgstr "Добавлено"
+
+msgid "Canva"
+msgstr "Canva"
+
+msgid "Discord"
+msgstr "Discord"
+
+msgid "Instagram"
+msgstr "Instagram"
+
+msgid "OpenAI / ChatGPT / Codex"
+msgstr "OpenAI / ChatGPT / Codex"
+
+msgid "Preset added"
+msgstr "Пресет добавлен"
+
+msgid "Preset saved, but runtime apply failed"
+msgstr "Пресет сохранён, но runtime-применение не удалось"
+
+msgid "Presets"
+msgstr "Пресеты"
+
+msgid "Presets quickly create ordinary editable domain and IP rules. After adding a preset, you can edit or delete the created rules on the Domain Groups and IP Rules pages."
+msgstr "Пресеты быстро создают обычные редактируемые доменные и IP-правила. После добавления пресета вы можете изменить или удалить созданные правила на страницах групп доменов и IP-правил."
+
+msgid "Select a preset service."
+msgstr "Выберите сервис-пресет."
+
+msgid "Select a target."
+msgstr "Выберите цель."
+
+msgid "Skipped duplicates"
+msgstr "Пропущено дублей"
+
+msgid "Telegram"
+msgstr "Telegram"
+
+msgid "TikTok"
+msgstr "TikTok"
+
+msgid "X / Twitter"
+msgstr "X / Twitter"

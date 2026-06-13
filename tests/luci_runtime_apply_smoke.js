@@ -41,6 +41,12 @@ assertMatch(advanced, /return\s+ui\.changes\.apply/, 'Advanced settings must wai
 assertMatch(advanced, /runRuntime\(\s*\[\s*'apply'\s*\]\s*\)/, 'Advanced settings must apply runtime changes when routing is active');
 assertMatch(advanced, /runRuntime\(\s*\[\s*'cleanup'\s*\]\s*\)/, 'Advanced settings must cleanup routing when service is disabled');
 
+const presets = read('root/www/luci-static/resources/view/podkopchik/presets.js');
+assertMatch(presets, /'require fs';/, 'Presets view must import fs for backend apply');
+assertMatch(presets, /'require ui';/, 'Presets view must import ui for LuCI apply flow');
+assertMatch(presets, /ui\.changes\.apply/, 'Presets Add preset action must apply pending LuCI UCI changes');
+assertMatch(presets, /fs\.exec_direct\('\/usr\/bin\/podkopchikctl',\s*\[\s*'apply'\s*\]\)/, 'Presets Add preset action must call podkopchikctl apply');
+
 if (!acl.includes('"/usr/bin/podkopchikctl apply"'))
 	throw new Error('rpcd ACL must allow /usr/bin/podkopchikctl apply');
 
