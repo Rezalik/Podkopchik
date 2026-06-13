@@ -12,11 +12,12 @@ Release: `0.1.0-beta`
 
 ## What 0.1.0-beta Includes
 
-- LuCI JavaScript pages for status, proxy links, domain groups, IP rules, LAN devices, DNS, updates, logs, and advanced settings.
+- LuCI JavaScript pages for status, proxy links, domain groups, IP rules, direct exclusions, LAN devices, DNS, updates, logs, and advanced settings.
 - UCI-backed VLESS TCP/REALITY and VLESS XHTTP/REALITY proxy definitions.
 - Simple proxy roles: one main proxy, optional backup proxies, and disabled links.
 - Internal automatic failover support for the selected main proxy and backups.
 - Domain, destination CIDR, and LAN source IP routing rules.
+- Manual direct exclusions for host/IP/CIDR entries that must bypass the transparent proxy.
 - Xray transparent inbound with sniffing enabled and FakeDNS disabled.
 - dnsmasq-based DNS with optional LAN UDP/TCP 53 redirect.
 - Podkopchik-owned nftables/firewall4 table and cleanup.
@@ -86,14 +87,26 @@ Do not expect these links to connect.
 3. Add optional routing rules:
    - **IP Rules** for CIDRs such as `8.8.8.8/32`.
    - **LAN Devices** for source IP behavior: `full_proxy`, `rules_only`, or `direct`. LAN device speed limit settings can be saved here, but enforcement is diagnostic-only in this beta.
-4. Optional: enable LAN DNS redirect on the **DNS** page.
-5. Click **Apply** on the **Status** page.
+4. Add optional **Exclusions** for direct access to hosts, IPs, or CIDR networks that should never be transparently proxied, for example `famalymovi.ru`, `5.42.117.16`, or `panel.example.com`. Do not include scheme, path, or port.
+5. Optional: enable LAN DNS redirect on the **DNS** page.
+6. Click **Apply** on the **Status** page.
 
 Traffic for domains and IPs not listed in a rule goes direct by default.
 
 Podkopchik validates the generated Xray config before replacing `/etc/podkopchik/config.json`. If validation fails, the previous working config remains in place.
 
 When routing is applied, Podkopchik resolves configured VLESS endpoint hosts and adds their IP addresses to a Podkopchik-owned nftables bypass set. This prevents LAN devices with their own VLESS clients from being transparently redirected back into the router Xray when they connect to the same proxy server, for example on TCP/443. If an endpoint hostname cannot be resolved during apply, routing still applies and Podkopchik logs a warning.
+
+Manual exclusions use this UCI model:
+
+```text
+config bypass_rule
+	option enabled '1'
+	option host 'famalymovi.ru'
+	option comment '3x-ui / VPS direct'
+```
+
+IP and CIDR exclusions are added to the Podkopchik-owned nftables `proxy_bypass4` or `proxy_bypass6` sets before the final TPROXY rule. Domain exclusions are added to an Xray `direct` domain rule above normal proxy domain routing and are also resolved during apply so their IPs can bypass TPROXY. Port-specific exclusions are intentionally not implemented in this beta step.
 
 ## Experimental FakeDNS
 
@@ -267,7 +280,7 @@ logread -e podkopchik
 
 - If **Apply** fails, run `podkopchikctl validate` and inspect the error.
 - If Apply reports `Missing required dependency: ip-full`, install `ip-full`; BusyBox `ip` cannot add Podkopchik fwmark policy rules.
-- If a phone or laptop inside LAN runs its own VLESS client to the same server, verify that the server IP appears in `nft list table inet podkopchik` under `proxy_bypass4` or `proxy_bypass6`.
+- If a phone or laptop inside LAN needs direct access to a 3x-ui panel, VPS, or proxy endpoint, add the host/IP/CIDR under **Exclusions**. Then verify that resolved IPs appear in `nft list table inet podkopchik` under `proxy_bypass4` or `proxy_bypass6`.
 - If routing is inactive after reboot, check `uci get podkopchik.main.routing_enabled` and `podkopchikctl status`.
 - If DNS redirect appears ineffective, check whether the client uses DoH, DoT, or Apple Private Relay.
 - If health status is `unknown`, install/verify `xray-core`, `curl`, and `ca-bundle`, then run `podkopchikctl health`.

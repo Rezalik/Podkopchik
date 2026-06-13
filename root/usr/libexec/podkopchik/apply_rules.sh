@@ -94,21 +94,55 @@ is_ipv6() {
 	esac
 }
 
-add_bypass_ip() {
-	ip="$1"
+is_ipv4_cidr() {
+	cidr="$1"
+	case "$cidr" in
+		*/*) ;;
+		*) return 1 ;;
+	esac
 
-	if is_ipv4 "$ip"; then
+	base="${cidr%/*}"
+	prefix="${cidr#*/}"
+
+	is_ipv4 "$base" || return 1
+	case "$prefix" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	[ "$prefix" -ge 0 ] 2>/dev/null && [ "$prefix" -le 32 ] 2>/dev/null
+}
+
+is_ipv6_cidr() {
+	cidr="$1"
+	case "$cidr" in
+		*/*) ;;
+		*) return 1 ;;
+	esac
+
+	base="${cidr%/*}"
+	prefix="${cidr#*/}"
+
+	is_ipv6 "$base" || return 1
+	case "$prefix" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	[ "$prefix" -ge 0 ] 2>/dev/null && [ "$prefix" -le 128 ] 2>/dev/null
+}
+
+add_bypass_ip() {
+	value="$1"
+
+	if is_ipv4 "$value" || is_ipv4_cidr "$value"; then
 		case " $bypass4 " in
-			*" $ip "*) ;;
-			*) bypass4="$bypass4 $ip" ;;
+			*" $value "*) ;;
+			*) bypass4="$bypass4 $value" ;;
 		esac
 		return 0
 	fi
 
-	if is_ipv6 "$ip"; then
+	if is_ipv6 "$value" || is_ipv6_cidr "$value"; then
 		case " $bypass6 " in
-			*" $ip "*) ;;
-			*) bypass6="$bypass6 $ip" ;;
+			*" $value "*) ;;
+			*) bypass6="$bypass6 $value" ;;
 		esac
 		return 0
 	fi
@@ -132,6 +166,20 @@ proxy_endpoint_host() {
 	[ -n "$host" ] || host="$(printf '%s\n' "$parsed" | "$JSONFILTER" -q -e '@.address' 2>/dev/null || true)"
 	[ -n "$host" ] || return 1
 	printf '%s\n' "$host"
+}
+
+normalize_bypass_host() {
+	printf '%s\n' "$1" | tr 'A-Z' 'a-z' | sed 's/^[	 ]*//; s/[	 ]*$//; s/\.$//'
+}
+
+is_domain_name() {
+	host="$1"
+
+	case "$host" in
+		''|*://*|*/*|*:*) return 1 ;;
+	esac
+
+	printf '%s\n' "$host" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$'
 }
 
 resolve_endpoint_host() {
@@ -182,6 +230,43 @@ collect_proxy_bypass() {
 		if [ "$resolved" = "0" ]; then
 			record_failed_host "$host"
 			warn_apply "could not resolve proxy endpoint host for transparent proxy bypass: $host"
+		fi
+	done
+}
+
+collect_manual_bypass() {
+	i=0
+
+	while uci -q get "$APP.@bypass_rule[$i]" >/dev/null 2>&1; do
+		enabled="$(uci -q get "$APP.@bypass_rule[$i].enabled" 2>/dev/null || echo 1)"
+		raw_host="$(uci -q get "$APP.@bypass_rule[$i].host" 2>/dev/null || true)"
+		i=$((i + 1))
+
+		[ "$enabled" != "0" ] || continue
+
+		host="$(normalize_bypass_host "$raw_host")"
+		[ -n "$host" ] || continue
+
+		if add_bypass_ip "$host"; then
+			continue
+		fi
+
+		if ! is_domain_name "$host"; then
+			record_failed_host "$host"
+			warn_apply "invalid manual bypass entry ignored; enter only domain, IP, or CIDR without scheme, path, or port: $raw_host"
+			continue
+		fi
+
+		resolved=0
+		for ip in $(resolve_endpoint_host "$host" 2>/dev/null || true); do
+			if add_bypass_ip "$ip"; then
+				resolved=1
+			fi
+		done
+
+		if [ "$resolved" = "0" ]; then
+			record_failed_host "$host"
+			warn_apply "could not resolve manual bypass host for transparent proxy bypass: $host"
 		fi
 	done
 }
@@ -274,6 +359,7 @@ run_rule "$NFT" add set inet podkopchik proxy_bypass4 '{ type ipv4_addr; flags i
 run_rule "$NFT" add set inet podkopchik proxy_bypass6 '{ type ipv6_addr; flags interval; }'
 
 collect_proxy_bypass
+collect_manual_bypass
 add_bypass_elements proxy_bypass4 "$bypass4"
 add_bypass_elements proxy_bypass6 "$bypass6"
 write_bypass_state

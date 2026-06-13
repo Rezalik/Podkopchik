@@ -322,6 +322,50 @@ function domain_values(s) {
 	return out;
 }
 
+function is_ipv4_value(value) {
+	return match(value, /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(\/[0-9]+)?$/);
+}
+
+function is_ipv6_value(value) {
+	return index(value, ':') >= 0 && match(value, /^[0-9a-f:]+(\/[0-9]+)?$/);
+}
+
+function is_bypass_ip_value(value) {
+	return is_ipv4_value(value) || is_ipv6_value(value);
+}
+
+function valid_bypass_domain(value) {
+	return match(value, /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/);
+}
+
+function bypass_domain_values() {
+	let out = [];
+	let seen = {};
+
+	for (let r in sections('bypass_rule', true)) {
+		let value = trim(lc(opt(r, 'host', '')));
+
+		if (!length(value))
+			continue;
+
+		if (substr(value, length(value) - 1, 1) == '.')
+			value = substr(value, 0, length(value) - 1);
+
+		if (is_bypass_ip_value(value))
+			continue;
+
+		if (index(value, '://') >= 0 || index(value, '/') >= 0 || index(value, ':') >= 0)
+			die('invalid bypass entry: enter only domain, IP, or CIDR without scheme, path, or port');
+
+		if (!valid_bypass_domain(value))
+			die('invalid bypass domain: ' + value);
+
+		add_domain_value(out, seen, value);
+	}
+
+	return out;
+}
+
 function transparent_inbound(main, fakedns_enabled) {
 	let dest_override = [ 'http', 'tls', 'quic' ];
 
@@ -393,6 +437,20 @@ function build_config() {
 	}
 
 	push(rules, private_direct_rule(fakedns_enabled ? opt(main, 'fakedns_pool_v4', '198.18.0.0/15') : ''));
+
+	let bypass_domains = bypass_domain_values();
+	if (length(bypass_domains)) {
+		let domains = [];
+
+		for (let domain in bypass_domains)
+			push(domains, 'domain:' + require_value(domain, 'bypass domain'));
+
+		push(rules, {
+			type: 'field',
+			domain: domains,
+			outboundTag: 'direct'
+		});
+	}
 
 	for (let p in proxies.list)
 		push(outbounds, vless_outbound(p));

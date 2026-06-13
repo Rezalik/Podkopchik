@@ -153,7 +153,7 @@ cmd_status() {
 	fi
 	if [ -s "$BYPASS_STATE" ]; then
 		echo
-		echo "Proxy endpoint bypass:"
+		echo "Transparent proxy bypass:"
 		cat "$BYPASS_STATE"
 	fi
 	if [ -s "$STATE" ]; then

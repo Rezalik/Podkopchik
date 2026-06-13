@@ -60,6 +60,7 @@ Podkopchik `0.1.0-beta` must allow a user to:
 16. Update Podkopchik from LuCI.
 17. Preserve user configuration during updates.
 18. Bypass configured proxy endpoint destinations before transparent proxy interception.
+19. Let users add manual direct exclusions for host/IP/CIDR destinations without port matching.
 
 ## Non-goals for 0.1.0-beta
 
@@ -446,6 +447,19 @@ Proxy endpoint bypass:
 * unresolved endpoint hostnames must warn but must not fail apply
 * bypass return rules must run before the final generic TPROXY rule
 * this prevents LAN clients with their own VLESS clients from being transparently redirected into the router Xray when connecting to the same proxy server
+
+Manual direct exclusions:
+
+* stored as UCI `bypass_rule` sections with `enabled`, `host`, and optional `comment`
+* `host` accepts only domain, IPv4, IPv6, IPv4 CIDR, or IPv6 CIDR values
+* URL schemes, paths, and ports are rejected in LuCI
+* no port-specific matching is implemented
+* IPv4/CIDR entries are added to `proxy_bypass4`
+* IPv6/CIDR entries are added to `proxy_bypass6`
+* domain entries are routed direct in generated Xray config above normal domain proxy rules
+* domain entries are resolved during apply and resolved IPs are added to `proxy_bypass4` or `proxy_bypass6`
+* unresolved manual bypass domains warn but must not fail apply
+* manual bypass entries complement automatic proxy endpoint bypass entries
 
 Installer
 
