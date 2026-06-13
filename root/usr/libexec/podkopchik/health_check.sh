@@ -3,12 +3,134 @@
 set -u
 
 APP="podkopchik"
-LIB="/usr/libexec/podkopchik"
-TMP_DIR="/tmp/podkopchik"
-STATE="$TMP_DIR/state.json"
+LIB="${PODKOPCHIK_LIB:-/usr/libexec/podkopchik}"
+TMP_DIR="${PODKOPCHIK_TMP_DIR:-/tmp/podkopchik}"
+PROC_DIR="${PODKOPCHIK_PROC_DIR:-/proc}"
+STATE="${PODKOPCHIK_STATE:-$TMP_DIR/state.json}"
+HEALTH_LOCK="$TMP_DIR/health-check.lock"
+HEALTH_LOCK_HELD="0"
+ACTIVE_PROBE_PID=""
+ACTIVE_PROBE_LOCK=""
 
 xray_bin() {
 	command -v xray 2>/dev/null || command -v xray-core 2>/dev/null || true
+}
+
+cmdline_for_pid() {
+	pid="$1"
+	tr '\000' ' ' < "$PROC_DIR/$pid/cmdline" 2>/dev/null || true
+}
+
+is_health_xray_cmdline() {
+	cmdline="$1"
+
+	case "$cmdline" in
+		*xray*" run -config $TMP_DIR/health-"*".json"*|*xray-core*" run -config $TMP_DIR/health-"*".json"*) return 0 ;;
+	esac
+
+	return 1
+}
+
+is_health_check_pid() {
+	pid="$1"
+	cmdline="$(cmdline_for_pid "$pid")"
+
+	case "$cmdline" in
+		*health_check.sh*) return 0 ;;
+	esac
+
+	return 1
+}
+
+terminate_pid() {
+	pid="$1"
+
+	kill "$pid" >/dev/null 2>&1 || return 0
+	sleep 1
+	if kill -0 "$pid" >/dev/null 2>&1; then
+		kill -KILL "$pid" >/dev/null 2>&1 || true
+	fi
+}
+
+cleanup_active_probe() {
+	if [ -n "$ACTIVE_PROBE_PID" ]; then
+		terminate_pid "$ACTIVE_PROBE_PID"
+		wait "$ACTIVE_PROBE_PID" >/dev/null 2>&1 || true
+		ACTIVE_PROBE_PID=""
+	fi
+
+	if [ -n "$ACTIVE_PROBE_LOCK" ]; then
+		rmdir "$ACTIVE_PROBE_LOCK" >/dev/null 2>&1 || true
+		ACTIVE_PROBE_LOCK=""
+	fi
+}
+
+release_health_lock() {
+	if [ "$HEALTH_LOCK_HELD" = "1" ]; then
+		rm -rf "$HEALTH_LOCK" >/dev/null 2>&1 || true
+		HEALTH_LOCK_HELD="0"
+	fi
+}
+
+cleanup_on_exit() {
+	cleanup_active_probe
+	release_health_lock
+}
+
+trap 'cleanup_on_exit' EXIT
+trap 'cleanup_on_exit; exit 130' INT
+trap 'cleanup_on_exit; exit 143' HUP TERM
+
+acquire_health_lock() {
+	mkdir -p "$TMP_DIR"
+
+	if mkdir "$HEALTH_LOCK" >/dev/null 2>&1; then
+		printf '%s\n' "$$" > "$HEALTH_LOCK/pid" 2>/dev/null || true
+		HEALTH_LOCK_HELD="1"
+		return 0
+	fi
+
+	old_pid="$(cat "$HEALTH_LOCK/pid" 2>/dev/null || true)"
+	if [ -z "$old_pid" ]; then
+		sleep 1
+		old_pid="$(cat "$HEALTH_LOCK/pid" 2>/dev/null || true)"
+	fi
+
+	if [ -n "$old_pid" ] && kill -0 "$old_pid" >/dev/null 2>&1 && is_health_check_pid "$old_pid"; then
+		logger -t podkopchik "health check skipped; another health check is already running"
+		return 1
+	fi
+
+	rm -rf "$HEALTH_LOCK" >/dev/null 2>&1 || true
+	if mkdir "$HEALTH_LOCK" >/dev/null 2>&1; then
+		printf '%s\n' "$$" > "$HEALTH_LOCK/pid" 2>/dev/null || true
+		HEALTH_LOCK_HELD="1"
+		return 0
+	fi
+
+	logger -t podkopchik "health check skipped; could not acquire health lock"
+	return 1
+}
+
+cleanup_stale_health_xray() {
+	for proc in "$PROC_DIR"/[0-9]*; do
+		[ -d "$proc" ] || continue
+		pid="${proc##*/}"
+		[ "$pid" = "$$" ] && continue
+		cmdline="$(cmdline_for_pid "$pid")"
+
+		if is_health_xray_cmdline "$cmdline"; then
+			logger -t podkopchik "cleaning up stale health probe Xray process $pid"
+			terminate_pid "$pid"
+		fi
+	done
+}
+
+cleanup_stale_probe_locks() {
+	for lock in "$TMP_DIR"/health-port-*.lock; do
+		[ -d "$lock" ] || continue
+		rm -rf "$lock" >/dev/null 2>&1 || true
+	done
 }
 
 proxy_tag() {
@@ -70,41 +192,44 @@ probe_proxy() {
 		record_probe "$results" "$tag" "unknown" "health probe port is locked"
 		return
 	fi
+	ACTIVE_PROBE_LOCK="$lock"
 
 	probe_port_state "$port"
 	port_state="$?"
 	if [ "$port_state" = "0" ]; then
-		rmdir "$lock" >/dev/null 2>&1 || true
+		cleanup_active_probe
 		record_probe "$results" "$tag" "unknown" "health probe port is already in use"
 		return
 	elif [ "$port_state" = "2" ]; then
-		rmdir "$lock" >/dev/null 2>&1 || true
+		cleanup_active_probe
 		record_probe "$results" "$tag" "unknown" "cannot verify health probe port ownership"
 		return
 	fi
 
 	if ! ucode -L "$LIB" "$LIB/generate.uc" health "$tag" "$port" > "$cfg" 2>"$log"; then
 		msg="$(tr '\n\t' '  ' < "$log")"
-		rmdir "$lock" >/dev/null 2>&1 || true
+		cleanup_active_probe
 		record_probe "$results" "$tag" "unknown" "could not generate health config: $msg"
 		return
 	fi
 
 	if ! "$bin" run -test -config "$cfg" >/dev/null 2>"$log"; then
 		msg="$(tr '\n\t' '  ' < "$log")"
-		rmdir "$lock" >/dev/null 2>&1 || true
+		cleanup_active_probe
 		record_probe "$results" "$tag" "unknown" "health config validation failed: $msg"
 		return
 	fi
 
 	"$bin" run -config "$cfg" >/dev/null 2>"$log" &
 	pid="$!"
+	ACTIVE_PROBE_PID="$pid"
 	sleep 1
 
 	if ! kill -0 "$pid" >/dev/null 2>&1; then
 		msg="$(tr '\n\t' '  ' < "$log")"
 		wait "$pid" >/dev/null 2>&1 || true
-		rmdir "$lock" >/dev/null 2>&1 || true
+		ACTIVE_PROBE_PID=""
+		cleanup_active_probe
 		record_probe "$results" "$tag" "unknown" "temporary xray probe process exited before curl: ${msg:-no listener}"
 		return
 	fi
@@ -116,12 +241,10 @@ probe_proxy() {
 		record_probe "$results" "$tag" "down" "${msg:-probe failed}"
 	fi
 
-	kill "$pid" >/dev/null 2>&1 || true
-	wait "$pid" >/dev/null 2>&1 || true
-	rmdir "$lock" >/dev/null 2>&1 || true
+	cleanup_active_probe
 }
 
-run_once() {
+run_once_locked() {
 	mkdir -p "$TMP_DIR"
 	results="$TMP_DIR/health-results.tsv"
 	: > "$results"
@@ -188,6 +311,21 @@ run_once() {
 		logger -t podkopchik "health state update failed"
 		return 1
 	fi
+}
+
+run_once() {
+	mkdir -p "$TMP_DIR"
+
+	if ! acquire_health_lock; then
+		return 0
+	fi
+
+	cleanup_stale_health_xray
+	cleanup_stale_probe_locks
+	run_once_locked
+	rc="$?"
+	release_health_lock
+	return "$rc"
 }
 
 case "${1:-once}" in

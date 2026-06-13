@@ -99,6 +99,19 @@ When routing is applied, Podkopchik resolves configured VLESS endpoint hosts and
 
 FakeDNS is off by default. Enabling `fakedns_enabled` changes generated Xray config: it adds Xray `dns`, `fakedns`, `dns-in`, and `dns-out` sections and adds `fakedns` to transparent inbound sniffing. LAN DNS hijack is separate and only active when `fakedns_hijack_dns=1`.
 
+FakeDNS MVP was verified on a GL.iNet Flint 2 / GL-MT6000 running OpenWrt 24.10.4 with Xray 25.1.30. The verified path is:
+
+- generated Xray config passes `xray run -test`;
+- Xray `dns-in` listens on port `1053`;
+- nftables `dns_prerouting` redirects LAN UDP/TCP 53 to `:1053`;
+- active FakeDNS pool `198.18.0.0/15` is excluded from nft `reserved4`;
+- active FakeDNS pool `198.18.0.0/15` is excluded from Xray's private/reserved direct rule;
+- a LAN client DNS query for `x.com` through the router returns `198.18.x.x` or `198.19.x.x`;
+- X/Twitter app on iPhone works through the FakeDNS path;
+- Xray logs show `[dns-in -> dns-out]` DNS handling and `[transparent -> gerwarp]` for FakeDNS traffic.
+
+This MVP does not enable UDP TPROXY and does not add UDP/443 blocking.
+
 Enable for config validation experiments:
 
 ```sh
@@ -121,6 +134,20 @@ nft list table inet podkopchik
 When DNS hijack is enabled, the Xray `dns-in` inbound listens on `0.0.0.0` by default so nft redirected LAN DNS packets can reach it on the router LAN address. The nft rule is still limited to the configured LAN interface. Without DNS hijack, `dns-in` listens on `127.0.0.1`.
 
 When FakeDNS is enabled, the active FakeDNS IPv4 pool, default `198.18.0.0/15`, is not added to the nftables reserved bypass set and is not routed direct by Xray's private/reserved rule. This lets TCP traffic to fake IPs enter the Xray transparent inbound. When FakeDNS is disabled, `198.18.0.0/15` remains treated as a reserved/direct range.
+
+Acceptance checklist on a router:
+
+```sh
+podkopchikctl generate
+xray run -test -config /etc/podkopchik/config.generated.json
+podkopchikctl apply
+netstat -lnp 2>/dev/null | grep -E '1053|12345'
+nft -a list table inet podkopchik | grep -A10 -B3 'dns_prerouting'
+nft list set inet podkopchik reserved4 | grep '198.18.0.0/15' || echo 'OK: FakeDNS pool is not in reserved4'
+jsonfilter -q -i /etc/podkopchik/config.generated.json -e '@.routing.rules[*].ip[*]' | grep '198.18.0.0/15' || echo 'OK: FakeDNS pool is not direct-routed'
+nslookup x.com 192.168.8.1
+logread | grep -iE 'dns-in|dns-out|transparent.*198\\.18|transparent.*198\\.19'
+```
 
 Rollback:
 

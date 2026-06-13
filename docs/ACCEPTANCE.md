@@ -46,6 +46,34 @@
 - Preserve /etc/config/podkopchik on update/uninstall unless purge is explicitly requested.
 - Service is enabled and started by install.sh, while TPROXY interception remains inactive until a valid proxy/rule set is applied.
 - Health checks record real probe results when Xray plus curl probing is available; otherwise they report unknown with the reason and do not mark proxies up.
+- Health-check cleanup removes stale temporary Xray processes using `/tmp/podkopchik/health-*.json` and never targets the main `/etc/podkopchik/config.json` Xray process.
+
+## FakeDNS MVP acceptance
+
+FakeDNS is experimental and must remain disabled by default.
+
+When explicitly enabled with:
+
+```sh
+uci set podkopchik.main.fakedns_enabled='1'
+uci set podkopchik.main.fakedns_hijack_dns='1'
+uci set podkopchik.main.fakedns_port='1053'
+uci set podkopchik.main.fakedns_listen=''
+uci set podkopchik.main.fakedns_pool_v4='198.18.0.0/15'
+uci commit podkopchik
+```
+
+the router acceptance checklist is:
+
+- `xray run -test -config /etc/podkopchik/config.generated.json` reports `Configuration OK`.
+- nft table `inet podkopchik` contains `dns_prerouting`.
+- Xray listens on port `1053`.
+- active FakeDNS pool `198.18.0.0/15` is absent from nft `reserved4`.
+- active FakeDNS pool `198.18.0.0/15` is absent from Xray private/reserved direct rule.
+- a LAN client DNS query for `x.com` via router DNS returns `198.18.x.x` or `198.19.x.x`.
+- X/Twitter app works on an iPhone LAN client.
+
+The FakeDNS MVP must not add UDP TPROXY or UDP/443 blocking.
 
 ## Required commands
 

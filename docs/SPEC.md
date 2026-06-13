@@ -326,6 +326,8 @@ This is not ICMP ping.
 
 The `0.1.0-beta` implementation uses a temporary localhost SOCKS inbound backed by Xray plus `curl` for real outbound checks. If that probe path is unavailable, status must be recorded as `unknown` with a reason and must not be treated as healthy.
 
+Temporary health-check Xray processes must be cleaned up on normal exit, probe failure, timeout, and interruption. Before starting a new probe, Podkopchik must remove only stale health-check Xray processes whose command line references `/tmp/podkopchik/health-*.json`; it must not kill the main Xray process using `/etc/podkopchik/config.json`.
+
 Default values:
 
 * probe URL: https://www.gstatic.com/generate_204
@@ -396,6 +398,18 @@ When `fakedns_enabled=1` and `fakedns_hijack_dns=1`, nftables apply must add:
 
 When `fakedns_hijack_dns=0`, `dns_prerouting` must be absent.
 When `fakedns_enabled=1` and `fakedns_hijack_dns=0`, Xray `dns-in` listen address must default to `127.0.0.1`.
+
+FakeDNS MVP validation milestone:
+
+* Verified on GL.iNet Flint 2 / GL-MT6000, OpenWrt 24.10.4, Xray 25.1.30.
+* Generated config passed `xray run -test`.
+* With `fakedns_enabled=1` and `fakedns_hijack_dns=1`, Xray listened on `:::1053`.
+* nftables contained `dns_prerouting` with LAN UDP/TCP 53 redirect to `:1053`.
+* nftables `reserved4` did not contain active pool `198.18.0.0/15`.
+* generated Xray private/reserved direct rule did not contain active pool `198.18.0.0/15`.
+* LAN client DNS queries for `x.com` through the router returned FakeDNS addresses from `198.18.0.0/15`.
+* X/Twitter app on iPhone worked through this path.
+* Xray logs showed `[dns-in -> dns-out]` and `[transparent -> gerwarp]` for FakeDNS-routed traffic.
 
 Generated config must be valid JSON.
 
