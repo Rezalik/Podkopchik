@@ -19,6 +19,7 @@ PODKOPCHIK_PRIO="10991"
 bypass4=""
 bypass6=""
 bypass_failed_hosts=""
+reserved4_cidrs="0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.168.0.0/16 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 224.0.0.0/4 240.0.0.0/4"
 
 fail_apply() {
 	reason="${1:-failed to apply Podkopchik routing rules}"
@@ -203,6 +204,24 @@ add_bypass_elements() {
 	run_rule "$NFT" add element inet podkopchik "$set_name" "{ $elements }"
 }
 
+reserved4_elements() {
+	elements=""
+
+	for cidr in $reserved4_cidrs; do
+		if [ "$fakedns_enabled" = "1" ] && [ "$cidr" = "$fakedns_pool_v4" ]; then
+			continue
+		fi
+
+		if [ -n "$elements" ]; then
+			elements="$elements, $cidr"
+		else
+			elements="$cidr"
+		fi
+	done
+
+	printf '%s\n' "$elements"
+}
+
 write_bypass_state() {
 	{
 		echo "proxy_bypass4=$bypass4"
@@ -228,6 +247,7 @@ dns_redirect="$(uci -q get "$APP.main.dns_redirect" 2>/dev/null || echo 0)"
 fakedns_enabled="$(uci -q get "$APP.main.fakedns_enabled" 2>/dev/null || echo 0)"
 fakedns_hijack_dns="$(uci -q get "$APP.main.fakedns_hijack_dns" 2>/dev/null || echo 0)"
 fakedns_port="$(uci -q get "$APP.main.fakedns_port" 2>/dev/null || echo 1053)"
+fakedns_pool_v4="$(uci -q get "$APP.main.fakedns_pool_v4" 2>/dev/null || echo 198.18.0.0/15)"
 
 require_ip_full
 
@@ -247,7 +267,7 @@ if [ "$fakedns_enabled" = "1" ] && [ "$fakedns_hijack_dns" = "1" ]; then
 	run_rule "$NFT" add rule inet podkopchik dns_prerouting iifname "$lan" tcp dport 53 redirect to :"$fakedns_port"
 fi
 run_rule "$NFT" add set inet podkopchik reserved4 '{ type ipv4_addr; flags interval; }'
-run_rule "$NFT" add element inet podkopchik reserved4 '{ 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/4, 240.0.0.0/4 }'
+run_rule "$NFT" add element inet podkopchik reserved4 "{ $(reserved4_elements) }"
 run_rule "$NFT" add set inet podkopchik reserved6 '{ type ipv6_addr; flags interval; }'
 run_rule "$NFT" add element inet podkopchik reserved6 '{ ::1/128, fc00::/7, fe80::/10 }'
 run_rule "$NFT" add set inet podkopchik proxy_bypass4 '{ type ipv4_addr; flags interval; }'

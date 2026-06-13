@@ -30,6 +30,7 @@ EOF
 disabled="$tmp/disabled.json"
 UCI_CONFIG_DIR="$tmp" ucode -L root/usr/libexec/podkopchik root/usr/libexec/podkopchik/generate.uc > "$disabled"
 jsonfilter -q -i "$disabled" -e '@.routing.domainStrategy' >/dev/null
+jsonfilter -q -i "$disabled" -e '@.routing.rules[0].ip[*]' | grep -qx '198.18.0.0/15'
 
 ! grep -q '"dns-in"' "$disabled"
 ! grep -q '"dns-out"' "$disabled"
@@ -59,7 +60,27 @@ jsonfilter -q -i "$enabled" -e '@.inbounds[1].port' | grep -qx '1053'
 jsonfilter -q -i "$enabled" -e '@.outbounds[2].tag' | grep -qx 'dns-out'
 jsonfilter -q -i "$enabled" -e '@.routing.rules[0].inboundTag[0]' | grep -qx 'dns-in'
 jsonfilter -q -i "$enabled" -e '@.routing.rules[0].outboundTag' | grep -qx 'dns-out'
+! jsonfilter -q -i "$enabled" -e '@.routing.rules[1].ip[*]' | grep -qx '198.18.0.0/15'
+jsonfilter -q -i "$enabled" -e '@.routing.rules[1].ip[*]' | grep -qx '10.0.0.0/8'
 jsonfilter -q -i "$enabled" -e '@.inbounds[0].sniffing.destOverride[*]' | grep -qx 'fakedns'
+
+cat > "$tmp/podkopchik" <<'EOF'
+config settings 'main'
+	option transparent_port '12345'
+	option loglevel 'warning'
+	option fakedns_enabled '1'
+	option fakedns_port '1053'
+	option fakedns_listen ''
+	option fakedns_pool_v4 '10.0.0.0/8'
+	option fakedns_pool_size '65535'
+	option fakedns_hijack_dns '0'
+EOF
+
+custom_pool="$tmp/custom-pool.json"
+UCI_CONFIG_DIR="$tmp" ucode -L root/usr/libexec/podkopchik root/usr/libexec/podkopchik/generate.uc > "$custom_pool"
+jsonfilter -q -i "$custom_pool" -e '@.fakedns.ipPool' | grep -qx '10.0.0.0/8'
+! jsonfilter -q -i "$custom_pool" -e '@.routing.rules[1].ip[*]' | grep -qx '10.0.0.0/8'
+jsonfilter -q -i "$custom_pool" -e '@.routing.rules[1].ip[*]' | grep -qx '198.18.0.0/15'
 
 cat > "$tmp/podkopchik" <<'EOF'
 config settings 'main'

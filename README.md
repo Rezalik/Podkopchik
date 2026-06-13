@@ -120,6 +120,8 @@ nft list table inet podkopchik
 
 When DNS hijack is enabled, the Xray `dns-in` inbound listens on `0.0.0.0` by default so nft redirected LAN DNS packets can reach it on the router LAN address. The nft rule is still limited to the configured LAN interface. Without DNS hijack, `dns-in` listens on `127.0.0.1`.
 
+When FakeDNS is enabled, the active FakeDNS IPv4 pool, default `198.18.0.0/15`, is not added to the nftables reserved bypass set and is not routed direct by Xray's private/reserved rule. This lets TCP traffic to fake IPs enter the Xray transparent inbound. When FakeDNS is disabled, `198.18.0.0/15` remains treated as a reserved/direct range.
+
 Rollback:
 
 ```sh

@@ -380,6 +380,13 @@ When `fakedns_enabled=1`, generated config must additionally include:
 
 When `fakedns_enabled=0`, these FakeDNS sections must be absent.
 
+When `fakedns_enabled=1`, the active `fakedns_pool_v4` must be excluded from:
+
+* the generated Xray private/reserved direct routing rule
+* the nftables `reserved4` bypass set
+
+This allows TCP traffic to FakeDNS IPs to reach Xray's transparent inbound. When `fakedns_enabled=0`, the default reserved/direct behavior remains unchanged and `198.18.0.0/15` stays reserved/direct.
+
 When `fakedns_enabled=1` and `fakedns_hijack_dns=1`, nftables apply must add:
 
 * `chain dns_prerouting { type nat hook prerouting priority dstnat; policy accept; }`

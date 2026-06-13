@@ -21,6 +21,7 @@ case "${2:-}" in
 	podkopchik.main.fakedns_enabled) echo "${FAKEDNS_ENABLED:-0}" ;;
 	podkopchik.main.fakedns_hijack_dns) echo "${FAKEDNS_HIJACK:-0}" ;;
 	podkopchik.main.fakedns_port) echo "${FAKEDNS_PORT:-1053}" ;;
+	podkopchik.main.fakedns_pool_v4) echo "${FAKEDNS_POOL_V4:-198.18.0.0/15}" ;;
 	*) exit 1 ;;
 esac
 EOF
@@ -56,12 +57,14 @@ run_apply() {
 	label="$1"
 	enabled="$2"
 	hijack="$3"
+	pool="${4:-198.18.0.0/15}"
 	log="$tmp/$label.log"
 	err="$tmp/$label.err"
 
 	FAKEDNS_ENABLED="$enabled" \
 		FAKEDNS_HIJACK="$hijack" \
 		FAKEDNS_PORT="1053" \
+		FAKEDNS_POOL_V4="$pool" \
 		PODKOPCHIK_TEST_LOG="$log" \
 		PODKOPCHIK_TMP_DIR="$tmp/runtime-$label" \
 		PODKOPCHIK_CLEANUP="$tmp/cleanup" \
@@ -75,16 +78,25 @@ run_apply() {
 
 disabled_log="$(run_apply disabled 0 0)"
 ! grep -q "dns_prerouting" "$disabled_log"
+grep -q "nft add element inet podkopchik reserved4 .*198.18.0.0/15" "$disabled_log"
 
 no_hijack_log="$(run_apply no-hijack 1 0)"
 ! grep -q "dns_prerouting" "$no_hijack_log"
+! grep -q "nft add element inet podkopchik reserved4 .*198.18.0.0/15" "$no_hijack_log"
+grep -q "nft add element inet podkopchik reserved4 .*10.0.0.0/8" "$no_hijack_log"
 
 hijack_log="$(run_apply hijack 1 1)"
 grep -q "nft add chain inet podkopchik dns_prerouting { type nat hook prerouting priority dstnat; policy accept; }" "$hijack_log"
 grep -q "nft add rule inet podkopchik dns_prerouting iifname br-lan udp dport 53 redirect to :1053" "$hijack_log"
 grep -q "nft add rule inet podkopchik dns_prerouting iifname br-lan tcp dport 53 redirect to :1053" "$hijack_log"
+! grep -q "nft add element inet podkopchik reserved4 .*198.18.0.0/15" "$hijack_log"
+grep -q "nft add element inet podkopchik reserved4 .*10.0.0.0/8" "$hijack_log"
 grep -q "nft add chain inet podkopchik prerouting { type filter hook prerouting priority mangle; policy accept; }" "$hijack_log"
 grep -q "nft add rule inet podkopchik prerouting iifname br-lan meta l4proto tcp meta mark set 0x100000 tproxy to :12345 accept" "$hijack_log"
+
+custom_pool_log="$(run_apply custom-pool 1 1 10.0.0.0/8)"
+! grep -q "nft add element inet podkopchik reserved4 .*10.0.0.0/8" "$custom_pool_log"
+grep -q "nft add element inet podkopchik reserved4 .*198.18.0.0/15" "$custom_pool_log"
 
 grep -q "nft delete table inet podkopchik" root/usr/libexec/podkopchik/cleanup_rules.sh
 
