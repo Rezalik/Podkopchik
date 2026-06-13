@@ -4,6 +4,7 @@ set -u
 
 APP="podkopchik"
 LIB="${PODKOPCHIK_LIB:-/usr/libexec/podkopchik}"
+CTL="${PODKOPCHIK_CTL:-/usr/bin/podkopchikctl}"
 TMP_DIR="${PODKOPCHIK_TMP_DIR:-/tmp/podkopchik}"
 PROC_DIR="${PODKOPCHIK_PROC_DIR:-/proc}"
 STATE="${PODKOPCHIK_STATE:-$TMP_DIR/state.json}"
@@ -270,6 +271,7 @@ run_once_locked() {
 		events="$TMP_DIR/health-events.$$"
 		switched="0"
 		applied="0"
+		apply_failed="0"
 		: > "$events"
 		if command -v jsonfilter >/dev/null 2>&1; then
 			jsonfilter -q -i "$STATE.tmp" -e '@.events[*]' > "$events" 2>/dev/null || true
@@ -284,14 +286,21 @@ run_once_locked() {
 
 		if [ "$switched" = "1" ]; then
 			if [ "$(uci -q get "$APP.main.routing_enabled" 2>/dev/null || echo 0)" = "1" ]; then
-				if /usr/bin/podkopchikctl apply-health-state "$STATE.tmp"; then
+				if "$CTL" apply-health-state "$STATE.tmp"; then
 					applied="1"
 				else
+					apply_failed="1"
 					logger -t podkopchik "failover config apply failed; active Xray config was not changed"
 				fi
 			else
 				logger -t podkopchik "routing inactive; failover state recorded without Xray restart"
 			fi
+		fi
+
+		if [ "$apply_failed" = "1" ]; then
+			rm -f "$STATE.tmp" "$events"
+			logger -t podkopchik "health state was not replaced because failover apply failed; next health check will retry"
+			return 1
 		fi
 
 		if ! mv "$STATE.tmp" "$STATE"; then

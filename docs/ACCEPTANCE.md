@@ -30,7 +30,7 @@
 - Support manual override.
 - Route domain groups to the automatic proxy group, a specific proxy, or direct.
 - Route destination IP/CIDR to proxy groups.
-- Changing IP Rules in LuCI and pressing Save & Apply updates the active Xray routing by running the Podkopchik runtime apply path; manual SSH apply is not required.
+- LuCI Save & Apply on routing-affecting pages, including Proxy Links, Domain Groups, IP Rules, Exclusions, LAN Devices, DNS, and Advanced settings, updates the active runtime state through the Podkopchik apply/cleanup path when routing is active; manual SSH apply is not required.
 - Add manual Exclusions for domain, IP, and CIDR destinations that must go direct without port matching.
 - Manual Exclusions Save & Apply must run the Podkopchik runtime apply path; manual SSH apply is not required.
 - Route source LAN IP devices to proxy groups/direct.
@@ -50,6 +50,8 @@
 - Service is enabled and started by install.sh, while TPROXY interception remains inactive until a valid proxy/rule set is applied.
 - Health checks record real probe results when Xray plus curl probing is available; otherwise they report unknown with the reason and do not mark proxies up.
 - Health-check cleanup removes stale temporary Xray processes using `/tmp/podkopchik/health-*.json` and never targets the main `/etc/podkopchik/config.json` Xray process.
+- `podkopchikctl status` reports Xray as running only when the main process uses `/etc/podkopchik/config.json`; stale health probe processes must not be counted as the main service.
+- If failover config apply cannot acquire the runtime apply path or fails validation/application, health state is not advanced to the new active proxy; the next health check can retry without drifting away from the active Xray config.
 
 ## FakeDNS MVP acceptance
 

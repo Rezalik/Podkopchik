@@ -12,6 +12,7 @@ STATE="$TMP_DIR/state.json"
 BYPASS_STATE="$TMP_DIR/proxy_bypass.env"
 ROLLBACK="$TMP_DIR/rollback.tar.gz"
 VERSION="0.1.0-beta"
+PROC_DIR="${PODKOPCHIK_PROC_DIR:-/proc}"
 
 die() {
 	echo "podkopchikctl: $*" >&2
@@ -24,6 +25,26 @@ log() {
 
 xray_bin() {
 	command -v xray 2>/dev/null || command -v xray-core 2>/dev/null || true
+}
+
+cmdline_for_pid() {
+	pid="$1"
+	[ -r "$PROC_DIR/$pid/cmdline" ] || return 1
+	tr '\000' ' ' < "$PROC_DIR/$pid/cmdline" 2>/dev/null
+}
+
+main_xray_running() {
+	for proc in "$PROC_DIR"/[0-9]*; do
+		[ -d "$proc" ] || continue
+		pid="${proc##*/}"
+		cmdline="$(cmdline_for_pid "$pid" || true)"
+
+		case "$cmdline" in
+			*xray*" run -config $CONFIG"*|*xray-core*" run -config $CONFIG"*) return 0 ;;
+		esac
+	done
+
+	return 1
 }
 
 ucode_run() {
@@ -146,7 +167,7 @@ cmd_status() {
 	echo "Domain rules: $(section_count domain_rule)"
 	echo "IP rules: $(section_count ip_rule)"
 	echo "LAN device rules: $(section_count lan_device)"
-	if pidof xray >/dev/null 2>&1 || pidof xray-core >/dev/null 2>&1; then
+	if main_xray_running; then
 		echo "Xray: running"
 	else
 		echo "Xray: not running"
@@ -187,6 +208,21 @@ cmd_validate_active() {
 cmd_apply() {
 	mkdir -p "$TMP_DIR" "$CONFIG_DIR"
 
+	lock_dir="$TMP_DIR/config-apply.lock"
+	tmp="$TMP_DIR/config.apply.$$.json"
+	apply_err="$TMP_DIR/apply-rules.$$.err"
+	cleanup_apply() {
+		[ -n "$tmp" ] && rm -f "$tmp"
+		rm -f "$apply_err"
+		rmdir "$lock_dir" >/dev/null 2>&1 || true
+	}
+
+	if ! mkdir "$lock_dir" >/dev/null 2>&1; then
+		die "another config apply is in progress"
+	fi
+
+	trap 'cleanup_apply' HUP INT TERM EXIT
+
 	if ! has_enabled_proxy || ! has_enabled_route; then
 		uci -q set "$APP.main.routing_enabled=0"
 		uci -q commit "$APP"
@@ -196,7 +232,6 @@ cmd_apply() {
 
 	require_ip_full
 
-	tmp="$TMP_DIR/config.apply.json"
 	generate_to "$tmp"
 	validate_file "$tmp"
 
@@ -204,11 +239,10 @@ cmd_apply() {
 	uci -q commit "$APP"
 
 	replace_active_config "$tmp"
+	tmp=""
 
-	apply_err="$TMP_DIR/apply-rules.err"
 	if ! "$LIB/apply_rules.sh" apply >"$apply_err" 2>&1; then
 		apply_reason="$(sed -n '1,8p' "$apply_err" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//' || true)"
-		rm -f "$apply_err"
 		restore_previous_config
 		uci -q set "$APP.main.routing_enabled=0"
 		uci -q commit "$APP"
@@ -226,6 +260,8 @@ cmd_apply() {
 	uci -q commit "$APP"
 	/etc/init.d/podkopchik restart
 	log "routing configuration applied"
+	trap - HUP INT TERM EXIT
+	cleanup_apply
 	echo "Podkopchik routing applied."
 }
 

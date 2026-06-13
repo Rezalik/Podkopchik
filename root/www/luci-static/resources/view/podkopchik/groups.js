@@ -1,7 +1,13 @@
 'use strict';
 'require view';
 'require form';
+'require fs';
+'require ui';
 'require uci';
+
+function runApply() {
+	return fs.exec_direct('/usr/bin/podkopchikctl', [ 'apply' ]);
+}
 
 function addProxyValues(o) {
 	var proxies = uci.sections('podkopchik', 'proxy') || [];
@@ -20,6 +26,7 @@ return view.extend({
 
 	render: function() {
 		var m = new form.Map('podkopchik', _('Podkopchik'));
+		this.map = m;
 		var s = m.section(form.GridSection, 'proxy_group', _('Advanced proxy groups'));
 		s.anonymous = true;
 		s.addremove = true;
@@ -83,5 +90,24 @@ return view.extend({
 		o.depends('mode', 'fixed_proxy');
 
 		return m.render();
+	},
+
+	handleSave: function() {
+		return this.map.save();
+	},
+
+	handleSaveApply: function(ev, mode) {
+		return this.handleSave(ev).then(function() {
+			return ui.changes.apply(mode == '0');
+		}).then(function() {
+			return runApply();
+		}).then(function(res) {
+			if (res)
+				ui.addNotification(null, E('pre', { 'style': 'white-space: pre-wrap' }, res));
+		}).catch(function(err) {
+			var message = err && err.message ? err.message : String(err);
+			ui.addNotification(_('Apply'), E('pre', { 'style': 'white-space: pre-wrap' }, message), 'error');
+			return Promise.reject(err);
+		});
 	}
 });

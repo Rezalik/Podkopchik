@@ -1,9 +1,14 @@
 'use strict';
 'require view';
+'require fs';
 'require ui';
 'require uci';
 
 var AUTO_GROUP_TAG = 'auto_proxy_group';
+
+function runApply() {
+	return fs.exec_direct('/usr/bin/podkopchikctl', [ 'apply' ]);
+}
 
 function cleanTag(value) {
 	var tag = (value || '').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').substr(0, 48);
@@ -392,7 +397,16 @@ return view.extend({
 
 	handleSaveApply: function(ev, mode) {
 		return this.handleSave(ev).then(function() {
-			ui.changes.apply(mode == '0');
+			return ui.changes.apply(mode == '0');
+		}).then(function() {
+			return runApply();
+		}).then(function(res) {
+			if (res)
+				ui.addNotification(null, E('pre', { 'style': 'white-space: pre-wrap' }, res));
+		}).catch(function(err) {
+			var message = err && err.message ? err.message : String(err);
+			ui.addNotification(_('Apply'), E('pre', { 'style': 'white-space: pre-wrap' }, message), 'error');
+			return Promise.reject(err);
 		});
 	},
 

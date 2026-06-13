@@ -7,7 +7,20 @@ runtime="$tmp/runtime"
 fake_proc="$tmp/proc"
 rm -rf "$tmp"
 mkdir -p "$tmp" "$runtime" "$tmp/lib" "$fake_proc"
-trap 'kill ${main_pid:-} ${stale_pid:-} >/dev/null 2>&1 || true; rm -rf "$tmp"' EXIT
+cleanup() {
+	if [ -n "${main_pid:-}" ]; then
+		kill "$main_pid" >/dev/null 2>&1 || true
+		wait "$main_pid" >/dev/null 2>&1 || true
+	fi
+
+	if [ -n "${stale_pid:-}" ]; then
+		kill "$stale_pid" >/dev/null 2>&1 || true
+		wait "$stale_pid" >/dev/null 2>&1 || true
+	fi
+
+	rm -rf "$tmp"
+}
+trap cleanup EXIT HUP INT TERM
 
 cat > "$tmp/uci" <<'EOF'
 #!/bin/sh

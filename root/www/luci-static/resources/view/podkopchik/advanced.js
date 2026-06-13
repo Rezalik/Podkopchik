@@ -3,6 +3,7 @@
 'require form';
 'require fs';
 'require ui';
+'require uci';
 
 function runCommand(args) {
 	return fs.exec_direct('/usr/bin/podkopchikctl', args).catch(function(err) {
@@ -10,9 +11,18 @@ function runCommand(args) {
 	});
 }
 
+function runRuntime(args) {
+	return fs.exec_direct('/usr/bin/podkopchikctl', args);
+}
+
 return view.extend({
+	load: function() {
+		return uci.load('podkopchik');
+	},
+
 	render: function() {
 		var m = new form.Map('podkopchik', _('Podkopchik'));
+		this.map = m;
 		var s = m.section(form.NamedSection, 'main', 'settings', _('Advanced'));
 		s.anonymous = true;
 
@@ -97,6 +107,34 @@ return view.extend({
 
 		return m.render().then(function(node) {
 			return E([ node, buttons ]);
+		});
+	},
+
+	handleSave: function() {
+		return this.map.save();
+	},
+
+	handleSaveApply: function(ev, mode) {
+		return this.handleSave(ev).then(function() {
+			return ui.changes.apply(mode == '0');
+		}).then(function() {
+			var enabled = uci.get('podkopchik', 'main', 'enabled');
+			var routing = uci.get('podkopchik', 'main', 'routing_enabled');
+
+			if (enabled == '0')
+				return runRuntime([ 'cleanup' ]);
+
+			if (routing == '1')
+				return runRuntime([ 'apply' ]);
+
+			return '';
+		}).then(function(res) {
+			if (res)
+				ui.addNotification(null, E('pre', { 'style': 'white-space: pre-wrap' }, res));
+		}).catch(function(err) {
+			var message = err && err.message ? err.message : String(err);
+			ui.addNotification(_('Apply'), E('pre', { 'style': 'white-space: pre-wrap' }, message), 'error');
+			return Promise.reject(err);
 		});
 	}
 });

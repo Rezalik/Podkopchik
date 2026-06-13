@@ -135,6 +135,8 @@ Podkopchik must provide these LuCI pages:
 8. Logs
 9. Advanced
 
+Pages that change active routing inputs must not stop at a UCI save. Save & Apply on Proxy Links, Domain Groups, IP Rules, Exclusions, LAN Devices, DNS, and active Advanced settings must invoke the Podkopchik runtime apply path, or cleanup when the service is disabled, so the active Xray config and Podkopchik-owned nftables state match the saved settings.
+
 Proxy links
 
 A proxy link represents one named VLESS URI.
@@ -330,6 +332,8 @@ This is not ICMP ping.
 The `0.1.0-beta` implementation uses a temporary localhost SOCKS inbound backed by Xray plus `curl` for real outbound checks. If that probe path is unavailable, status must be recorded as `unknown` with a reason and must not be treated as healthy.
 
 Temporary health-check Xray processes must be cleaned up on normal exit, probe failure, timeout, and interruption. Before starting a new probe, Podkopchik must remove only stale health-check Xray processes whose command line references `/tmp/podkopchik/health-*.json`; it must not kill the main Xray process using `/etc/podkopchik/config.json`.
+
+When health state contains a failover switch event while routing is active, Podkopchik must regenerate and validate the active Xray config before replacing it. If that failover apply path is busy or fails, the previous health state must remain in place so the next health check can retry instead of recording a proxy selection that is not present in `/etc/podkopchik/config.json`.
 
 Default values:
 

@@ -8,6 +8,10 @@ var AUTO_GROUP_TAG = 'auto_proxy_group';
 var MAX_SIMPLE_PROXIES = 10;
 var MAX_ACTIVE_BACKUPS = 3;
 
+function runApply() {
+	return fs.exec_direct('/usr/bin/podkopchikctl', [ 'apply' ]);
+}
+
 function proxyTag(p) {
 	return p.tag || p.name || '';
 }
@@ -539,7 +543,16 @@ return view.extend({
 
 	handleSaveApply: function(ev, mode) {
 		return this.handleSave(ev).then(function() {
-			ui.changes.apply(mode == '0');
+			return ui.changes.apply(mode == '0');
+		}).then(function() {
+			return runApply();
+		}).then(function(res) {
+			if (res)
+				ui.addNotification(null, E('pre', { 'style': 'white-space: pre-wrap' }, res));
+		}).catch(function(err) {
+			var message = err && err.message ? err.message : String(err);
+			ui.addNotification(_('Apply'), E('pre', { 'style': 'white-space: pre-wrap' }, message), 'error');
+			return Promise.reject(err);
 		});
 	},
 
