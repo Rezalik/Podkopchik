@@ -865,6 +865,12 @@ msgstr "Canva"
 msgid "Discord"
 msgstr "Discord"
 
+msgid "Duplicates skipped"
+msgstr "Дубли пропущены"
+
+msgid "Failed to add preset"
+msgstr "Не удалось добавить пресет"
+
 msgid "Instagram"
 msgstr "Instagram"
 
@@ -882,6 +888,12 @@ msgstr "Пресеты"
 
 msgid "Presets quickly create ordinary editable domain and IP rules. After adding a preset, you can edit or delete the created rules on the Domain Groups and IP Rules pages."
 msgstr "Пресеты быстро создают обычные редактируемые доменные и IP-правила. После добавления пресета вы можете изменить или удалить созданные правила на страницах групп доменов и IP-правил."
+
+msgid "Rules added"
+msgstr "Правил добавлено"
+
+msgid "Runtime apply failed"
+msgstr "Runtime-применение не удалось"
 
 msgid "Select a preset service."
 msgstr "Выберите сервис-пресет."

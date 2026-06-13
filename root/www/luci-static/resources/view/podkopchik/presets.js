@@ -411,8 +411,8 @@ function option(value, label, selected) {
 
 function resultText(result) {
 	return [
-		_('Added') + ': ' + result.added,
-		_('Skipped duplicates') + ': ' + result.skipped
+		_('Rules added') + ': ' + result.added,
+		_('Duplicates skipped') + ': ' + result.skipped
 	].join('\n');
 }
 
@@ -469,7 +469,7 @@ return view.extend({
 									ui.addNotification(_('Preset added'), E('pre', { 'style': 'white-space: pre-wrap' }, resultText(result) + (res ? '\n\n' + res : '')));
 								}).catch(function(err) {
 									var message = err && err.message ? err.message : String(err);
-									ui.addNotification(_('Preset saved, but runtime apply failed'), E('pre', { 'style': 'white-space: pre-wrap' }, resultText(result) + '\n\n' + message), 'error');
+									ui.addNotification(_('Failed to add preset'), E('pre', { 'style': 'white-space: pre-wrap' }, resultText(result) + '\n\n' + _('Runtime apply failed') + ': ' + message), 'error');
 									return Promise.reject(err);
 								});
 							})
