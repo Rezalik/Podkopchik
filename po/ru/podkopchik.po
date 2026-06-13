@@ -13,8 +13,14 @@ msgstr ""
 msgid "Advanced"
 msgstr "Дополнительно"
 
+msgid "Add"
+msgstr "Добавить"
+
 msgid "Apply"
 msgstr "Применить"
+
+msgid "Save & Apply"
+msgstr "Сохранить и применить"
 
 msgid "Archive URL"
 msgstr "URL архива"
@@ -677,7 +683,7 @@ msgid "Add proxy link"
 msgstr "Добавить прокси-ссылку"
 
 msgid "Add hosts, IP addresses, or CIDR networks that must always bypass the proxy. Use this for 3x-ui panels, VPS addresses, or proxy server domains you need to open directly from LAN."
-msgstr "Добавьте хосты, IP-адреса или CIDR-сети, которые всегда должны обходить прокси. Это удобно для панелей 3x-ui, адресов VPS или доменов прокси-сервера, которые нужно открывать напрямую из LAN."
+msgstr "Добавьте домены, IP-адреса или CIDR-сети, которые должны открываться напрямую, в обход прокси. Полезно для панелей 3x-ui, VPS и доменов прокси-серверов из LAN."
 
 msgid "Automatic: main + backups"
 msgstr "Автоматически: основной + резервные"
@@ -710,7 +716,7 @@ msgid "Duplicate proxy tag: %s"
 msgstr "Повторяющийся тег прокси: %s"
 
 msgid "Edit"
-msgstr "Изменить"
+msgstr "Редактировать"
 
 msgid "No tag"
 msgstr "Нет тега"
