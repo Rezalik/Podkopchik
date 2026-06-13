@@ -118,6 +118,8 @@ podkopchikctl apply
 nft list table inet podkopchik
 ```
 
+When DNS hijack is enabled, the Xray `dns-in` inbound listens on `0.0.0.0` by default so nft redirected LAN DNS packets can reach it on the router LAN address. The nft rule is still limited to the configured LAN interface. Without DNS hijack, `dns-in` listens on `127.0.0.1`.
+
 Rollback:
 
 ```sh

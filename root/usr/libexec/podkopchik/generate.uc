@@ -338,9 +338,12 @@ function transparent_inbound(main, fakedns_enabled) {
 }
 
 function fakedns_inbound(main) {
+	let default_listen = boolopt(main, 'fakedns_hijack_dns', false) ? '0.0.0.0' : '127.0.0.1';
+	let listen = opt(main, 'fakedns_listen', '') || default_listen;
+
 	return {
 		tag: 'dns-in',
-		listen: '127.0.0.1',
+		listen: listen,
 		port: intopt(main, 'fakedns_port', 1053),
 		protocol: 'dokodemo-door',
 		settings: {

@@ -373,7 +373,7 @@ When `fakedns_enabled=1`, generated config must additionally include:
 
 * top-level `dns` using Xray FakeDNS
 * top-level `fakedns` pool configured from UCI
-* `dns-in` loopback inbound on `fakedns_port`
+* `dns-in` inbound on `fakedns_port`
 * `dns-out` outbound with protocol `dns`
 * routing rule from `dns-in` to `dns-out`
 * `fakedns` in transparent inbound sniffing `destOverride`
@@ -385,8 +385,10 @@ When `fakedns_enabled=1` and `fakedns_hijack_dns=1`, nftables apply must add:
 * `chain dns_prerouting { type nat hook prerouting priority dstnat; policy accept; }`
 * LAN UDP 53 redirect to `fakedns_port`
 * LAN TCP 53 redirect to `fakedns_port`
+* Xray `dns-in` listen address must default to `0.0.0.0` so redirected LAN DNS can reach it on the router LAN address
 
 When `fakedns_hijack_dns=0`, `dns_prerouting` must be absent.
+When `fakedns_enabled=1` and `fakedns_hijack_dns=0`, Xray `dns-in` listen address must default to `127.0.0.1`.
 
 Generated config must be valid JSON.
 
