@@ -93,6 +93,8 @@ assert.strictEqual(lookup('Apply settings'), 'Применить настрой�
 assert.strictEqual(lookup('Check proxy availability'), 'Проверить доступность прокси');
 assert.strictEqual(lookup('Restart service'), 'Перезапустить сервис');
 assert.strictEqual(lookup('Disable traffic routing'), 'Отключить маршрутизацию трафика');
+assert.strictEqual(lookup('Primary proxy check'), 'Проверка основного прокси');
+assert.strictEqual(lookup('Proxy availability check has not been updated yet.'), 'Статус проверки ещё не обновлён.');
 assert.strictEqual(lookup('Podkopchik'), null, 'brand name should not be translated');
 
 console.log('LMO catalog smoke OK');

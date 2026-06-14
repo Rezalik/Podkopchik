@@ -62,6 +62,34 @@ function textOf(node) {
 	return (node.children || []).map(textOf).join(' ');
 }
 
+function walk(node, fn) {
+	if (node === null || node === undefined || node === false)
+		return;
+	if (typeof node !== 'object')
+		return;
+	if (Array.isArray(node)) {
+		node.forEach(child => walk(child, fn));
+		return;
+	}
+
+	fn(node);
+	(node.children || []).forEach(child => walk(child, fn));
+}
+
+function findCard(root, phrase) {
+	let found = null;
+
+	walk(root, node => {
+		const style = node.attrs && node.attrs.style || '';
+
+		if (!found && String(node.attrs && node.attrs.class || '').includes('cbi-section') &&
+		    style.includes('min-height:118px') && textOf(node).includes(phrase))
+			found = node;
+	});
+
+	return found;
+}
+
 if (!String.prototype.format) {
 	String.prototype.format = function() {
 		let i = 0;
@@ -132,5 +160,62 @@ if (!text.includes('Kid tablet'))
 
 if (/\benforced\b/i.test(text))
 	throw new Error('Status page must not claim speed limits are enforced');
+
+const workingUncheckedStatus = [
+	'Podkopchik 0.1.0-beta',
+	'Service enabled: 1',
+	'Routing applied: 1',
+	'Configured proxies: 1',
+	'Proxy groups: 1',
+	'Domain rules: 1',
+	'IP rules: 0',
+	'LAN device rules: 0',
+	'Xray: running',
+	'',
+	'State: not recorded yet'
+].join('\n');
+const workingUnchecked = view.render([ workingUncheckedStatus ]);
+const workingUncheckedText = textOf(workingUnchecked).replace(/\s+/g, ' ').trim();
+const uncheckedCard = findCard(workingUnchecked, 'Proxy availability check has not been updated yet.');
+
+if (!workingUncheckedText.includes('Podkopchik is working'))
+	throw new Error('Status page should not show a global warning when routing and Xray are active but health is not checked');
+
+if (workingUncheckedText.includes('Main proxy has not been checked yet'))
+	throw new Error('Status page still shows the misleading old main proxy health text');
+
+if (!workingUncheckedText.includes('Routing can work if Xray is running and an active proxy is selected. Click "Check proxy availability" to refresh the status.'))
+	throw new Error('Status page did not explain that routing can work without fresh health-check data');
+
+if (!uncheckedCard)
+	throw new Error('Status page did not render the primary proxy check card');
+
+if (!String(uncheckedCard.attrs.style || '').includes('background:#f3f4f6'))
+	throw new Error('Not-checked primary proxy status should be neutral gray, not warning');
+
+if (String(uncheckedCard.attrs.style || '').includes('background:#fff8e1'))
+	throw new Error('Not-checked primary proxy status must not use warning color');
+
+const downStatus = [
+	'Podkopchik 0.1.0-beta',
+	'Service enabled: 1',
+	'Routing applied: 1',
+	'Configured proxies: 1',
+	'Proxy groups: 1',
+	'Domain rules: 1',
+	'IP rules: 0',
+	'LAN device rules: 0',
+	'Xray: running',
+	'',
+	'State: {"proxies":{"proxy_main":{"status":"down","last_error":"probe failed"}}}'
+].join('\n');
+const downRendered = view.render([ downStatus ]);
+const downCard = findCard(downRendered, 'Main proxy is unavailable');
+
+if (!downCard)
+	throw new Error('Status page did not render down primary proxy as unavailable');
+
+if (!String(downCard.attrs.style || '').includes('background:#fdecea'))
+	throw new Error('Down primary proxy should remain an error card');
 
 console.log('Status speed-limits render smoke OK');

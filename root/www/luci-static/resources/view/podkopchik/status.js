@@ -343,7 +343,12 @@ function mainProxySummary(model, health) {
 	if (item.status == 'down')
 		return card(_('Main proxy'), 'error', _('Main proxy is unavailable'), _('Open technical details to see the raw proxy error.'));
 
-	return card(_('Main proxy'), 'warning', _('Main proxy has not been checked yet'), _('Run a proxy availability check after adding or changing proxy links.'));
+	return card(
+		_('Primary proxy check'),
+		'inactive',
+		_('Proxy availability check has not been updated yet.'),
+		_('Routing can work if Xray is running and an active proxy is selected. Click "Check proxy availability" to refresh the status.')
+	);
 }
 
 function backupProxySummary(model, health) {

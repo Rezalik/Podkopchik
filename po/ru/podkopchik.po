@@ -595,6 +595,15 @@ msgstr "Основной прокси доступен"
 msgid "Main proxy is unavailable"
 msgstr "Основной прокси недоступен"
 
+msgid "Primary proxy check"
+msgstr "Проверка основного прокси"
+
+msgid "Proxy availability check has not been updated yet."
+msgstr "Статус проверки ещё не обновлён."
+
+msgid "Routing can work if Xray is running and an active proxy is selected. Click \"Check proxy availability\" to refresh the status."
+msgstr "Маршрутизация может работать, если Xray запущен и выбран активный прокси. Нажмите «Проверить доступность прокси», чтобы обновить состояние."
+
 msgid "No backup proxies selected."
 msgstr "Резервные прокси не выбраны."
 
