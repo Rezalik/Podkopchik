@@ -257,6 +257,7 @@ const state = { proxies: { proxy_germany: { status: 'up', latency_ms: 85 } } };
 Promise.resolve(view.render([null, state])).then(function(page) {
 	var root = Array.isArray(page) ? { attrs: {}, children: page } : page;
 	var list = findNode(root, '#podkopchik-proxy-list');
+	var uriInput = findNode(root, '[data-field="uri"]');
 	var text;
 
 	if (!list)
@@ -264,6 +265,15 @@ Promise.resolve(view.render([null, state])).then(function(page) {
 
 	if (list.attrs['data-renderer'] != 'compact-proxy-cards')
 		throw new Error('Proxy Links view did not use the compact card renderer');
+
+	if (!uriInput)
+		throw new Error('Proxy Links edit form did not render the VLESS URI input');
+
+	if (uriInput.attrs.type == 'password')
+		throw new Error('Proxy Links edit form must not hide the VLESS URI as a password field');
+
+	if (uriInput.attrs.type != 'text')
+		throw new Error('Proxy Links edit form VLESS URI input should be a visible text field');
 
 	text = visibleText(list, false).replace(/\s+/g, ' ').trim();
 

@@ -423,7 +423,7 @@ function renderCard(item, open) {
 		formRow(_('VLESS URI'), E('input', {
 			'class': 'cbi-input-text',
 			'data-field': 'uri',
-			'type': 'password',
+			'type': 'text',
 			'value': item.uri || ''
 		})),
 		formRow(_('Role'), roleSelect),
