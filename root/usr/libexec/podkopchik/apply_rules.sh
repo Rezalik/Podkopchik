@@ -333,6 +333,13 @@ fakedns_enabled="$(uci -q get "$APP.main.fakedns_enabled" 2>/dev/null || echo 0)
 fakedns_hijack_dns="$(uci -q get "$APP.main.fakedns_hijack_dns" 2>/dev/null || echo 0)"
 fakedns_port="$(uci -q get "$APP.main.fakedns_port" 2>/dev/null || echo 1053)"
 fakedns_pool_v4="$(uci -q get "$APP.main.fakedns_pool_v4" 2>/dev/null || echo 198.18.0.0/15)"
+dns_redirect_port=""
+
+if [ "$fakedns_enabled" = "1" ] && [ "$fakedns_hijack_dns" = "1" ]; then
+	dns_redirect_port="$fakedns_port"
+elif [ "$dns_redirect" = "1" ]; then
+	dns_redirect_port="53"
+fi
 
 require_ip_full
 
@@ -346,10 +353,10 @@ run_rule "$IP" route add local default dev lo table "$PODKOPCHIK_TABLE"
 
 run_rule "$NFT" add table inet podkopchik
 run_rule "$NFT" 'add chain inet podkopchik prerouting { type filter hook prerouting priority mangle; policy accept; }'
-if [ "$fakedns_enabled" = "1" ] && [ "$fakedns_hijack_dns" = "1" ]; then
+if [ -n "$dns_redirect_port" ]; then
 	run_rule "$NFT" 'add chain inet podkopchik dns_prerouting { type nat hook prerouting priority dstnat; policy accept; }'
-	run_rule "$NFT" add rule inet podkopchik dns_prerouting iifname "$lan" udp dport 53 redirect to :"$fakedns_port"
-	run_rule "$NFT" add rule inet podkopchik dns_prerouting iifname "$lan" tcp dport 53 redirect to :"$fakedns_port"
+	run_rule "$NFT" add rule inet podkopchik dns_prerouting iifname "$lan" udp dport 53 redirect to :"$dns_redirect_port"
+	run_rule "$NFT" add rule inet podkopchik dns_prerouting iifname "$lan" tcp dport 53 redirect to :"$dns_redirect_port"
 fi
 run_rule "$NFT" add set inet podkopchik reserved4 '{ type ipv4_addr; flags interval; }'
 run_rule "$NFT" add element inet podkopchik reserved4 "{ $(reserved4_elements) }"
@@ -369,11 +376,6 @@ run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" ip daddr @res
 run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" ip6 daddr @reserved6 return
 run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" ip daddr @proxy_bypass4 return
 run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" ip6 daddr @proxy_bypass6 return
-
-if [ "$dns_redirect" = "1" ]; then
-	run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" udp dport 53 redirect to :53
-	run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" tcp dport 53 redirect to :53
-fi
 
 run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" meta l4proto tcp meta mark set "$PODKOPCHIK_MARK" tproxy to :"$port" accept
 
