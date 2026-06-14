@@ -19,8 +19,17 @@ msgstr "Добавить"
 msgid "Apply"
 msgstr "Применить"
 
+msgid "Clear"
+msgstr "Очистить"
+
 msgid "Save & Apply"
 msgstr "Сохранить и применить"
+
+msgid "Save"
+msgstr "Сохранить"
+
+msgid "Reset"
+msgstr "Сбросить"
 
 msgid "Archive URL"
 msgstr "URL архива"
@@ -115,6 +124,9 @@ msgstr "Полный прокси"
 msgid "GitHub repository"
 msgstr "Репозиторий GitHub"
 
+msgid "Group"
+msgstr "Группа"
+
 msgid "Health check"
 msgstr "Проверка доступности"
 
@@ -140,7 +152,7 @@ msgid "Install Update"
 msgstr "Установить обновление"
 
 msgid "LAN Devices"
-msgstr "Устройства LAN"
+msgstr "LAN-устройства"
 
 msgid "LAN device rules"
 msgstr "Правила устройств LAN"
@@ -152,7 +164,7 @@ msgid "Latest version"
 msgstr "Последняя версия"
 
 msgid "Logs"
-msgstr "Журнал"
+msgstr "Логи"
 
 msgid "Manual override"
 msgstr "Ручное переопределение"
@@ -170,7 +182,7 @@ msgid "Name"
 msgstr "Имя"
 
 msgid "No Podkopchik log entries."
-msgstr "Нет записей журнала Подкопчика."
+msgstr "Нет записей журнала Podkopchik."
 
 msgid "No changelog provided."
 msgstr "Журнал изменений не предоставлен."
@@ -185,13 +197,13 @@ msgid "Override warning"
 msgstr "Предупреждение о переопределении"
 
 msgid "Podkopchik"
-msgstr "Подкопчик"
+msgstr "Podkopchik"
 
 msgid "Podkopchik Logs"
-msgstr "Журнал Подкопчика"
+msgstr "Логи Podkopchik"
 
 msgid "Podkopchik Updates"
-msgstr "Обновления Подкопчика"
+msgstr "Обновления Podkopchik"
 
 msgid "Primary proxy"
 msgstr "Основной прокси"
@@ -210,6 +222,9 @@ msgstr "Группы прокси"
 
 msgid "Proxy Links"
 msgstr "Прокси-ссылки"
+
+msgid "Proxy"
+msgstr "Прокси"
 
 msgid "Proxy groups"
 msgstr "Группы прокси"
@@ -419,22 +434,22 @@ msgid "Overall status"
 msgstr "Общее состояние"
 
 msgid "Podkopchik is disabled"
-msgstr "Подкопчик отключен"
+msgstr "Podkopchik отключен"
 
 msgid "Podkopchik is not configured"
-msgstr "Подкопчик не настроен"
+msgstr "Podkopchik не настроен"
 
 msgid "Podkopchik is working"
-msgstr "Подкопчик работает"
+msgstr "Podkopchik работает"
 
 msgid "Podkopchik needs attention"
-msgstr "Подкопчик требует внимания"
+msgstr "Podkopchik требует внимания"
 
 msgid "Podkopchik service is disabled"
-msgstr "Сервис Подкопчика отключен"
+msgstr "Сервис Podkopchik отключен"
 
 msgid "Podkopchik service is enabled"
-msgstr "Сервис Подкопчика включен"
+msgstr "Сервис Podkopchik включен"
 
 msgid "Proxy availability has not been checked yet."
 msgstr "Доступность прокси еще не проверялась."
@@ -629,10 +644,10 @@ msgid "Create groups of domains and choose whether each group uses the automatic
 msgstr "Создавайте группы доменов и выбирайте, будет ли каждая группа использовать автоматическую группу прокси, конкретный прокси или прямое подключение. Трафик для доменов, которых нет в списке, по умолчанию идет напрямую."
 
 msgid "Domain Groups"
-msgstr "Группы доменов"
+msgstr "Доменные группы"
 
 msgid "Domain group"
-msgstr "Группа доменов"
+msgstr "Доменная группа"
 
 msgid "Domain group name is required."
 msgstr "Укажите имя группы доменов."
@@ -677,7 +692,7 @@ msgid "YouTube"
 msgstr "YouTube"
 
 msgid "Add VLESS links, choose one main proxy and backups. Podkopchik will use the main proxy and switch to an available backup if needed."
-msgstr "Добавьте VLESS-ссылки, выберите один основной прокси и резервные. Подкопчик будет использовать основной прокси, а при сбое переключится на доступный резервный."
+msgstr "Добавьте VLESS-ссылки, выберите один основной прокси и резервные. Podkopchik будет использовать основной прокси, а при сбое переключится на доступный резервный."
 
 msgid "Add proxy link"
 msgstr "Добавить прокси-ссылку"

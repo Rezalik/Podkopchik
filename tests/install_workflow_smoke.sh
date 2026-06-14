@@ -42,6 +42,7 @@ make_case() {
 		"$rootfs/overlay" \
 		"$rootfs/tmp/sysinfo" \
 		"$rootfs/usr/share/luci" \
+		"$rootfs/usr/share/ucode/luci/i18n" \
 		"$rootfs/usr/share/rpcd/acl.d" \
 		"$rootfs/usr/lib/lua/luci/i18n" \
 		"$rootfs/www/luci-static/resources" \
@@ -151,6 +152,8 @@ run_case "$success_case" 51200 env
 grep -q "opkg install ip-full" "$success_case/log"
 ! grep -q "Missing required dependency: ip-full" "$success_case/err"
 test -x "$success_case/rootfs/usr/bin/podkopchikctl"
+test -f "$success_case/rootfs/usr/share/ucode/luci/i18n/podkopchik.ru.lmo"
+test -f "$success_case/rootfs/usr/lib/lua/luci/i18n/podkopchik.ru.lmo"
 grep -q "default /etc/config/podkopchik created" "$success_case/out"
 update_line="$(grep -n "opkg update" "$success_case/log" | cut -d: -f1 | head -n 1)"
 install_line="$(grep -n "opkg install" "$success_case/log" | cut -d: -f1 | head -n 1)"

@@ -384,9 +384,11 @@ install_tree() {
 
 install_i18n() {
 	if [ -f "$BASE_DIR/i18n/ru/podkopchik.ru.lmo" ]; then
-		mkdir -p "$(path /usr/lib/lua/luci/i18n)" || die "could not create LuCI i18n directory"
-		cp "$BASE_DIR/i18n/ru/podkopchik.ru.lmo" "$(path /usr/lib/lua/luci/i18n/podkopchik.ru.lmo)" || die "could not install Russian translation catalog"
-		chmod 644 "$(path /usr/lib/lua/luci/i18n/podkopchik.ru.lmo)"
+		for dir in /usr/share/ucode/luci/i18n /usr/lib/lua/luci/i18n; do
+			mkdir -p "$(path "$dir")" || die "could not create LuCI i18n directory: $dir"
+			cp "$BASE_DIR/i18n/ru/podkopchik.ru.lmo" "$(path "$dir/podkopchik.ru.lmo")" || die "could not install Russian translation catalog: $dir"
+			chmod 644 "$(path "$dir/podkopchik.ru.lmo")"
+		done
 	fi
 }
 
