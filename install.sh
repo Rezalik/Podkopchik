@@ -63,7 +63,6 @@ mihomo
 clash
 v2rayA
 v2raya
-xray
 "
 
 CONFLICT_CONFIGS="
@@ -75,7 +74,6 @@ CONFLICT_CONFIGS="
 /etc/config/clash
 /etc/config/v2rayA
 /etc/config/v2raya
-/etc/config/xray
 "
 
 path() {
@@ -236,8 +234,33 @@ service_active_or_installed() {
 	[ -x "$init" ] || return 1
 	"$init" enabled >/dev/null 2>&1 && return 0
 	"$init" running >/dev/null 2>&1 && return 0
-	[ "$svc" = "xray" ] && return 0
 	return 1
+}
+
+xray_enabled_config() {
+	if [ -n "$DESTDIR" ]; then
+		awk '
+			/^[[:space:]]*config[[:space:]]+xray[[:space:]]+('\''|")enabled('\''|")/ { in_enabled = 1; next }
+			/^[[:space:]]*config[[:space:]]+/ { in_enabled = 0 }
+			in_enabled && /^[[:space:]]*option[[:space:]]+enabled[[:space:]]+('\''|")1('\''|")/ { found = 1 }
+			END { exit found ? 0 : 1 }
+		' "$(path /etc/config/xray)" 2>/dev/null
+	else
+		[ "$(uci -q get xray.enabled.enabled 2>/dev/null || echo 0)" = "1" ]
+	fi
+}
+
+xray_conflict() {
+	init="$(path /etc/init.d/xray)"
+	config="$(path /etc/config/xray)"
+
+	[ -x "$init" ] || [ -e "$config" ] || return 1
+
+	if [ -x "$init" ] && "$init" running >/dev/null 2>&1; then
+		return 0
+	fi
+
+	xray_enabled_config
 }
 
 check_conflicts() {
@@ -258,6 +281,10 @@ check_conflicts() {
 			add_conflict "config: $cfg"
 		fi
 	done
+
+	if xray_conflict; then
+		add_conflict "service: xray"
+	fi
 
 	if [ -n "$CONFLICTS_FOUND" ]; then
 		echo "podkopchik install: conflicting proxy applications were found:" >&2

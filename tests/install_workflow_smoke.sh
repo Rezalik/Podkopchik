@@ -177,6 +177,28 @@ grep -q "conflicting proxy applications were found" "$conflict_case/err"
 grep -q "config: /etc/config/podkop" "$conflict_case/err"
 ! grep -q "opkg update" "$conflict_case/log"
 
+xray_disabled_case="$(make_case xray-disabled)"
+cat > "$xray_disabled_case/rootfs/etc/config/xray" <<'EOF'
+config xray 'enabled'
+	option enabled '0'
+EOF
+make_init_script "$xray_disabled_case/rootfs" xray
+run_case "$xray_disabled_case" 51200 env
+grep -q "Podkopchik install summary" "$xray_disabled_case/out"
+
+xray_enabled_case="$(make_case xray-enabled)"
+cat > "$xray_enabled_case/rootfs/etc/config/xray" <<'EOF'
+config xray 'enabled'
+	option enabled '1'
+EOF
+make_init_script "$xray_enabled_case/rootfs" xray
+if run_case "$xray_enabled_case" 51200 env; then
+	echo "FAIL: enabled standalone xray did not stop installer"
+	exit 1
+fi
+grep -q "service: xray" "$xray_enabled_case/err"
+! grep -q "opkg update" "$xray_enabled_case/log"
+
 update_case="$(make_case update)"
 cat > "$update_case/rootfs/etc/config/podkopchik" <<'EOF'
 config settings 'main'
