@@ -545,15 +545,55 @@ Installer
 install.sh must:
 
 * check that it runs as root
-* check OpenWrt
+* check OpenWrt and report model, OpenWrt version, target, architecture, kernel, `/overlay` free space, and install mode
 * use opkg for OpenWrt 24.10
-* install required dependencies if possible
+* require `/overlay` to have at least 15 MB free before package installation
+* warn when `/overlay` has less than the recommended 25 MB free
+* detect conflicting proxy applications before package installation and stop by default
+* treat an existing `/etc/config/podkopchik` as update mode, not as a conflict
+* run `opkg update`
+* install missing required dependencies automatically
+* report dependencies that are already installed
+* validate after dependency installation that `ip-full`/`iproute2`, `nft`, `ucode`, `xray`, a download tool, LuCI, `rpcd`, and `uhttpd` are available
 * install files into the correct OpenWrt paths
 * create /etc/config/podkopchik if missing
 * preserve existing /etc/config/podkopchik
+* support running from a checked-out repository or from the raw GitHub `install.sh` by downloading the `main` branch payload when needed
 * enable and start service
 * restart rpcd/uhttpd if needed
+* clear LuCI cache
+* run post-install `podkopchikctl validate` and `podkopchikctl status`
 * not reboot automatically
+
+Installer dependencies:
+
+* `luci-base`
+* `rpcd`
+* `rpcd-mod-luci`
+* `uhttpd`
+* `ucode`
+* `ucode-mod-fs`
+* `ucode-mod-uci`
+* `ucode-mod-ubus`
+* `curl`
+* `ca-bundle`
+* `jsonfilter`
+* `nftables-json`
+* `kmod-nft-tproxy`
+* `firewall4`
+* `ip-full`
+* `dnsmasq`
+* `xray-core`
+
+Default conflict list:
+
+* Podkop / `luci-app-podkop`
+* sing-box
+* Passwall
+* OpenClash
+* Mihomo / Clash
+* v2rayA
+* standalone non-Podkopchik Xray init/config
 
 No separate user-facing safe mode is required.
 
@@ -607,6 +647,7 @@ At minimum:
 find . -name "*.sh" -exec sh -n {} \;
 sh -n install.sh
 sh -n uninstall.sh
+sh tests/install_workflow_smoke.sh
 find . -name "*.json" -exec python3 -m json.tool {} \; >/dev/null
 
 Also include sample fake VLESS links for:

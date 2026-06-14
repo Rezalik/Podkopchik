@@ -51,6 +51,11 @@
 - Provide LuCI update page with `main` development branch updates and `stable` GitHub Release updates.
 - Preserve /etc/config/podkopchik on update/uninstall unless purge is explicitly requested.
 - Service is enabled and started by install.sh, while TPROXY interception remains inactive until a valid proxy/rule set is applied.
+- `install.sh` performs system preflight, `/overlay` free-space checks, conflict detection, dependency installation, dependency validation, file installation, LuCI restart/cache cleanup, and post-install status checks in that order.
+- `install.sh` installs missing `ip-full` itself; BusyBox `ip` must not be accepted as sufficient for fwmark policy routing.
+- `install.sh` stops before package installation when `/overlay` has less than 15 MB free, and warns when less than 25 MB is free.
+- `install.sh` stops by default when conflicting proxy applications are installed or active, including Podkop, sing-box, Passwall, OpenClash, Mihomo/Clash, v2rayA, or standalone Xray service/config.
+- `install.sh` treats existing `/etc/config/podkopchik` as update mode and preserves it.
 - Health checks record real probe results when Xray plus curl probing is available; otherwise they report unknown with the reason and do not mark proxies up.
 - Health-check cleanup removes stale temporary Xray processes using `/tmp/podkopchik/health-*.json` and never targets the main `/etc/podkopchik/config.json` Xray process.
 - `podkopchikctl status` reports Xray as running only when the main process uses `/etc/podkopchik/config.json`; stale health probe processes must not be counted as the main service.

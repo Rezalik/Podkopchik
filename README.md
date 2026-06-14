@@ -32,14 +32,13 @@ This beta does not include subscription URLs, geoip/geosite databases, traffic s
 
 ## Install On OpenWrt 24.10
 
-SSH into the router as root, copy this repository to the router, then run:
+SSH into the router as root. The recommended GitHub installer flow is:
 
 ```sh
-cd /tmp/Podkopchik
-sh install.sh
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/rezalik/Podkopchik/main/install.sh)"
 ```
 
-From GitHub, the same flow is:
+If you already copied or extracted this repository to the router, run the local installer instead:
 
 ```sh
 cd /tmp
@@ -49,14 +48,28 @@ cd Podkopchik-main
 sh install.sh
 ```
 
-The installer uses `opkg`, installs required packages where possible, preserves an existing `/etc/config/podkopchik`, enables and starts the `podkopchik` service, restarts `rpcd` and `uhttpd`, and does not reboot.
+The installer first performs a system preflight, reports the router model, OpenWrt version, target, architecture, kernel, `/overlay` free space, and install mode. Existing `/etc/config/podkopchik` means update mode and is preserved.
 
-`ip-full` is a required runtime dependency. BusyBox `/sbin/ip` is not sufficient because Podkopchik needs `iproute2` fwmark policy routing for TPROXY:
+Free space thresholds:
 
-```sh
-opkg install ip-full
-ip -V
+- hard minimum: 15 MB free in `/overlay`
+- recommended: 25 MB free in `/overlay`
+
+The installer stops before installing packages when free space is below the hard minimum. Between 15 MB and 25 MB it continues with a clear warning.
+
+Before installing files, the installer checks for conflicting proxy applications such as Podkop, sing-box, Passwall, OpenClash, Mihomo, Clash, v2rayA, and a standalone non-Podkopchik Xray service/config. It does not remove them automatically.
+
+The installer runs `opkg update`, installs missing dependencies, validates them, installs Podkopchik files, installs the Russian LuCI catalog, restarts `rpcd` and `uhttpd`, clears LuCI cache, enables and starts the `podkopchik` service, and does not reboot.
+
+Installer-managed dependencies:
+
+```text
+luci-base rpcd rpcd-mod-luci uhttpd ucode ucode-mod-fs ucode-mod-uci
+ucode-mod-ubus curl ca-bundle jsonfilter nftables-json kmod-nft-tproxy
+firewall4 ip-full dnsmasq xray-core
 ```
+
+`ip-full` is installed automatically when missing. BusyBox `/sbin/ip` is not sufficient because Podkopchik needs `iproute2` fwmark policy routing for TPROXY.
 
 After install, the service is enabled and its health loop can run. Traffic interception remains inactive until you configure at least one valid VLESS proxy, one routing rule, and click **Apply** in LuCI or run:
 
@@ -284,7 +297,8 @@ logread -e podkopchik
 ## Troubleshooting
 
 - If **Apply** fails, run `podkopchikctl validate` and inspect the error.
-- If Apply reports `Missing required dependency: ip-full`, install `ip-full`; BusyBox `ip` cannot add Podkopchik fwmark policy rules.
+- If install fails while installing a dependency, check OpenWrt repositories, WAN/DNS, free `/overlay` space, and kernel kmod compatibility.
+- If Apply reports `Missing required dependency: ip-full`, rerun the installer or install `ip-full`; BusyBox `ip` cannot add Podkopchik fwmark policy rules.
 - If a phone or laptop inside LAN needs direct access to a 3x-ui panel, VPS, or proxy endpoint, add the host/IP/CIDR under **Exclusions**. Then verify that resolved IPs appear in `nft list table inet podkopchik` under `proxy_bypass4` or `proxy_bypass6`.
 - If routing is inactive after reboot, check `uci get podkopchik.main.routing_enabled` and `podkopchikctl status`.
 - If DNS redirect appears ineffective, check whether the client uses DoH, DoT, or Apple Private Relay.
