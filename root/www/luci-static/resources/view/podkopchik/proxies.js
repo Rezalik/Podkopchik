@@ -420,12 +420,14 @@ function renderCard(item, open) {
 	}, [
 		formRow(_('Name'), input('name', item.name)),
 		formRow(_('Tag'), input('tag', item.tag)),
-		formRow(_('VLESS URI'), E('input', {
+		formRow(_('VLESS URI'), E('textarea', {
 			'class': 'cbi-input-text',
 			'data-field': 'uri',
-			'type': 'text',
-			'value': item.uri || ''
-		})),
+			'rows': '6',
+			'wrap': 'soft',
+			'spellcheck': 'false',
+			'style': 'width:100%; max-width:100%; min-height:128px; box-sizing:border-box; font-family:monospace; resize:vertical'
+		}, item.uri || '')),
 		formRow(_('Role'), roleSelect),
 		formRow(_('Backup priority'), prioritySelect, 'backup_priority'),
 		formRow(_('Note'), input('note', item.note)),

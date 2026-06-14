@@ -272,8 +272,11 @@ Promise.resolve(view.render([null, state])).then(function(page) {
 	if (uriInput.attrs.type == 'password')
 		throw new Error('Proxy Links edit form must not hide the VLESS URI as a password field');
 
-	if (uriInput.attrs.type != 'text')
-		throw new Error('Proxy Links edit form VLESS URI input should be a visible text field');
+	if (uriInput.tag != 'textarea')
+		throw new Error('Proxy Links edit form VLESS URI field should be a large textarea');
+
+	if (parseInt(uriInput.attrs.rows || '0', 10) < 6)
+		throw new Error('Proxy Links edit form VLESS URI textarea should be tall enough to edit comfortably');
 
 	text = visibleText(list, false).replace(/\s+/g, ' ').trim();
 
