@@ -76,6 +76,9 @@ msgstr "Обновление из ветки разработки; контро�
 msgid "DNS"
 msgstr "DNS"
 
+msgid "Enable FakeDNS"
+msgstr "Включить FakeDNS"
+
 msgid "Destination CIDR"
 msgstr "CIDR назначения"
 
@@ -88,6 +91,15 @@ msgstr "Отключить маршрутизацию"
 msgid "DoH, DoT, and Apple Private Relay can bypass normal DNS redirect."
 msgstr "DoH, DoT и Apple Private Relay могут обходить обычное перенаправление DNS."
 
+msgid "Enter a port from 1 to 65535."
+msgstr "Введите порт от 1 до 65535."
+
+msgid "Enter a positive number."
+msgstr "Введите положительное число."
+
+msgid "Enter an IPv4 CIDR, for example 198.18.0.0/15."
+msgstr "Введите IPv4 CIDR, например 198.18.0.0/15."
+
 msgid "Domain"
 msgstr "Домен"
 
@@ -99,6 +111,42 @@ msgstr "Доменные правила"
 
 msgid "Enabled"
 msgstr "Включено"
+
+msgid "FakeDNS helps apps that do not route reliably with domain-only rules. For example, X/Twitter app may require FakeDNS."
+msgstr "FakeDNS помогает приложениям, которые плохо маршрутизируются только по доменным правилам. Например, приложению X/Twitter может требоваться FakeDNS."
+
+msgid "FakeDNS IPv4 pool"
+msgstr "FakeDNS IPv4 pool"
+
+msgid "FakeDNS listen address"
+msgstr "FakeDNS listen address"
+
+msgid "FakeDNS notes"
+msgstr "Примечания FakeDNS"
+
+msgid "FakeDNS pool size"
+msgstr "Размер FakeDNS pool"
+
+msgid "FakeDNS port"
+msgstr "Порт FakeDNS"
+
+msgid "Fake IP addresses from 198.18.0.0/15 are expected when FakeDNS is enabled."
+msgstr "Fake IP из диапазона 198.18.0.0/15 — это нормально при включённом FakeDNS."
+
+msgid "Hijack LAN DNS queries"
+msgstr "Перехватывать DNS-запросы LAN-устройств"
+
+msgid "Leave empty for automatic selection. DNS hijack usually uses 0.0.0.0, otherwise loopback."
+msgstr "Оставьте пустым для автоматического выбора. При DNS hijack обычно используется 0.0.0.0, иначе loopback."
+
+msgid "Private DNS, DoH, iCloud Private Relay, or another VPN may bypass router DNS."
+msgstr "Private DNS, DoH, iCloud Private Relay или другой VPN могут обходить DNS роутера."
+
+msgid "When enabled, LAN device DNS queries to port 53 are redirected to Xray FakeDNS. This is usually needed for apps to work through FakeDNS."
+msgstr "При включении DNS-запросы LAN-устройств на порт 53 перенаправляются в Xray FakeDNS. Обычно это нужно для работы приложений через FakeDNS."
+
+msgid "empty means automatic"
+msgstr "пусто означает автоматически"
 
 msgid "Enter only a domain, IP, or CIDR without scheme, path, or port."
 msgstr "Введите только домен, IP или CIDR без схемы, пути и порта."

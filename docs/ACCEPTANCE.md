@@ -102,6 +102,14 @@ the router acceptance checklist is:
 
 The FakeDNS MVP must not add UDP TPROXY or UDP/443 blocking.
 
+LuCI acceptance:
+
+- Podkopchik -> DNS exposes Enable FakeDNS, Hijack LAN DNS queries, FakeDNS port, FakeDNS IPv4 pool, FakeDNS pool size, and FakeDNS listen address.
+- FakeDNS remains disabled by default.
+- FakeDNS-dependent fields are shown only when FakeDNS is enabled.
+- Save & Apply on the DNS page saves UCI and runs the Podkopchik runtime apply path.
+- The DNS page warns that clients using Private DNS, DoH, iCloud Private Relay, or another VPN may bypass router DNS.
+
 ## Stability pass verified on GL-MT6000 / OpenWrt 24.10.4
 
 This stability checkpoint was verified on a GL.iNet Flint 2 / GL-MT6000 router

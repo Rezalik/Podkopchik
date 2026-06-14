@@ -351,6 +351,15 @@ Requirements:
 * FakeDNS hijack must not add DNS redirect rules to the existing TPROXY/mangle chain.
 * Do not add UDP/443 blocking or UDP TPROXY in this step.
 * LuCI must warn that DoH, DoT, and Apple Private Relay can bypass normal DNS redirect.
+* LuCI DNS page must expose optional FakeDNS settings without enabling FakeDNS by default:
+    * `fakedns_enabled`
+    * `fakedns_hijack_dns`
+    * `fakedns_port`
+    * `fakedns_pool_v4`
+    * `fakedns_pool_size`
+    * `fakedns_listen`
+* LuCI DNS Save & Apply must save UCI changes, apply LuCI changes, and run the Podkopchik runtime apply path so FakeDNS/Xray/nft state matches the saved settings.
+* The DNS page must explain that FakeDNS can help apps such as X/Twitter that do not route reliably with domain-only rules, and that Private DNS, DoH, iCloud Private Relay, or another VPN can bypass router DNS.
 
 Health check and failover
 

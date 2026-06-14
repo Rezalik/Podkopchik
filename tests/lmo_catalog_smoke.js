@@ -95,6 +95,9 @@ assert.strictEqual(lookup('Restart service'), 'Перезапустить сер
 assert.strictEqual(lookup('Disable traffic routing'), 'Отключить маршрутизацию трафика');
 assert.strictEqual(lookup('Primary proxy check'), 'Проверка основного прокси');
 assert.strictEqual(lookup('Proxy availability check has not been updated yet.'), 'Статус проверки ещё не обновлён.');
+assert.strictEqual(lookup('Enable FakeDNS'), 'Включить FakeDNS');
+assert.strictEqual(lookup('Hijack LAN DNS queries'), 'Перехватывать DNS-запросы LAN-устройств');
+assert.strictEqual(lookup('FakeDNS port'), 'Порт FakeDNS');
 assert.strictEqual(lookup('Podkopchik'), null, 'brand name should not be translated');
 
 console.log('LMO catalog smoke OK');

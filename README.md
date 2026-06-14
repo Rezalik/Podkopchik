@@ -128,7 +128,9 @@ IP and CIDR exclusions are added to the Podkopchik-owned nftables `proxy_bypass4
 
 ## Experimental FakeDNS
 
-FakeDNS is off by default. Enabling `fakedns_enabled` changes generated Xray config: it adds Xray `dns`, `fakedns`, `dns-in`, and `dns-out` sections and adds `fakedns` to transparent inbound sniffing. LAN DNS hijack is separate and only active when `fakedns_hijack_dns=1`.
+FakeDNS is off by default. It can be enabled from LuCI under Podkopchik -> DNS or with UCI. Enabling `fakedns_enabled` changes generated Xray config: it adds Xray `dns`, `fakedns`, `dns-in`, and `dns-out` sections and adds `fakedns` to transparent inbound sniffing. LAN DNS hijack is separate and only active when `fakedns_hijack_dns=1`.
+
+Use FakeDNS for mobile or CDN-heavy apps that do not route reliably with domain-only sniffing. The X/Twitter app is the main tested example. When FakeDNS and LAN DNS hijack are enabled, LAN DNS queries on UDP/TCP port 53 are redirected to Xray FakeDNS, and clients can receive fake IP addresses from `198.18.0.0/15`. That is expected. Private DNS, DoH, iCloud Private Relay, or another VPN on a client can bypass router DNS and prevent this path from working.
 
 FakeDNS MVP was verified on a GL.iNet Flint 2 / GL-MT6000 running OpenWrt 24.10.4 with Xray 25.1.30. The verified path is:
 
@@ -161,6 +163,17 @@ uci commit podkopchik
 podkopchikctl apply
 nft list table inet podkopchik
 ```
+
+The same settings are available in LuCI on the DNS page:
+
+- Enable FakeDNS
+- Hijack LAN DNS queries
+- FakeDNS port
+- FakeDNS IPv4 pool
+- FakeDNS pool size
+- FakeDNS listen address
+
+Use Save & Apply on that page to save UCI, apply LuCI changes, and run the Podkopchik runtime apply path.
 
 When DNS hijack is enabled, the Xray `dns-in` inbound listens on `0.0.0.0` by default so nft redirected LAN DNS packets can reach it on the router LAN address. The nft rule is still limited to the configured LAN interface. Without DNS hijack, `dns-in` listens on `127.0.0.1`.
 
