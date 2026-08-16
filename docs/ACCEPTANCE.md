@@ -50,6 +50,7 @@
 - Manage only Podkopchik nftables rules.
 - Provide LuCI update page with `main` development branch updates and `stable` GitHub Release updates.
 - Preserve /etc/config/podkopchik on update/uninstall unless purge is explicitly requested.
+- Generate/apply repairs stale enabled routing targets to `auto_proxy_group` only when the internal automatic proxy group is valid; otherwise it reports the broken target and UCI section without replacing the active Xray config.
 - Service is enabled and started by install.sh, while TPROXY interception remains inactive until a valid proxy/rule set is applied.
 - `install.sh` performs system preflight, `/overlay` free-space checks, conflict detection, dependency installation, dependency validation, file installation, LuCI restart/cache cleanup, and post-install status checks in that order.
 - `install.sh` installs missing `ip-full` itself; BusyBox `ip` must not be accepted as sufficient for fwmark policy routing.

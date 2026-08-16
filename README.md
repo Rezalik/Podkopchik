@@ -50,6 +50,8 @@ sh install.sh
 
 The installer first performs a system preflight, reports the router model, OpenWrt version, target, architecture, kernel, `/overlay` free space, and install mode. Existing `/etc/config/podkopchik` means update mode and is preserved.
 
+Because user configuration is preserved, uninstalling and reinstalling Podkopchik does not remove old proxy tags or routing targets from `/etc/config/podkopchik`. During generate/apply, Podkopchik checks enabled routing rules for stale targets. If an old target no longer exists and the internal `auto_proxy_group` is valid, the rule target is repaired to `auto_proxy_group`; otherwise apply stops with a clear error naming the broken rule.
+
 Free space thresholds:
 
 - hard minimum: 15 MB free in `/overlay`
@@ -310,6 +312,7 @@ logread -e podkopchik
 ## Troubleshooting
 
 - If **Apply** fails, run `podkopchikctl validate` and inspect the error.
+- If reinstalling did not help, remember that `/etc/config/podkopchik` is intentionally preserved. Run `podkopchikctl generate` or `podkopchikctl apply`; stale rule targets are repaired to `auto_proxy_group` when the automatic proxy group is valid, or reported with the exact broken rule.
 - If install fails while installing a dependency, check OpenWrt repositories, WAN/DNS, free `/overlay` space, and kernel kmod compatibility.
 - If Apply reports `Missing required dependency: ip-full`, rerun the installer or install `ip-full`; BusyBox `ip` cannot add Podkopchik fwmark policy rules.
 - If a phone or laptop inside LAN needs direct access to a 3x-ui panel, VPS, or proxy endpoint, add the host/IP/CIDR under **Exclusions**. Then verify that resolved IPs appear in `nft list table inet podkopchik` under `proxy_bypass4` or `proxy_bypass6`.

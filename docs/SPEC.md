@@ -140,6 +140,8 @@ Podkopchik must provide these LuCI pages:
 
 Pages that change active routing inputs must not stop at a UCI save. Save & Apply on Proxy Links, Domain Groups, IP Rules, Exclusions, LAN Devices, DNS, and active Advanced settings, plus Add preset on Presets, must invoke the Podkopchik runtime apply path, or cleanup when the service is disabled, so the active Xray config and Podkopchik-owned nftables state match the saved settings.
 
+Generate/apply must tolerate preserved legacy UCI config after reinstall or update. Enabled `domain_rule`, `ip_rule`, and `lan_device` full-proxy targets are checked before Xray config generation. Valid targets are left untouched. If a stale non-empty target no longer matches an enabled proxy/group and the internal `auto_proxy_group` is valid, Podkopchik repairs only that target to `auto_proxy_group` and logs the migration. If no safe automatic target is available, apply fails with a clear error naming the broken target and UCI section.
+
 Proxy links
 
 A proxy link represents one named VLESS URI.

@@ -4,10 +4,10 @@ set -eu
 
 APP="podkopchik"
 LIB="/usr/libexec/podkopchik"
-CONFIG_DIR="/etc/podkopchik"
+CONFIG_DIR="${PODKOPCHIK_CONFIG_DIR:-/etc/podkopchik}"
 CONFIG="$CONFIG_DIR/config.json"
 UCI_CONFIG="/etc/config/$APP"
-TMP_DIR="/tmp/podkopchik"
+TMP_DIR="${PODKOPCHIK_TMP_DIR:-/tmp/podkopchik}"
 STATE="$TMP_DIR/state.json"
 BYPASS_STATE="$TMP_DIR/proxy_bypass.env"
 ROLLBACK="$TMP_DIR/rollback.tar.gz"
@@ -94,6 +94,137 @@ has_enabled_route() {
 	return 1
 }
 
+clean_tag() {
+	raw="${1:-${2:-podkopchik}}"
+	tag="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_][^a-z0-9_]*/_/g; s/^_*//; s/_*$//' | cut -c 1-48)"
+	[ -n "$tag" ] || tag="${2:-podkopchik}"
+	case "$tag" in
+		[0-9]*) tag="p_$tag" ;;
+	esac
+	printf '%s\n' "$tag" | cut -c 1-48
+}
+
+target_in_list() {
+	tag="$1"
+	list="$2"
+
+	case " $list " in
+		*" $tag "*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+proxy_target_tags() {
+	i=0
+	while uci -q get "$APP.@proxy[$i]" >/dev/null 2>&1; do
+		if [ "$(uci -q get "$APP.@proxy[$i].enabled" 2>/dev/null || echo 1)" != "0" ]; then
+			raw="$(uci -q get "$APP.@proxy[$i].tag" 2>/dev/null || uci -q get "$APP.@proxy[$i].name" 2>/dev/null || echo "proxy_$i")"
+			clean_tag "$raw" "proxy_$i"
+		fi
+		i=$((i + 1))
+	done
+}
+
+group_target_tags() {
+	i=0
+	while uci -q get "$APP.@proxy_group[$i]" >/dev/null 2>&1; do
+		if [ "$(uci -q get "$APP.@proxy_group[$i].enabled" 2>/dev/null || echo 1)" != "0" ]; then
+			raw="$(uci -q get "$APP.@proxy_group[$i].tag" 2>/dev/null || uci -q get "$APP.@proxy_group[$i].name" 2>/dev/null || echo "group_$i")"
+			clean_tag "$raw" "group_$i"
+		fi
+		i=$((i + 1))
+	done
+}
+
+valid_routing_targets() {
+	targets="direct"
+
+	for tag in $(proxy_target_tags); do
+		targets="$targets $tag"
+	done
+
+	for tag in $(group_target_tags); do
+		targets="$targets $tag"
+	done
+
+	printf '%s\n' "$targets"
+}
+
+auto_group_resolves() {
+	proxies=" "
+	for tag in $(proxy_target_tags); do
+		proxies="$proxies $tag"
+	done
+
+	i=0
+	while uci -q get "$APP.@proxy_group[$i]" >/dev/null 2>&1; do
+		[ "$(uci -q get "$APP.@proxy_group[$i].enabled" 2>/dev/null || echo 1)" != "0" ] || {
+			i=$((i + 1))
+			continue
+		}
+
+		raw="$(uci -q get "$APP.@proxy_group[$i].tag" 2>/dev/null || uci -q get "$APP.@proxy_group[$i].name" 2>/dev/null || echo "group_$i")"
+		[ "$(clean_tag "$raw" "group_$i")" = "auto_proxy_group" ] || {
+			i=$((i + 1))
+			continue
+		}
+
+		mode="$(uci -q get "$APP.@proxy_group[$i].mode" 2>/dev/null || echo strict_primary)"
+		if [ "$mode" = "fixed_proxy" ]; then
+			ref="$(uci -q get "$APP.@proxy_group[$i].fixed_proxy" 2>/dev/null || true)"
+		else
+			ref="$(uci -q get "$APP.@proxy_group[$i].manual_override_proxy" 2>/dev/null || true)"
+			[ -n "$ref" ] || ref="$(uci -q get "$APP.@proxy_group[$i].primary" 2>/dev/null || true)"
+		fi
+
+		[ -n "$ref" ] || return 1
+		target_in_list "$(clean_tag "$ref" "$ref")" "$proxies"
+		return $?
+	done
+
+	return 1
+}
+
+repair_routing_targets() {
+	valid_targets="$(valid_routing_targets)"
+	auto_ready=0
+	auto_group_resolves && auto_ready=1
+	changed=0
+
+	for type in domain_rule ip_rule lan_device; do
+		i=0
+		while uci -q get "$APP.@$type[$i]" >/dev/null 2>&1; do
+			section="@$type[$i]"
+			i=$((i + 1))
+
+			[ "$(uci -q get "$APP.$section.enabled" 2>/dev/null || echo 1)" != "0" ] || continue
+			if [ "$type" = "lan_device" ]; then
+				[ "$(uci -q get "$APP.$section.mode" 2>/dev/null || echo rules_only)" = "full_proxy" ] || continue
+			fi
+
+			target="$(uci -q get "$APP.$section.target" 2>/dev/null || true)"
+			[ -n "$target" ] || continue
+			[ "$target" != "direct" ] || continue
+
+			clean="$(clean_tag "$target" "$target")"
+			target_in_list "$clean" "$valid_targets" && continue
+
+			if [ "$auto_ready" = "1" ]; then
+				uci -q set "$APP.$section.target=auto_proxy_group"
+				changed=1
+				echo "podkopchikctl: repaired stale routing target '$target' in $section -> auto_proxy_group" >&2
+				log "repaired stale routing target '$target' in $section -> auto_proxy_group"
+			else
+				die "unknown routing target '$target' in $section; select Automatic: main + backups or a valid proxy, then apply again"
+			fi
+		done
+	done
+
+	if [ "$changed" = "1" ]; then
+		uci -q commit "$APP" || die "could not commit repaired routing targets"
+	fi
+}
+
 refresh_detected() {
 	i=0
 	while uci -q get "$APP.@proxy[$i]" >/dev/null 2>&1; do
@@ -120,6 +251,7 @@ refresh_detected() {
 generate_to() {
 	out="$1"
 	mkdir -p "$TMP_DIR" "$CONFIG_DIR"
+	repair_routing_targets
 	refresh_detected
 	ucode_run "$LIB/generate.uc" > "$out"
 }
