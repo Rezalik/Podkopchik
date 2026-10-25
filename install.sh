@@ -38,6 +38,7 @@ firewall4
 ip-full
 dnsmasq
 xray-core
+unzip
 "
 
 CONFLICT_PACKAGES="

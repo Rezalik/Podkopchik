@@ -169,6 +169,59 @@ uci show podkopchik | grep -iE 'bypass_rule|host|comment' || true
 nft list set inet podkopchik proxy_bypass4 || true
 ```
 
+## Xray Manager And Connection Checks
+
+Local tests cover the following; actual core-update success is not asserted for
+either physical router until the on-device checks below pass.
+
+- Updates renders installed source/version, architecture, last check/status and
+  separate package/official actions; all new strings have Russian translations.
+- Package update calls only `opkg upgrade xray-core`; package-owned executables
+  are never replaced by manual copies.
+- Official update uses XTLS metadata, matching architecture, SHA256, space and
+  ELF checks; invalid config/checksum/architecture is rejected before activation.
+- Shared selector is used by CLI, init and probes. Candidate validation precedes
+  restart; failed startup or primary verification restores the old executable.
+- Active config, nft rules, FakeDNS and policy routing must remain unchanged.
+- No router reboot, kernel upgrade, default-route change, UDP TPROXY or UDP/443
+  blocking is introduced.
+- VLESS checks return measured HTTPS duration, external IP and timestamps; expired
+  success becomes unknown. Failed checks allow saving. Private URI values never
+  appear in command arguments or diagnostic responses.
+- Probe timeout/error paths terminate the isolated process and release its lock;
+  a busy listener cannot produce a false UP result.
+- Existing VLESS ordered failover, thresholds and health cleanup continue to pass.
+- AWG 3.1 is deferred pending exact ABI/runtime verification. No AWG upload,
+  lifecycle, handshake, AWG internet checks or mixed AWG failover is claimed.
+
+Physical router acceptance (GL-MT6000 24.10.4/6.6.110 and Redmi AX6000
+24.10.1/6.6.86 must each be tested separately, with explicit operator approval):
+
+1. Record UCI, active config digest, nft table and policy route before updating.
+2. Check package/official available versions in LuCI; verify matching arm64 asset.
+3. Use a known working VLESS main proxy, active routing and optional FakeDNS.
+4. Install the chosen Xray update; verify installed version, one main process,
+   listeners, actual LAN routing and FakeDNS, with no changes to saved URI/rules.
+5. Verify external IP and HTTPS latency from the same connection in Proxy Links.
+6. Test Restore previous Xray, then recheck LAN traffic, FakeDNS and health.
+7. Separately test failure recovery using a controlled unavailable main proxy
+   and verify the previous runtime executable remains selected.
+
+```sh
+podkopchikctl xray-status
+podkopchikctl xray-check package
+podkopchikctl xray-check official
+podkopchikctl validate-active
+podkopchikctl status
+nft -s list table inet podkopchik
+ip rule show
+ip route show table 10991
+netstat -lnptu | grep -E '1053|12345'
+```
+
+Run `podkopchikctl xray-install official` (or `package`) and
+`podkopchikctl xray-rollback` only during the approved physical test.
+
 ## Required commands
 
 These commands must exist:
@@ -185,4 +238,10 @@ podkopchikctl shaping-status
 podkopchikctl update-check
 podkopchikctl update-install
 podkopchikctl rollback
+podkopchikctl xray-status
+podkopchikctl xray-check package
+podkopchikctl xray-check official
+podkopchikctl xray-install official
+podkopchikctl xray-install package
+podkopchikctl xray-rollback
 ```

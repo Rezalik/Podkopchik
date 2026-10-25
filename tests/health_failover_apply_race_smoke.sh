@@ -1,6 +1,7 @@
 #!/bin/sh
 
 set -eu
+export PODKOPCHIK_XRAY_SELECTOR="$PWD/root/usr/libexec/podkopchik/xray.sh"
 
 tmp="tests/.tmp.health-failover-race.$$"
 runtime="$tmp/runtime"
@@ -37,6 +38,7 @@ case " $* " in
 	*" state "*)
 		echo '{"events":["group auto_proxy_group switched to gerwarp"],"proxies":{"gerwarp":{"status":"up"}}}'
 		;;
+	*probe_result.uc*) printf '198.51.100.1' ;;
 	*)
 		exit 1
 		;;
@@ -63,8 +65,13 @@ EOF
 
 cat > "$tmp/curl" <<'EOF'
 #!/bin/sh
-
-exit 0
+case "$*" in
+ *api.ipify.org*)
+  previous=''
+  for arg in "$@"; do [ "$previous" != '-o' ] || echo 198.51.100.1 > "$arg"; previous="$arg"; done
+  ;;
+ *) printf '0.084' ;;
+esac
 EOF
 
 cat > "$tmp/xray" <<'EOF'
@@ -115,5 +122,6 @@ grep -q '"old":true' "$runtime/state.json"
 grep -q 'apply-health-state' "$PODKOPCHIK_CTL_LOG"
 grep -q 'failover config apply failed' "$PODKOPCHIK_TEST_LOG"
 grep -q 'health state was not replaced because failover apply failed' "$PODKOPCHIK_TEST_LOG"
+awk -F '\t' '$1 == "gerwarp" && $2 == "up" && $4 == "84" && $5 == "198.51.100.1" && $6 > 0 { ok=1 } END { exit !ok }' "$runtime/health-results.tsv"
 
 echo "health failover apply race smoke OK"

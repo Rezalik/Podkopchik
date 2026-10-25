@@ -68,7 +68,7 @@ Installer-managed dependencies:
 ```text
 luci-base rpcd rpcd-mod-luci uhttpd ucode ucode-mod-fs ucode-mod-uci
 ucode-mod-ubus curl ca-bundle jsonfilter nftables-json kmod-nft-tproxy
-firewall4 ip-full dnsmasq xray-core
+firewall4 ip-full dnsmasq xray-core unzip
 ```
 
 `ip-full` is installed automatically when missing. BusyBox `/sbin/ip` is not sufficient because Podkopchik needs `iproute2` fwmark policy routing for TPROXY.
@@ -270,6 +270,110 @@ podkopchikctl rollback
 ```
 
 Podkopchik `0.1.0-beta` never auto-updates Xray core.
+
+### Manual Xray Core Updates
+
+The **Updates** page has an independent **Xray Core** section with installed
+version, installed source, CPU architecture, last check time and operation
+status. Select **OpenWrt package (opkg)** or **Official Xray release**, then
+**Check for updates**. Versions come from the router/selected source.
+Updates run only when explicitly requested. Working routing and exactly one
+main proxy must be configured before a core update can pass verification.
+LuCI starts a background job and polls its status, so a long download does not
+depend on one HTTP request remaining open.
+
+The package source refreshes the configured opkg feeds and runs only
+`opkg upgrade xray-core`; opkg handles package signatures and dependencies.
+The manager refuses package updates when opkg signature checking is disabled.
+No general OpenWrt package upgrade is performed. Use correctly configured,
+trusted feeds for the installed OpenWrt release.
+
+The official source downloads a matching Linux release from `XTLS/Xray-core`
+on GitHub over HTTPS, verifies its SHA256 digest (or upstream `.dgst`), checks
+its Linux ELF architecture and version, and tests the active config. Only the
+`xray` archive member is extracted; bundled geoip/geosite databases are ignored.
+Checksum verification trusts the publisher and is not an independent signature.
+`unzip` is installed as a dependency. Linux arm64 and x86_64 are supported by
+the update manager; other architectures are rejected.
+
+The active selector and managed executable live in
+`/usr/libexec/podkopchik-core/`, outside application payload replacement.
+`/usr/bin/xray` remains owned by opkg. Init, validation, health and isolated
+checks share the selector in `xray.sh`. The manager reserves free space for
+staging, extraction and a copy of the previous binary. It serializes with
+Apply and health and restarts only the Xray procd instance.
+
+Verification requires one main process, transparent/FakeDNS listeners, unchanged
+active config/nft/policy routing, and successful HTTPS egress through the main
+proxy. Failed startup or verification restores the previous executable.
+The primary can be reachable while a different outbound is currently selected
+by failover; the updater deliberately checks the configured main connection.
+
+```sh
+podkopchikctl xray-status
+podkopchikctl xray-check package
+podkopchikctl xray-check official
+# Run one of these only when ready for a short proxy interruption:
+podkopchikctl xray-install official
+# Or: podkopchikctl xray-install package
+podkopchikctl xray-status
+podkopchikctl validate-active
+podkopchikctl status
+```
+
+Restore the previous runtime binary with `podkopchikctl xray-rollback` or the
+**Restore previous Xray** button. This is a binary rollback, not a downgrade of
+opkg package metadata/dependencies. A failed package upgrade can therefore
+leave a newer package installed while Podkopchik runs the protected old copy
+(`source=rollback`). A subsequent successful package update can select opkg
+again. If startup recovery needs manual intervention:
+
+```sh
+cp /usr/libexec/podkopchik-core/previous/xray /usr/libexec/podkopchik-core/xray.recovery
+chmod 755 /usr/libexec/podkopchik-core/xray.recovery
+mv /usr/libexec/podkopchik-core/xray.recovery /usr/libexec/podkopchik-core/xray
+printf '%s\n' rollback > /usr/libexec/podkopchik-core/selected
+/etc/init.d/podkopchik core_restart
+podkopchikctl validate-active
+podkopchikctl status
+```
+
+Normal exit and handled signals release locks and attempt rollback after a
+switch. Power loss or SIGKILL cannot run shell traps: inspect running processes
+before removing an orphan update lock, and use the retained previous binary
+if needed. Managed core files survive normal uninstall/reinstall; `--purge`
+removes them. Application rollback and core rollback are independent.
+
+### Connection Checks
+
+Proxy Links automatically checks pasted/changed VLESS URIs and checks them
+before saving. **Check again** repeats the isolated check. A failed check is a
+warning and does not prevent saving. The current connection type remains
+VLESS/Reality until AWG 3.1 runtime compatibility is established.
+
+Checks use a separate Xray SOCKS listener on root-owned, locked local port
+20999. The checker verifies the process and listener owner before trusting
+curl. One HTTPS request to `api.ipify.org` obtains an IPv4 exit address and
+measures total request time, displayed as HTTPS check latency (not ICMP ping).
+Temporary configuration/logs are root-only and removed on exit/interruption;
+the URI is passed to the checker in the RPC environment, never process arguments
+or diagnostic output. The primary/group selection and LAN rules are untouched.
+
+Periodic health checks retain the existing thresholds and ordered failover;
+they additionally record HTTPS request latency, external IP when available and
+check time. An external-IP lookup failure does not turn a successful existing
+reachability check into a failover. The Proxy Links page hides success/latency/IP
+after five minutes and labels the result outdated. Immediate pre-save results
+are held in the current page; periodic results appear from the health state.
+
+### AWG 3.1 Compatibility Gate
+
+AWG 3.1 is **not implemented or advertised as usable** in this change. Verified
+matching 3.1 packages/runtime were not found for GL-MT6000 / OpenWrt 24.10.4 /
+kernel 6.6.110 or Redmi AX6000 / OpenWrt 24.10.1 / kernel 6.6.86. Existing
+24.10.4 builds carry AWG 2.0; newer 24.10.8 modules cannot be installed into
+these kernels. See [the investigation and follow-up architecture](docs/XRAY-AWG-RESEARCH.md).
+No AWG secrets are uploaded/stored and no AWG kernel modules are installed.
 
 ## Uninstall
 

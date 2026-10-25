@@ -7,6 +7,7 @@ runtime="$tmp/runtime"
 fake_proc="$tmp/proc"
 rm -rf "$tmp"
 mkdir -p "$tmp" "$runtime" "$tmp/lib" "$fake_proc"
+cp root/usr/libexec/podkopchik/xray.sh "$tmp/lib/xray.sh"
 cleanup() {
 	if [ -n "${main_pid:-}" ]; then
 		kill "$main_pid" >/dev/null 2>&1 || true
@@ -125,6 +126,8 @@ mkdir -p "$fake_proc/$main_pid" "$fake_proc/$stale_pid"
 printf '%s\n' "$tmp/xray run -config /etc/podkopchik/config.json" > "$fake_proc/$main_pid/cmdline"
 printf '%s\n' "$tmp/xray run -config $runtime/health-gerwarp.json" > "$fake_proc/$stale_pid/cmdline"
 mkdir -p "$runtime/health-port-20800.lock"
+touch "$runtime/health-gerwarp.json" "$runtime/health-gerwarp.log"
+chmod 644 "$runtime/health-gerwarp.json" "$runtime/health-gerwarp.log"
 sleep 1
 
 PODKOPCHIK_LIB="$tmp/lib" \
@@ -148,6 +151,8 @@ kill -0 "$main_pid" >/dev/null 2>&1
 grep -q "$runtime/health-gerwarp.json" "$XRAY_TERM_LOG"
 grep -q "cleaning up stale health probe Xray process" "$PODKOPCHIK_TEST_LOG"
 grep -q "gerwarp.*down.*Operation timed out" "$runtime/health-results.tsv"
+[ "$(ls -ld "$runtime/health-gerwarp.json" | cut -c1-10)" = '-rw-------' ]
+[ "$(ls -ld "$runtime/health-gerwarp.log" | cut -c1-10)" = '-rw-------' ]
 [ ! -d "$runtime/health-port-20800.lock" ]
 [ ! -d "$runtime/health-check.lock" ]
 

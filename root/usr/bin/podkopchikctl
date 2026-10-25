@@ -1,9 +1,10 @@
 #!/bin/sh
 
 set -eu
+umask 077
 
 APP="podkopchik"
-LIB="/usr/libexec/podkopchik"
+LIB="${PODKOPCHIK_LIB:-/usr/libexec/podkopchik}"
 CONFIG_DIR="${PODKOPCHIK_CONFIG_DIR:-/etc/podkopchik}"
 CONFIG="$CONFIG_DIR/config.json"
 UCI_CONFIG="/etc/config/$APP"
@@ -24,7 +25,8 @@ log() {
 }
 
 xray_bin() {
-	command -v xray 2>/dev/null || command -v xray-core 2>/dev/null || true
+	. "$LIB/xray.sh"
+	xray_bin
 }
 
 cmdline_for_pid() {
@@ -253,6 +255,8 @@ generate_to() {
 	mkdir -p "$TMP_DIR" "$CONFIG_DIR"
 	repair_routing_targets
 	refresh_detected
+	touch "$out"
+	chmod 600 "$out"
 	ucode_run "$LIB/generate.uc" > "$out"
 }
 
@@ -764,8 +768,17 @@ case "${1:-}" in
 	update-check) cmd_update_check ;;
 	update-install) cmd_update_install ;;
 	rollback) cmd_rollback ;;
+	xray-status|xray-check|xray-install|xray-rollback)
+		action="$1"; shift
+		exec "$LIB/xray_update.sh" "$action" "$@"
+		;;
+	probe-vless) exec "$LIB/connection_check.sh" uri ;;
+	xray-start-check|xray-start-install|xray-start-rollback)
+		job="${1#xray-start-}"; shift
+		exec sh "$LIB/xray_jobs.sh" start "xray-$job" "${1:-package}"
+		;;
 	*)
-		echo "Usage: podkopchikctl {status|generate|validate|apply|restart|cleanup|health|shaping-status|update-check|update-install|rollback}" >&2
+		echo "Usage: podkopchikctl {status|generate|validate|apply|restart|cleanup|health|shaping-status|update-check|update-install|rollback|xray-status|xray-check [package|official]|xray-install [package|official]|xray-rollback}" >&2
 		exit 2
 		;;
 esac

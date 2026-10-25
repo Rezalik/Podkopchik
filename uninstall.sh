@@ -39,6 +39,7 @@ rm -rf /tmp/podkopchik
 if [ "$PURGE" = "1" ]; then
 	rm -f /etc/config/podkopchik
 	rm -rf /etc/podkopchik
+	rm -rf /usr/libexec/podkopchik-core
 fi
 
 /etc/init.d/rpcd restart >/dev/null 2>&1 || true

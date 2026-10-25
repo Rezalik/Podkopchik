@@ -523,6 +523,21 @@ function build_config() {
 	return config;
 }
 
+function health_config(outbound, port) {
+	return {
+		log: { loglevel: 'warning' },
+		inbounds: [ {
+			tag: 'health-in', listen: '127.0.0.1', port: int(port),
+			protocol: 'socks', settings: { auth: 'noauth', udp: false }
+		} ],
+		outbounds: [ outbound, { tag: 'direct', protocol: 'freedom' } ],
+		routing: {
+			domainStrategy: 'AsIs',
+			rules: [ { type: 'field', inboundTag: [ 'health-in' ], outboundTag: outbound.tag } ]
+		}
+	};
+}
+
 function build_health_config(tag, port) {
 	let proxies = collect_proxies(true, true);
 	let p = proxies.by_tag[vless.clean_tag(tag, tag)];
@@ -530,33 +545,7 @@ function build_health_config(tag, port) {
 	if (!p)
 		die('unknown proxy for health check: ' + tag);
 
-	return {
-		log: {
-			loglevel: 'warning'
-		},
-		inbounds: [ {
-			tag: 'health-in',
-			listen: '127.0.0.1',
-			port: int(port),
-			protocol: 'socks',
-			settings: {
-				auth: 'noauth',
-				udp: false
-			}
-		} ],
-		outbounds: [
-			vless_outbound(p),
-			{ tag: 'direct', protocol: 'freedom' }
-		],
-		routing: {
-			domainStrategy: 'AsIs',
-			rules: [ {
-				type: 'field',
-				inboundTag: [ 'health-in' ],
-				outboundTag: p.tag
-			} ]
-		}
-	};
+	return health_config(vless_outbound(p), port);
 }
 
 function load_results(path) {
@@ -570,11 +559,14 @@ function load_results(path) {
 		if (!length(line))
 			continue;
 
-		let cols = split(line, '\t', 3);
+		let cols = split(line, '\t');
 		if (length(cols) >= 2)
 			results[cols[0]] = {
 				status: cols[1],
-				message: length(cols) > 2 ? cols[2] : ''
+				message: length(cols) > 2 ? cols[2] : '',
+				latency_ms: length(cols) > 3 && length(cols[3]) ? int(cols[3]) : null,
+				external_ip: length(cols) > 4 ? cols[4] : '',
+				checked_at: length(cols) > 5 ? int(cols[5]) : time()
 			};
 	}
 
@@ -719,6 +711,11 @@ function build_state(results_path) {
 			fail_threshold,
 			restore_threshold
 		);
+		let result = results[p.tag];
+		proxy_state[p.tag].checked_at = result ? result.checked_at : null;
+		proxy_state[p.tag].valid_for = 300;
+		proxy_state[p.tag].latency_ms = result && result.status == 'up' ? result.latency_ms : null;
+		proxy_state[p.tag].external_ip = result && result.status == 'up' ? result.external_ip : '';
 	}
 
 	for (let g in groups.list) {
@@ -744,6 +741,25 @@ let obj;
 
 if (mode == 'health') {
 	obj = build_health_config(ARGV[1], ARGV[2] || 20800);
+}
+else if (mode == 'probe-uri') {
+	let uri = getenv('PODKOPCHIK_PROBE_URI') || '';
+	if (length(uri) > 16384)
+		die('VLESS URI is too long');
+	obj = health_config(vless_outbound({ tag: 'probe', parsed: vless.parse(uri) }), 20999);
+}
+else if (mode == 'probe-primary') {
+	let primary = null;
+	ctx.foreach(APP, 'proxy', function(s) {
+		if (opt(s, 'role', '') == 'main' && boolopt(s, 'enabled', true)) {
+			if (primary != null)
+				die('select exactly one main proxy');
+			primary = s;
+		}
+	});
+	if (primary == null)
+		die('select one main proxy');
+	obj = health_config(vless_outbound({ tag: 'probe', parsed: vless.parse(opt(primary, 'uri', '')) }), 20999);
 }
 else if (mode == 'state') {
 	obj = build_state(ARGV[1]);

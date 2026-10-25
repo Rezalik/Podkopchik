@@ -1,6 +1,7 @@
 #!/bin/sh
 
 set -u
+umask 077
 
 APP="podkopchik"
 LIB="${PODKOPCHIK_LIB:-/usr/libexec/podkopchik}"
@@ -14,7 +15,8 @@ ACTIVE_PROBE_PID=""
 ACTIVE_PROBE_LOCK=""
 
 xray_bin() {
-	command -v xray 2>/dev/null || command -v xray-core 2>/dev/null || true
+	. "${PODKOPCHIK_XRAY_SELECTOR:-$LIB/xray.sh}"
+	xray_bin
 }
 
 cmdline_for_pid() {
@@ -84,6 +86,10 @@ trap 'cleanup_on_exit; exit 143' HUP TERM
 
 acquire_health_lock() {
 	mkdir -p "$TMP_DIR"
+	if [ -d "$TMP_DIR/xray-update.lock" ]; then
+		logger -t podkopchik "health check skipped; Xray update is running"
+		return 1
+	fi
 
 	if mkdir "$HEALTH_LOCK" >/dev/null 2>&1; then
 		printf '%s\n' "$$" > "$HEALTH_LOCK/pid" 2>/dev/null || true
@@ -163,7 +169,7 @@ record_probe() {
 	tag="$2"
 	status="$3"
 	message="$4"
-	printf '%s\t%s\t%s\n' "$tag" "$status" "$message" >> "$results"
+	printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$tag" "$status" "$message" "${5:-}" "${6:-}" "$(date +%s)" >> "$results"
 }
 
 probe_port_state() {
@@ -207,6 +213,12 @@ probe_proxy() {
 		return
 	fi
 
+	touch "$cfg" "$log"
+	if ! chmod 600 "$cfg" "$log"; then
+		cleanup_active_probe
+		record_probe "$results" "$tag" "unknown" "could not protect temporary probe files"
+		return
+	fi
 	if ! ucode -L "$LIB" "$LIB/generate.uc" health "$tag" "$port" > "$cfg" 2>"$log"; then
 		msg="$(tr '\n\t' '  ' < "$log")"
 		cleanup_active_probe
@@ -235,8 +247,19 @@ probe_proxy() {
 		return
 	fi
 
-	if curl -fsS -I --max-time "$timeout" --socks5-hostname "127.0.0.1:$port" "$url" >/dev/null 2>"$log"; then
-		record_probe "$results" "$tag" "up" ""
+	if elapsed="$(curl --noproxy '' -fsS -I --max-time "$timeout" --socks5-hostname "127.0.0.1:$port" -w '%{time_total}' -o /dev/null "$url" 2>"$log")"; then
+		latency="$(printf '%s\n' "$elapsed" | awk '/^[0-9]+([.][0-9]+)?$/ { printf "%.0f", $1 * 1000 }')"
+		external_ip=""
+		ip_file="$TMP_DIR/health-$tag.ip"
+		if curl --noproxy '' --proto '=https' -fsS --max-time "$timeout" --max-filesize 128 --socks5-hostname "127.0.0.1:$port" https://api.ipify.org -o "$ip_file" 2>/dev/null; then
+			external_ip="$(ucode "$LIB/probe_result.uc" "$ip_file" 2>/dev/null || true)"
+		fi
+		rm -f "$ip_file"
+		if kill -0 "$pid" >/dev/null 2>&1; then
+			record_probe "$results" "$tag" "up" "" "$latency" "$external_ip"
+		else
+			record_probe "$results" "$tag" "unknown" "temporary xray probe process exited during curl"
+		fi
 	else
 		msg="$(tr '\n\t' '  ' < "$log")"
 		record_probe "$results" "$tag" "down" "${msg:-probe failed}"

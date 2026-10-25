@@ -637,7 +637,63 @@ LuCI Updates page must:
 * restart needed services
 * provide rollback command
 
-Do not update Xray core automatically in `0.1.0-beta`.
+Do not update Xray core automatically in `0.1.0-beta`. Explicit user-requested
+core updates are supported independently of application updates; see below.
+
+## Manual Xray Core Manager
+
+The Updates page exposes installed version/source, architecture, available
+version for each source, last check and operation status. No version is guessed.
+`podkopchikctl xray-status`, `xray-check package|official`,
+`xray-install package|official`, and `xray-rollback` implement the same path.
+LuCI uses short `xray-start-*` requests and polls background-job status through
+`xray-status`; closing the page does not cancel an in-progress update.
+
+All runtime Xray calls use `xray.sh`. Package mode uses the opkg binary;
+official/rollback mode uses `/usr/libexec/podkopchik-core/xray`. The selector,
+previous executable and last update status live in that separate directory,
+which application payload replacement does not overwrite. Normal uninstall
+preserves this directory; explicit purge removes it.
+
+Updates support Linux aarch64 and x86_64, use bounded HTTPS downloads, check
+free space in persistent and temporary filesystems, and lock out concurrent
+apply/health changes. Package mode runs opkg only for `xray-core`; official mode
+uses the fixed XTLS/Xray-core release endpoint, published SHA256, matching ELF
+machine and executable version. Extraction is limited to the fixed `xray`
+member. The active config must pass candidate validation before activation.
+
+Updates require active working routing and one configured main proxy.
+Only the Xray procd instance is restarted; nft/FakeDNS/policy routing are
+snapshotted and must remain unchanged. Verification checks a single selected
+main executable, TCP transparent listener, optional FakeDNS UDP listener, and
+HTTPS egress through the configured main proxy. Failure restores the old
+binary/selector. Package dependencies/metadata are not downgraded by runtime
+binary rollback. Interrupted operations use traps; abrupt power loss/SIGKILL
+requires inspection of locks and possibly the retained previous binary.
+
+## Isolated VLESS Checks
+
+Proxy Links checks pasted/changed VLESS URIs before final save and has a repeat
+button. Checking failure does not block saving. Secret input uses RPC environment
+data, not executable arguments; temporary files are root-only. A locked SOCKS
+port (20999), live Xray PID and listener ownership are required. Results include
+status, normalized error category, HTTPS request duration in milliseconds, IPv4
+exit address, timestamp and a 300-second freshness interval. `api.ipify.org`
+provides the exit IP; provider failure must never fabricate an IP or UP result.
+The isolated checker does not publish failover state or alter LAN routing.
+
+Existing health probes additionally write optional metrics/time to state,
+preserving the existing fail/restore thresholds and selection algorithm.
+External IP failure leaves that metric empty; it does not invalidate an otherwise
+successful existing reachability test. The UI expires stale success/metrics.
+
+## AWG 3.1 Gate
+
+See [research](XRAY-AWG-RESEARCH.md). Matching 3.1 kernel/userspace availability
+has not been verified for OpenWrt 24.10.4/kernel 6.6.110 and
+24.10.1/kernel 6.6.86 on mediatek/filogic. AWG type selection, file upload,
+tunnel lifecycle, AWG probes and mixed-protocol failover remain deferred.
+No UI-only AWG option or WireGuard/AWG-2.0 substitution is allowed.
 
 Required CLI
 

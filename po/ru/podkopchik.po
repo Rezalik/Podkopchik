@@ -984,3 +984,135 @@ msgstr "TikTok"
 
 msgid "X / Twitter"
 msgstr "X / Twitter"
+
+msgid "OpenWrt package (opkg)"
+msgstr "Пакет OpenWrt (opkg)"
+
+msgid "Official Xray release"
+msgstr "Официальный релиз Xray"
+
+msgid "Restored executable"
+msgstr "Восстановленный бинарник"
+
+msgid "Updating Xray..."
+msgstr "Обновление Xray…"
+
+msgid "Xray update verified"
+msgstr "Обновление Xray проверено"
+
+msgid "Previous Xray executable restored"
+msgstr "Предыдущий бинарник Xray восстановлен"
+
+msgid "Xray recovery needs attention"
+msgstr "Восстановление Xray требует внимания"
+
+msgid "Installed Xray version"
+msgstr "Установленная версия Xray"
+
+msgid "Not available"
+msgstr "Недоступно"
+
+msgid "Installed source"
+msgstr "Источник установленной версии"
+
+msgid "Architecture"
+msgstr "Архитектура"
+
+msgid "Last update check"
+msgstr "Последняя проверка обновлений"
+
+msgid "Update status"
+msgstr "Состояние обновления"
+
+msgid "Checking Xray updates..."
+msgstr "Проверка обновлений Xray…"
+
+msgid "Xray Core"
+msgstr "Ядро Xray"
+
+msgid "Xray operation failed. See technical details below."
+msgstr "Операция с Xray завершилась ошибкой. Подробности приведены ниже."
+
+msgid "Update source"
+msgstr "Источник обновления"
+
+msgid "Xray and Podkopchik updates are independent. An Xray update briefly restarts the proxy; failed verification restores the previous executable."
+msgstr "Xray и Podkopchik обновляются отдельно. Обновление Xray ненадолго перезапускает прокси; при ошибке проверки восстанавливается предыдущий бинарник."
+
+msgid "Check for updates"
+msgstr "Проверить обновления"
+
+msgid "Update Xray"
+msgstr "Обновить Xray"
+
+msgid "Restore previous Xray"
+msgstr "Восстановить предыдущий Xray"
+
+msgid "Invalid connection configuration"
+msgstr "Некорректная конфигурация подключения"
+
+msgid "A required component is missing"
+msgstr "Отсутствует необходимый компонент"
+
+msgid "Another connection check is running"
+msgstr "Уже выполняется другая проверка подключения"
+
+msgid "The local check port is busy"
+msgstr "Локальный порт проверки занят"
+
+msgid "The isolated connection check could not start"
+msgstr "Не удалось запустить изолированную проверку подключения"
+
+msgid "The proxy server could not be reached"
+msgstr "Не удалось подключиться к прокси-серверу"
+
+msgid "Internet access through this connection failed"
+msgstr "Выход в интернет через это подключение недоступен"
+
+msgid "Connection check timed out"
+msgstr "Превышено время ожидания проверки подключения"
+
+msgid "Connection check DNS error"
+msgstr "Ошибка DNS при проверке подключения"
+
+msgid "Could not verify the external IP address"
+msgstr "Не удалось проверить внешний IP-адрес"
+
+msgid "Connection has not been checked yet"
+msgstr "Подключение ещё не проверялось"
+
+msgid "HTTPS check latency: %d ms"
+msgstr "Задержка HTTPS-проверки: %d мс"
+
+msgid "External IP: %s"
+msgstr "Внешний IP: %s"
+
+msgid "Check result is outdated"
+msgstr "Результат проверки устарел"
+
+msgid "Checking connection..."
+msgstr "Проверка подключения…"
+
+msgid "Connection works"
+msgstr "Подключение работает"
+
+msgid "You can still save this connection."
+msgstr "Вы всё равно можете сохранить это подключение."
+
+msgid "Check again"
+msgstr "Проверить повторно"
+
+msgid "Some connections could not be verified. Their settings will still be saved."
+msgstr "Некоторые подключения не удалось проверить. Их настройки всё равно будут сохранены."
+
+msgid "Xray update failed; active executable was preserved"
+msgstr "Обновление Xray не удалось; активный бинарник сохранён"
+
+msgid "Xray operation status changed; refresh this page."
+msgstr "Состояние операции Xray изменилось; обновите эту страницу."
+
+msgid "System Xray (package ownership unverified)"
+msgstr "Системный Xray (принадлежность пакету не подтверждена)"
+
+msgid "Last checked: %s"
+msgstr "Последняя проверка: %s"
