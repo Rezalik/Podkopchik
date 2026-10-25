@@ -1,0 +1,36 @@
+'use strict';
+const assert = require('assert');
+const fs = require('fs');
+const source = fs.readFileSync('root/www/luci-static/resources/view/podkopchik/proxies.js', 'utf8');
+const fixture = 'vless://11111111-2222-3333-4444-555555555555@example.invalid:443?type=tcp&security=reality#synthetic';
+const calls = [];
+const backend = { exec: async (command, args, env) => {
+	calls.push({ command, args, env });
+	return { code: 0, stdout: JSON.stringify({ status: 'up', checked_at: Math.floor(Date.now() / 1000), valid_for: 300, latency_ms: 84, external_ip: '192.0.2.1' }) };
+} };
+const api = new Function('fs', '_', source.slice(0, source.indexOf('return view.extend({')) + '\nreturn { checkUri, checkBeforeSave, healthFor, freshCheck };')(backend, s => s);
+(async () => {
+	const result = await api.checkUri(fixture);
+	assert.strictEqual(result.status, 'up');
+	assert.strictEqual(result.latency_ms, 84);
+	assert.strictEqual(result.external_ip, '192.0.2.1');
+	assert.deepStrictEqual(calls[0].args, [ 'probe-vless' ]);
+	assert(!calls[0].args.some(arg => arg.includes('vless://')), 'URI must never be an exec argument');
+	assert.strictEqual(calls[0].env.PODKOPCHIK_PROBE_URI, fixture);
+	await api.checkBeforeSave([ { uri: fixture } ]);
+	assert.strictEqual(calls.length, 1, 'fresh checks should not run twice before save');
+	const now = Math.floor(Date.now() / 1000);
+	let health = api.healthFor({ proxies: { germany: { status: 'up', latency_ms: 84, external_ip: '192.0.2.1', checked_at: now, valid_for: 300 } } }, 'Germany');
+	assert.strictEqual(health.status, 'up');
+	assert.strictEqual(health.latency, 84);
+	health = api.healthFor({ proxies: { germany: { status: 'up', latency_ms: 84, external_ip: '192.0.2.1', checked_at: now - 301 } } }, 'Germany');
+	assert.strictEqual(health.status, 'unknown');
+	assert.strictEqual(health.latency, null);
+	assert.strictEqual(health.external_ip, '');
+	assert.strictEqual(health.stale, true);
+	backend.exec = async () => { throw new Error('synthetic RPC failure'); };
+	const failed = await api.checkUri(fixture + '2');
+	assert.strictEqual(failed.status, 'unknown');
+	await api.checkBeforeSave([ { uri: fixture + '2' } ]);
+	console.log('Connection checks UI smoke OK');
+})().catch(err => { console.error(err.message); process.exitCode = 1; });

@@ -7,6 +7,57 @@
 var AUTO_GROUP_TAG = 'auto_proxy_group';
 var MAX_SIMPLE_PROXIES = 10;
 var MAX_ACTIVE_BACKUPS = 3;
+var CHECK_VALID_FOR = 300;
+var checks = Object.create(null);
+var probeQueue = Promise.resolve();
+
+function freshCheck(item) {
+	var age = Math.floor(Date.now() / 1000) - Number(item && item.checked_at || 0);
+	return item && item.checked_at && age >= 0 && age < Number(item.valid_for || CHECK_VALID_FOR);
+}
+
+function checkReason(reason) {
+	var labels = {
+		invalid_configuration: _('Invalid connection configuration'),
+		missing_component: _('A required component is missing'),
+		busy: _('Another connection check is running'),
+		port_in_use: _('The local check port is busy'),
+		probe_start_failed: _('The isolated connection check could not start'),
+		server_unavailable: _('The proxy server could not be reached'),
+		internet_unavailable: _('Internet access through this connection failed'),
+		timeout: _('Connection check timed out'),
+		dns_error: _('Connection check DNS error'),
+		external_ip_error: _('Could not verify the external IP address')
+	};
+	return labels[reason] || _('Connection has not been checked yet');
+}
+
+function checkUri(uri) {
+	probeQueue = probeQueue.catch(function() {}).then(function() {
+		return fs.exec('/usr/bin/podkopchikctl', [ 'probe-vless' ], { PODKOPCHIK_PROBE_URI: uri });
+	}).then(function(res) {
+		if (res.code !== 0)
+			throw new Error(_('The isolated connection check could not start'));
+		var result = JSON.parse(res.stdout || '{}');
+		checks[uri] = result;
+		return result;
+	}).catch(function() {
+		var result = { status: 'unknown', reason: 'probe_start_failed', checked_at: Math.floor(Date.now() / 1000), valid_for: CHECK_VALID_FOR };
+		checks[uri] = result;
+		return result;
+	});
+	return probeQueue;
+}
+
+function checkBeforeSave(items) {
+	return items.reduce(function(chain, item) {
+		return chain.then(function() {
+			if (freshCheck(checks[item.uri]))
+				return;
+			return checkUri(item.uri);
+		});
+	}, Promise.resolve());
+}
 
 function runApply() {
 	return fs.exec_direct('/usr/bin/podkopchikctl', [ 'apply' ]);
@@ -60,12 +111,17 @@ function readState() {
 }
 
 function healthFor(state, tag) {
-	var item = state && state.proxies && tag ? state.proxies[tag] : null;
-	var status = item && item.status ? item.status : 'unknown';
+	var canonical = String(tag || '').toLowerCase().replace(/[^a-z0-9_]+/g, '_');
+	var item = state && state.proxies && tag ? state.proxies[canonical] : null;
+	var fresh = freshCheck(item);
+	var status = fresh && item.status ? item.status : 'unknown';
 
 	return {
 		status: status,
-		latency: item && item.latency_ms ? item.latency_ms : null
+		latency: fresh && item.latency_ms != null ? item.latency_ms : null,
+		external_ip: fresh && item.external_ip || '',
+		checked_at: item && item.checked_at || 0,
+		stale: !!item && !fresh
 	};
 }
 
@@ -356,6 +412,19 @@ function renderCard(item, open) {
 	var health = item.health || { status: 'unknown' };
 	var meta = detectedText(item);
 	var editPanel;
+	var availability = E('span', { 'style': 'color:%s'.format(healthTone(health)) }, healthLabel(health));
+	var metrics = E('span', { 'style': 'display:inline-flex;gap:8px;flex-wrap:wrap;color:#6b7280' }, [
+		health.latency != null ? E('span', _('HTTPS check latency: %d ms').format(health.latency)) : '',
+		health.external_ip ? E('span', _('External IP: %s').format(health.external_ip)) : '',
+		health.checked_at ? E('span', (health.stale ? _('Check result is outdated') + ': ' : '') + new Date(health.checked_at * 1000).toLocaleString()) : ''
+	]);
+	if (health.checked_at && !health.stale) {
+		window.setTimeout(function() {
+			availability.textContent = _('Check result is outdated');
+			availability.style.color = '#6b7280';
+			metrics.textContent = '';
+		}, Math.max(0, (health.checked_at + CHECK_VALID_FOR) * 1000 - Date.now()));
+	}
 	var roleSelect = E('select', {
 		'class': 'cbi-input-select',
 		'data-field': 'role',
@@ -391,8 +460,8 @@ function renderCard(item, open) {
 			E('div', { 'style': 'display:flex; gap:8px; flex-wrap:wrap; align-items:center' }, [
 				E('span', { 'class': 'badge', 'style': 'background:#eef2ff; color:#3730a3; padding:3px 7px; border-radius:999px' }, roleLabel(role)),
 				role == 'backup' ? E('span', { 'class': 'badge', 'style': 'background:#fef3c7; color:#92400e; padding:3px 7px; border-radius:999px' }, priorityLabel(item.backup_priority || '1')) : '',
-				E('span', { 'style': 'color:%s'.format(healthTone(health)) }, healthLabel(health)),
-				health.latency ? E('span', { 'style': 'color:#6b7280' }, '%d ms'.format(health.latency)) : ''
+				availability,
+				metrics
 			]),
 			E('div', { 'style': 'display:flex; gap:6px; flex-wrap:wrap' }, [
 				E('button', {
@@ -414,6 +483,36 @@ function renderCard(item, open) {
 		])
 	]);
 
+	var checkOutput = E('div', { 'class': 'cbi-value-description', 'style': 'margin-bottom:10px' }, _('Connection has not been checked yet'));
+	var checkButton;
+	function runCheck() {
+		var uri = card.querySelector('[data-field="uri"]').value.trim();
+		if (!uri)
+			return Promise.resolve();
+		checkButton.disabled = true;
+		checkOutput.textContent = _('Checking connection...');
+		return checkUri(uri).then(function(result) {
+			// Discard a result when the user edited the URI while the request ran.
+			if (card.querySelector('[data-field="uri"]').value.trim() != uri)
+				return;
+			checkOutput.style.color = result.status == 'up' ? '#2e7d32' : (result.status == 'down' ? '#c62828' : '#6b7280');
+			checkOutput.textContent = result.status == 'up'
+				? _('Connection works') + '. ' + _('HTTPS check latency: %d ms').format(result.latency_ms) + '. ' + _('External IP: %s').format(result.external_ip)
+				: checkReason(result.reason) + '. ' + _('You can still save this connection.');
+			checkOutput.textContent += ' ' + _('Last checked: %s').format(new Date(result.checked_at * 1000).toLocaleString());
+			window.setTimeout(function() {
+				if (checks[uri] === result) {
+					checkOutput.textContent = _('Check result is outdated');
+					checkOutput.style.color = '#6b7280';
+				}
+			}, CHECK_VALID_FOR * 1000);
+		}).finally(function() { checkButton.disabled = false; });
+	}
+	checkButton = E('button', { 'class': 'btn cbi-button', 'click': function(ev) {
+		ev.preventDefault();
+		return runCheck();
+	} }, _('Check again'));
+
 	editPanel = E('div', {
 		'class': 'podkopchik-proxy-edit',
 		'style': open ? 'margin-top:14px' : 'display:none; margin-top:14px'
@@ -426,8 +525,11 @@ function renderCard(item, open) {
 			'rows': '6',
 			'wrap': 'soft',
 			'spellcheck': 'false',
+			'change': runCheck,
+			'paste': function() { window.setTimeout(runCheck, 0); },
 			'style': 'width:100%; max-width:100%; min-height:128px; box-sizing:border-box; font-family:monospace; resize:vertical'
 		}, item.uri || '')),
+		E('div', { 'style': 'margin-bottom:10px' }, [ checkButton, checkOutput ]),
 		formRow(_('Role'), roleSelect),
 		formRow(_('Backup priority'), prioritySelect, 'backup_priority'),
 		formRow(_('Note'), input('note', item.note)),
@@ -527,20 +629,24 @@ return view.extend({
 	},
 
 	handleSave: function() {
+		var items;
 		try {
-			var items = readCards();
-			writeProxiesToUci(items);
-
-			var warnings = warningMessages(items);
-			if (warnings.length)
-				ui.addNotification(_('Warning'), E('ul', warnings.map(function(w) { return E('li', w); })), 'warning');
+			items = readCards();
 		}
 		catch (e) {
 			ui.addNotification(_('Validation error'), E('p', e.message || String(e)), 'error');
 			return Promise.reject(e);
 		}
 
-		return uci.save();
+		return checkBeforeSave(items).then(function() {
+			writeProxiesToUci(items);
+			var warnings = warningMessages(items);
+			if (items.some(function(item) { return !checks[item.uri] || checks[item.uri].status != 'up'; }))
+				warnings.push(_('Some connections could not be verified. Their settings will still be saved.'));
+			if (warnings.length)
+				ui.addNotification(_('Warning'), E('ul', warnings.map(function(w) { return E('li', w); })), 'warning');
+			return uci.save();
+		});
 	},
 
 	handleSaveApply: function(ev, mode) {

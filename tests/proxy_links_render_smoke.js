@@ -125,6 +125,10 @@ function makeNode(tag, attrs, data) {
 		if (key.indexOf('data-') == 0)
 			node.dataset[key.slice(5).replace(/-([a-z])/g, function(_, c) { return c.toUpperCase(); })] = attrs[key];
 	});
+	Object.defineProperty(node, 'textContent', {
+		get: function() { return this.children.map(child => typeof child == 'string' ? child : child.textContent || '').join(''); },
+		set: function(value) { this.children = value ? [ String(value) ] : []; }
+	});
 
 	function add(child) {
 		if (child === null || child === undefined || child === false || child === '')
@@ -234,7 +238,8 @@ const modules = {
 };
 
 const L = { resolveDefault: function(_promise, fallback) { return Promise.resolve(fallback); } };
-const fakeWindow = { setTimeout: function() {}, location: { reload: function() {} } };
+const timers = [];
+const fakeWindow = { setTimeout: function(fn, delay) { timers.push({ fn, delay }); }, location: { reload: function() {} } };
 const fakeDocument = {
 	querySelectorAll: function() { return []; },
 	createElement: function(tag) { return makeNode(tag, {}, []); },
@@ -252,7 +257,7 @@ if (!String.prototype.format) {
 const factory = new Function('modules', 'E', '_', 'L', 'window', 'document',
 	'var view = modules.view, fs = modules.fs, ui = modules.ui, uci = modules.uci;\n' + source);
 const view = factory(modules, E, function(s) { return s; }, L, fakeWindow, fakeDocument);
-const state = { proxies: { proxy_germany: { status: 'up', latency_ms: 85 } } };
+const state = { proxies: { proxy_germany: { status: 'up', latency_ms: 85, external_ip: '192.0.2.1', checked_at: Math.floor(Date.now() / 1000), valid_for: 300 } } };
 
 Promise.resolve(view.render([null, state])).then(function(page) {
 	var root = Array.isArray(page) ? { attrs: {}, children: page } : page;
@@ -297,6 +302,15 @@ Promise.resolve(view.render([null, state])).then(function(page) {
 
 	if (text.indexOf('TCP') < 0 || text.indexOf('Reality') < 0)
 		throw new Error('Visible Proxy Links list did not show compact detected transport/security');
+	if (!text.includes('HTTPS check latency: 85 ms') || !text.includes('External IP: 192.0.2.1'))
+		throw new Error('Visible Proxy Links list did not show measured egress metrics');
+	const expiry = timers.find(timer => timer.delay > 1000);
+	if (!expiry)
+		throw new Error('Visible success must expire even without a page reload');
+	expiry.fn();
+	text = visibleText(list, false);
+	if (!text.includes('Check result is outdated') || text.includes('External IP: 192.0.2.1') || text.includes('Available'))
+		throw new Error('Expired success/metrics must not remain visible');
 
 	console.log('Proxy Links visible-list smoke OK');
 }).catch(function(err) {
