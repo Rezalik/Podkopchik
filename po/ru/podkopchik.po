@@ -985,8 +985,8 @@ msgstr "TikTok"
 msgid "X / Twitter"
 msgstr "X / Twitter"
 
-msgid "OpenWrt package (opkg)"
-msgstr "Пакет OpenWrt (opkg)"
+msgid "OpenWrt package (opkg/apk)"
+msgstr "Пакет OpenWrt (opkg/apk)"
 
 msgid "Official Xray release"
 msgstr "Официальный релиз Xray"

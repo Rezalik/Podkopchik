@@ -30,12 +30,25 @@ Release: `0.1.0-beta`
 
 This beta does not include subscription URLs, geoip/geosite databases, traffic statistics, QR import/export, FakeDNS by default, Xray core auto-updates, Docker, or router-side Python/Node.js runtimes.
 
-## Install On OpenWrt 24.10
+## Install On OpenWrt 24.10 / 25.12
+
+OpenWrt 24.10 uses `opkg`; OpenWrt 25.12 uses `apk`. The installer selects
+the native manager from `/etc/openwrt_release`, not just the first binary in
+PATH. A missing expected manager is an error. See
+[AX6000 migration and recovery](docs/OPENWRT-25.12-MIGRATION.md) before changing
+firmware. Firmware upgrades are not performed by Podkopchik.
 
 SSH into the router as root. The recommended GitHub installer flow is:
 
 ```sh
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/rezalik/Podkopchik/main/install.sh)"
+```
+
+On a clean image without curl, use OpenWrt's wget entry point instead:
+
+```sh
+wget -O /tmp/podkopchik-install.sh https://raw.githubusercontent.com/rezalik/Podkopchik/main/install.sh
+sh /tmp/podkopchik-install.sh
 ```
 
 If you already copied or extracted this repository to the router, run the local installer instead:
@@ -61,12 +74,17 @@ The installer stops before installing packages when free space is below the hard
 
 Before installing files, the installer checks for conflicting proxy applications such as Podkop, sing-box, Passwall, OpenClash, Mihomo, Clash, v2rayA, and a standalone non-Podkopchik Xray service/config. It does not remove them automatically.
 
-The installer runs `opkg update`, installs missing dependencies, validates them, installs Podkopchik files, installs the Russian LuCI catalog, restarts `rpcd` and `uhttpd`, clears LuCI cache, enables and starts the `podkopchik` service, and does not reboot.
+The raw installer downloads its payload/shared package adapter after the space
+check when needed. Before package changes it checks conflicts, then runs
+`opkg update` / `apk update` and installs missing dependencies with
+`opkg install` / `apk add`. It validates dependencies, installs files and the
+Russian catalog, restarts `rpcd`/`uhttpd`, clears LuCI cache and enables/starts
+Podkopchik. It never reboots or upgrades the whole system.
 
 Installer-managed dependencies:
 
 ```text
-luci-base rpcd rpcd-mod-luci uhttpd ucode ucode-mod-fs ucode-mod-uci
+luci-base luci-light rpcd rpcd-mod-file rpcd-mod-luci uhttpd ucode ucode-mod-fs ucode-mod-uci
 ucode-mod-ubus curl ca-bundle jsonfilter nftables-json kmod-nft-tproxy
 firewall4 ip-full dnsmasq xray-core unzip
 ```
@@ -275,15 +293,16 @@ Podkopchik `0.1.0-beta` never auto-updates Xray core.
 
 The **Updates** page has an independent **Xray Core** section with installed
 version, installed source, CPU architecture, last check time and operation
-status. Select **OpenWrt package (opkg)** or **Official Xray release**, then
+status. Select **OpenWrt package (opkg/apk)** or **Official Xray release**, then
 **Check for updates**. Versions come from the router/selected source.
 Updates run only when explicitly requested. Working routing and exactly one
 main proxy must be configured before a core update can pass verification.
 LuCI starts a background job and polls its status, so a long download does not
 depend on one HTTP request remaining open.
 
-The package source refreshes the configured opkg feeds and runs only
-`opkg upgrade xray-core`; opkg handles package signatures and dependencies.
+The package source refreshes the native manager's configured feeds and runs
+`opkg upgrade xray-core` / `apk upgrade xray-core`, or installs that package
+when absent. The package manager handles signatures and necessary dependencies.
 The manager refuses package updates when opkg signature checking is disabled.
 No general OpenWrt package upgrade is performed. Use correctly configured,
 trusted feeds for the installed OpenWrt release.
@@ -298,7 +317,7 @@ the update manager; other architectures are rejected.
 
 The active selector and managed executable live in
 `/usr/libexec/podkopchik-core/`, outside application payload replacement.
-`/usr/bin/xray` remains owned by opkg. Init, validation, health and isolated
+`/usr/bin/xray` remains owned by the native package manager. Init, validation, health and isolated
 checks share the selector in `xray.sh`. The manager reserves free space for
 staging, extraction and a copy of the previous binary. It serializes with
 Apply and health and restarts only the Xray procd instance.
@@ -323,9 +342,9 @@ podkopchikctl status
 
 Restore the previous runtime binary with `podkopchikctl xray-rollback` or the
 **Restore previous Xray** button. This is a binary rollback, not a downgrade of
-opkg package metadata/dependencies. A failed package upgrade can therefore
+opkg/apk package metadata/dependencies. A failed package upgrade can therefore
 leave a newer package installed while Podkopchik runs the protected old copy
-(`source=rollback`). A subsequent successful package update can select opkg
+(`source=rollback`). A subsequent successful package update can select package mode
 again. If startup recovery needs manual intervention:
 
 ```sh

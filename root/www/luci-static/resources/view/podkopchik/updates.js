@@ -53,7 +53,7 @@ function renderCore(info) {
 	var data = coreFields(info);
 	var buttons = [];
 	var labels = {
-		package: _('OpenWrt package (opkg)'),
+		package: _('OpenWrt package (opkg/apk)'),
 		system: _('System Xray (package ownership unverified)'),
 		official: _('Official Xray release'),
 		rollback: _('Restored executable')

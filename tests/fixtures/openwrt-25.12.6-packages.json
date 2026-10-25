@@ -1,0 +1,35 @@
+{
+  "checked_at": "2026-10-25",
+  "release": "25.12.6",
+  "target": "mediatek/filogic",
+  "architecture": "aarch64_cortex-a53",
+  "kernel": "6.12.112~f0a7348f9cb959e1bf4d0447669b031e-r1",
+  "feeds": {
+    "base": "https://downloads.openwrt.org/releases/25.12.6/packages/aarch64_cortex-a53/base/",
+    "packages": "https://downloads.openwrt.org/releases/25.12.6/packages/aarch64_cortex-a53/packages/",
+    "luci": "https://downloads.openwrt.org/releases/25.12.6/packages/aarch64_cortex-a53/luci/",
+    "kmods": "https://downloads.openwrt.org/releases/25.12.6/targets/mediatek/filogic/kmods/6.12.112-1-f0a7348f9cb959e1bf4d0447669b031e/"
+  },
+  "packages": {
+    "luci-base": { "version": "26.288.56989~75a306d", "feed": "luci" },
+    "luci-light": { "version": "26.288.56989~75a306d", "feed": "luci" },
+    "rpcd": { "version": "2026.10.04~d99f703e-r1", "feed": "base" },
+    "rpcd-mod-file": { "version": "2026.10.04~d99f703e-r1", "feed": "base" },
+    "rpcd-mod-luci": { "version": "20240305-r1", "feed": "luci" },
+    "uhttpd": { "version": "2026.08.24~373145f7-r1", "feed": "base" },
+    "ucode": { "version": "2026.01.16~85922056-r2", "feed": "base" },
+    "ucode-mod-fs": { "version": "2026.01.16~85922056-r2", "feed": "base" },
+    "ucode-mod-uci": { "version": "2026.01.16~85922056-r2", "feed": "base" },
+    "ucode-mod-ubus": { "version": "2026.01.16~85922056-r2", "feed": "base" },
+    "curl": { "version": "8.23.0-r1", "feed": "packages" },
+    "ca-bundle": { "version": "20260816-r2", "feed": "base" },
+    "jsonfilter": { "version": "2026.03.16~b9034210-r1", "feed": "base" },
+    "nftables-json": { "version": "1.1.6-r2", "feed": "base" },
+    "kmod-nft-tproxy": { "version": "6.12.112-r1", "feed": "kmods" },
+    "firewall4": { "version": "2025.03.17~b6e51575-r2", "feed": "base" },
+    "ip-full": { "version": "6.18.0-r2", "feed": "base" },
+    "dnsmasq": { "version": "2.93-r1", "feed": "base" },
+    "xray-core": { "version": "26.3.27-r1", "feed": "packages" },
+    "unzip": { "version": "6.0-r9", "feed": "packages" }
+  }
+}

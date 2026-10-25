@@ -176,7 +176,8 @@ either physical router until the on-device checks below pass.
 
 - Updates renders installed source/version, architecture, last check/status and
   separate package/official actions; all new strings have Russian translations.
-- Package update calls only `opkg upgrade xray-core`; package-owned executables
+- Package update targets only `xray-core` with `opkg upgrade` or `apk upgrade`
+  (install/add if absent); package-owned executables
   are never replaced by manual copies.
 - Official update uses XTLS metadata, matching architecture, SHA256, space and
   ELF checks; invalid config/checksum/architecture is rejected before activation.
@@ -221,6 +222,29 @@ netstat -lnptu | grep -E '1053|12345'
 
 Run `podkopchikctl xray-install official` (or `package`) and
 `podkopchikctl xray-rollback` only during the approved physical test.
+
+## Dual Package Manager Preparation
+
+- OpenWrt 24.10 selects opkg; OpenWrt 25.12 selects apk, even if both are in PATH.
+- A missing native manager or ambiguous unknown release fails clearly.
+- Installer fresh/repeated install, conflict/space/dependency failures and UCI
+  preservation pass the isolated test matrix for both managers.
+- Normal and package-registered uninstall preserve UCI; failed removal restores
+  it, and explicit purge removes it. No recursive removal flags are used.
+- APK version queries use JSON, not description text or guessed version numbers.
+- Package and official Xray updates, failed package mutation recovery, missing
+  package installation and previous-executable rollback pass both mock paths.
+- No unsigned/untrusted flags, full-system upgrade or manual package-binary
+  replacement are introduced; package dependencies are not rolled back.
+- All 20 declared dependencies exist in the recorded official 25.12.6 filogic
+  feeds; the snapshot test rejects new unverified dependencies.
+- `tools/verify-clean-openwrt.sh` is opt-in, limited to a disposable 25.12.6
+  x86/64 VM, and refuses the physical Xiaomi target.
+- Real clean-VM boot/install and physical AX6000 25.12.6 LAN/FakeDNS/egress
+  acceptance remain pending. Mock tests and feed availability are not hardware
+  acceptance. Do not contact/update GL-MT6000 for this migration.
+
+See [the audit, VM procedure and post-sysupgrade recovery](OPENWRT-25.12-MIGRATION.md).
 
 ## Required commands
 

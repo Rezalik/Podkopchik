@@ -1,13 +1,16 @@
 # Xray updates and AmneziaWG 3.1 investigation
 
-Investigation date: 2026-10-25. No router was contacted or modified.
+Initial investigation date: 2026-10-25. No router was contacted or modified
+for that initial implementation. For the subsequent AX6000-only target decision
+and opkg/apk preparation, see [25.12 migration](OPENWRT-25.12-MIGRATION.md).
 
 ## Existing runtime
 
 `podkopchikctl`, the procd init script and `health_check.sh` each discover Xray
 independently through PATH. All three must use the same selector before an
 alternative binary can be activated. Podkopchik updates currently update the
-application only. Xray is supplied by `opkg` as `xray-core`.
+application only. Xray is supplied as `xray-core`, using opkg on 24.10 and apk
+on 25.12 through the shared package adapter.
 
 The generator creates a dokodemo-door transparent inbound, VLESS outbounds,
 optional FakeDNS, and domain/IP/source rules. nftables intercepts LAN TCP in
@@ -74,8 +77,8 @@ delete/update cleanup. A generic WireGuard INI parser cannot prove 3.1 support.
 
 Use a Podkopchik-owned binary location and selector shared by init, validation,
 probes and CLI. Never manually overwrite `/usr/bin/xray` owned by opkg.
-OpenWrt package updates use `opkg upgrade xray-core` only. Preserve a technical
-copy of the previous executable for runtime rollback; opkg dependencies and
+OpenWrt package updates target `xray-core` through the native manager. Preserve a technical
+copy of the previous executable for runtime rollback; package dependencies and
 package metadata are not downgraded by binary rollback.
 
 Official updates use only

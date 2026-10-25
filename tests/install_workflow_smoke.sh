@@ -2,6 +2,7 @@
 
 set -eu
 
+manager="${1:-opkg}"
 tmp="tests/.tmp.install-workflow.$$"
 rm -rf "$tmp"
 mkdir -p "$tmp"
@@ -56,6 +57,12 @@ DISTRIB_TARGET='mediatek/filogic'
 DISTRIB_ARCH='aarch64_cortex-a53'
 EOF
 	echo "GL.iNet Flint 2" > "$rootfs/tmp/sysinfo/model"
+	if [ "$manager" = apk ]; then
+		sed 's/24.10.4/25.12.6/' "$rootfs/etc/openwrt_release" > "$rootfs/etc/release.new"
+		mv "$rootfs/etc/release.new" "$rootfs/etc/openwrt_release"
+		echo "Xiaomi Redmi Router AX6000 (stock layout)" > "$rootfs/tmp/sysinfo/model"
+	fi
+	echo 'option check_signature' > "$case_dir/opkg.conf"
 
 	make_init_script "$rootfs" rpcd
 	make_init_script "$rootfs" uhttpd
@@ -86,6 +93,14 @@ case "$cmd" in
 		done
 		exit 0
 		;;
+	remove)
+		echo "opkg remove $1" >> "$PODKOPCHIK_TEST_LOG"
+		rm -f "$PODKOPCHIK_INSTALL_ROOT/etc/config/podkopchik"
+		[ "${PODKOPCHIK_TEST_FAIL_REMOVE:-0}" != 1 ] || exit 1
+		grep -vx "$1" "$PODKOPCHIK_TEST_INSTALLED" > "$PODKOPCHIK_TEST_INSTALLED.new"
+		mv "$PODKOPCHIK_TEST_INSTALLED.new" "$PODKOPCHIK_TEST_INSTALLED"
+		exit 0
+		;;
 	list-installed)
 		pkg="${1:-}"
 		if [ -n "$pkg" ] && grep -qx "$pkg" "$PODKOPCHIK_TEST_INSTALLED" 2>/dev/null; then
@@ -104,6 +119,21 @@ case "$cmd" in
 esac
 EOF
 	chmod +x "$bin/opkg"
+	if [ "$manager" = apk ]; then
+		mv "$bin/opkg" "$bin/opkg-mock"
+		cat > "$bin/apk" <<'EOF'
+#!/bin/sh
+echo "apk $*" >> "$PODKOPCHIK_TEST_LOG"
+case "$1" in
+ update) exec "$PODKOPCHIK_TEST_BIN/opkg-mock" update ;;
+ add) shift; exec "$PODKOPCHIK_TEST_BIN/opkg-mock" install "$@" ;;
+ del) shift; exec "$PODKOPCHIK_TEST_BIN/opkg-mock" remove "$@" ;;
+ info) [ "$2" = --exists ] || exit 2; grep -qx "$3" "$PODKOPCHIK_TEST_INSTALLED" ;;
+ *) exit 2 ;;
+esac
+EOF
+		chmod +x "$bin/apk"
+	fi
 
 	cat > "$bin/ip" <<'EOF'
 #!/bin/sh
@@ -141,6 +171,8 @@ run_case() {
 	PATH="$bin:$PATH" \
 	PODKOPCHIK_TEST_LOG="$case_dir/log" \
 	PODKOPCHIK_TEST_INSTALLED="$case_dir/installed" \
+	PODKOPCHIK_TEST_BIN="$bin" \
+	PODKOPCHIK_OPKG_CONF="$case_dir/opkg.conf" \
 	PODKOPCHIK_INSTALL_ROOT="$rootfs" \
 	PODKOPCHIK_INSTALL_ASSUME_ROOT=1 \
 	PODKOPCHIK_INSTALL_OVERLAY_FREE_KB="$free_kb" \
@@ -204,10 +236,18 @@ cat > "$update_case/rootfs/etc/config/podkopchik" <<'EOF'
 config settings 'main'
 	option user_marker 'preserve-me'
 EOF
+mkdir -p "$update_case/rootfs/usr/libexec/podkopchik-core"
+printf '%s\n' official > "$update_case/rootfs/usr/libexec/podkopchik-core/selected"
+printf '%s\n' keep-official-binary > "$update_case/rootfs/usr/libexec/podkopchik-core/xray"
 run_case "$update_case" 51200 env
 grep -q "preserve-me" "$update_case/rootfs/etc/config/podkopchik"
 grep -q "Mode: update" "$update_case/out"
 grep -q "existing /etc/config/podkopchik preserved" "$update_case/out"
+cp "$update_case/rootfs/etc/config/podkopchik" "$update_case/config.expected"
+run_case "$update_case" 51200 env
+cmp "$update_case/config.expected" "$update_case/rootfs/etc/config/podkopchik"
+grep -qx official "$update_case/rootfs/usr/libexec/podkopchik-core/selected"
+grep -qx keep-official-binary "$update_case/rootfs/usr/libexec/podkopchik-core/xray"
 
 failure_case="$(make_case dependency-failure)"
 if run_case "$failure_case" 51200 env PODKOPCHIK_TEST_FAIL_PKG=ip-full; then
@@ -215,7 +255,64 @@ if run_case "$failure_case" 51200 env PODKOPCHIK_TEST_FAIL_PKG=ip-full; then
 	exit 1
 fi
 grep -q "could not install dependency: ip-full" "$failure_case/err"
-grep -q "Command failed: opkg install ip-full" "$failure_case/err"
+if [ "$manager" = apk ]; then
+	grep -q "Command failed: apk add ip-full" "$failure_case/err"
+else
+	grep -q "Command failed: opkg install ip-full" "$failure_case/err"
+fi
 grep -q "kernel kmod compatibility" "$failure_case/err"
 
-echo "installer workflow smoke OK"
+grep -q "Package manager: $manager" "$success_case/out"
+if [ "$manager" = apk ]; then grep -q '^apk add ip-full$' "$success_case/log"; fi
+
+# The raw single-file entry point must bootstrap packages.sh before using it.
+raw_case="$(make_case raw-bootstrap)"
+mkdir -p "$raw_case/source/Podkopchik" "$raw_case/entry"
+cp install.sh "$raw_case/entry/install.sh"
+cp -R root i18n "$raw_case/source/Podkopchik/"
+tar -czf "$raw_case/archive.tar.gz" -C "$raw_case/source" Podkopchik
+cat > "$raw_case/bin/curl" <<'EOF'
+#!/bin/sh
+previous=''
+for argument in "$@"; do
+ if [ "$previous" = -o ]; then cp "$PODKOPCHIK_TEST_ARCHIVE" "$argument"; exit; fi
+ previous="$argument"
+done
+exit 1
+EOF
+chmod +x "$raw_case/bin/curl"
+PATH="$raw_case/bin:$PATH" PODKOPCHIK_TEST_BIN="$raw_case/bin" \
+PODKOPCHIK_TEST_ARCHIVE="$raw_case/archive.tar.gz" \
+PODKOPCHIK_TEST_LOG="$raw_case/log" PODKOPCHIK_TEST_INSTALLED="$raw_case/installed" \
+PODKOPCHIK_INSTALL_ROOT="$raw_case/rootfs" PODKOPCHIK_INSTALL_ASSUME_ROOT=1 \
+PODKOPCHIK_INSTALL_OVERLAY_FREE_KB=51200 PODKOPCHIK_OPKG_CONF="$raw_case/opkg.conf" \
+PODKOPCHIK_INSTALL_WORK_DIR="$raw_case/work" sh "$raw_case/entry/install.sh" > "$raw_case/out" 2> "$raw_case/err"
+test -f "$raw_case/rootfs/usr/libexec/podkopchik/packages.sh"
+grep -q "Package manager: $manager" "$raw_case/out"
+
+uninstall_case() {
+	case_dir="$1"
+	shift
+	PATH="$case_dir/bin:$PATH" \
+	PODKOPCHIK_TEST_BIN="$case_dir/bin" \
+	PODKOPCHIK_TEST_LOG="$case_dir/log" \
+	PODKOPCHIK_TEST_INSTALLED="$case_dir/installed" \
+	PODKOPCHIK_INSTALL_ROOT="$case_dir/rootfs" \
+	PODKOPCHIK_INSTALL_ASSUME_ROOT=1 \
+	"$@" sh uninstall.sh > "$case_dir/uninstall.out" 2> "$case_dir/uninstall.err"
+}
+echo luci-app-podkopchik >> "$update_case/installed"
+if uninstall_case "$update_case" env PODKOPCHIK_TEST_FAIL_REMOVE=1; then
+	echo 'FAIL: package removal failure was ignored'; exit 1
+fi
+cmp "$update_case/config.expected" "$update_case/rootfs/etc/config/podkopchik"
+uninstall_case "$update_case" env
+cmp "$update_case/config.expected" "$update_case/rootfs/etc/config/podkopchik"
+grep -qx official "$update_case/rootfs/usr/libexec/podkopchik-core/selected"
+test ! -e "$update_case/rootfs/usr/bin/podkopchikctl"
+uninstall_case "$update_case" env
+PATH="$success_case/bin:$PATH" PODKOPCHIK_TEST_BIN="$success_case/bin" \
+PODKOPCHIK_TEST_LOG="$success_case/log" PODKOPCHIK_TEST_INSTALLED="$success_case/installed" \
+PODKOPCHIK_INSTALL_ROOT="$success_case/rootfs" PODKOPCHIK_INSTALL_ASSUME_ROOT=1 sh uninstall.sh --purge > /dev/null
+test ! -e "$success_case/rootfs/etc/config/podkopchik"
+echo "installer workflow smoke OK ($manager)"

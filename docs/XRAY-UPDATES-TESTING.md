@@ -11,7 +11,7 @@ updated, restarted or rebooted during this task. No GitHub push was performed.
   version, architecture, check date/status, package/official source selection,
   check/update/previous-binary restore actions.
 - Background jobs and status polling for long-running LuCI operations.
-- Signed opkg feed refresh and upgrade of `xray-core` only; no manual writes to
+- Signed native opkg/apk feed refresh and targeted update of `xray-core`; no manual writes to
   package-owned binaries. Official XTLS updates with bounded HTTPS download,
   SHA256, architecture/ELF and executable/config validation.
 - A reserved previous executable/selector, atomic managed selection and automatic
@@ -80,7 +80,10 @@ VLESS proxy and active routing. Record config hashes and nft/policy state first.
 ```sh
 ubus call system board
 uname -r
+# OpenWrt 24.10:
 opkg list-installed | grep -E '^xray-core|^unzip|^ip-full'
+# OpenWrt 25.12 instead:
+# apk query --from installed --fields name,version --format json xray-core unzip ip-full
 podkopchikctl xray-status
 podkopchikctl validate-active
 podkopchikctl status
@@ -132,7 +135,7 @@ podkopchikctl status
 - HTTPS/provider reachability and sufficient temporary/persistent space are
   required. External IP currently uses the IPv4 `api.ipify.org` endpoint.
 - A failed main-proxy check rolls back an update even if backups are usable.
-- Package rollback restores the runtime executable, not opkg dependencies or
+- Package rollback restores the runtime executable, not opkg/apk dependencies or
   package metadata. Official-release checksums trust XTLS/GitHub publication.
 - SIGKILL/power loss bypass traps. Inspect orphan locks/running workers and use
   the reserved executable as documented in README before retrying.

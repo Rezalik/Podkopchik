@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+manager="${1:-opkg}"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
@@ -11,9 +12,12 @@ export PODKOPCHIK_CORE_DIR="$tmp/core"
 export PODKOPCHIK_PROC_DIR="$tmp/proc"
 export PODKOPCHIK_INIT="$tmp/init"
 export PODKOPCHIK_OPKG_CONF="$tmp/opkg.conf"
+export PODKOPCHIK_OPENWRT_RELEASE="$tmp/openwrt_release"
 mkdir -p "$tmp/bin" "$tmp/lib" "$tmp/runtime" "$tmp/config" "$tmp/core" "$tmp/proc/42" "$tmp/asset"
 echo 'option check_signature' > "$tmp/opkg.conf"
 cp root/usr/libexec/podkopchik/xray.sh "$tmp/lib/"
+cp root/usr/libexec/podkopchik/packages.sh "$tmp/lib/"
+echo "DISTRIB_RELEASE='24.10.1'" > "$tmp/openwrt_release"
 export PATH="$tmp/bin:$PATH"
 
 cat > "$tmp/old" <<'EOF'
@@ -69,10 +73,10 @@ cat > "$tmp/bin/jsonfilter" <<'EOF'
 #!/usr/bin/env node
 const fs = require('fs');
 const args = process.argv.slice(2);
-const file = args[args.indexOf('-i') + 1];
+const file = args.includes('-i') ? args[args.indexOf('-i') + 1] : 0;
 const expr = args[args.indexOf('-e') + 1];
 let data = JSON.parse(fs.readFileSync(file));
-const fields = expr.replace(/^@\./, '').replace(/\[(\d+)\]/g, '.$1').split('.');
+const fields = expr.replace(/^@\.?/, '').replace(/\[(\d+)\]/g, '.$1').replace(/^\./, '').split('.');
 for (const field of fields) data = data && data[field];
 if (data == null) process.exit(1);
 console.log(data);
@@ -136,10 +140,31 @@ echo "$*" >> "$TEST_ROOT/opkg-commands"
 case "$*" in
  update) exit 0 ;;
  'list xray-core') echo 'xray-core - 26.10.21-1 - Xray' ;;
- 'upgrade xray-core') cp "$TEST_ROOT/new" "$TEST_ROOT/bin/xray" ;;
+ 'upgrade xray-core'|'install xray-core')
+   cp "$TEST_ROOT/new" "$TEST_ROOT/bin/xray"
+   [ "${FAIL_PACKAGE:-0}" != 1 ] ;;
+ 'list-installed xray-core') [ "${MISSING_PACKAGE:-0}" = 1 ] || echo "xray-core - $("$TEST_ROOT/bin/xray" version | awk '{print $2}')-r1" ;;
+ 'files xray-core') echo "$TEST_ROOT/bin/xray" ;;
  *) exit 1 ;;
 esac
 EOF
+if [ "$manager" = apk ]; then
+ echo "DISTRIB_RELEASE='25.12.6'" > "$tmp/openwrt_release"
+ cat > "$tmp/bin/apk" <<'EOF'
+#!/bin/sh
+echo "$*" >> "$TEST_ROOT/apk-commands"
+case "$*" in
+ update) [ "${FAIL_REFRESH:-0}" != 1 ] ;;
+ 'info --exists xray-core') [ "${MISSING_PACKAGE:-0}" != 1 ] ;;
+ 'info --contents xray-core') echo "${TEST_ROOT#/}/bin/xray" ;;
+ 'query --from installed --match name --fields version --format json xray-core') printf '[{"version":"%s-r1"}]\n' "$("$TEST_ROOT/bin/xray" version | awk '{print $2}')" ;;
+ 'query --from repositories --match name --fields version --format json xray-core')
+   if [ "${NO_PACKAGE:-0}" = 1 ]; then echo '[]'; else echo '[{"version":"26.10.21-r1"}]'; fi ;;
+ 'upgrade xray-core'|'add xray-core') cp "$TEST_ROOT/new" "$TEST_ROOT/bin/xray"; [ "${FAIL_PACKAGE:-0}" != 1 ] ;;
+ *) exit 2 ;;
+esac
+EOF
+fi
 chmod +x "$tmp/bin/"* "$tmp/init" "$tmp/lib/connection_check.sh"
 script=root/usr/libexec/podkopchik/xray_update.sh
 
@@ -182,15 +207,34 @@ grep -q 'previous executable restored' "$tmp/out"
 if FAKE_ANSWER=192.0.2.1 sh "$script" xray-install official > "$tmp/out" 2>&1; then exit 1; fi
 grep -q 'previous executable restored' "$tmp/out"
 [ "$("$tmp/core/xray" version)" = 'Xray 25.1.30' ]
-echo 'option check_signature 0' > "$tmp/opkg.conf"
-if sh "$script" xray-check package > "$tmp/out" 2>&1; then exit 1; fi
-grep -q 'signature checking must be enabled' "$tmp/out"
-echo 'option check_signature' > "$tmp/opkg.conf"
+if [ "$manager" = opkg ]; then
+ echo 'option check_signature 0' > "$tmp/opkg.conf"
+ if sh "$script" xray-check package > "$tmp/out" 2>&1; then exit 1; fi
+ grep -q 'signature checking must be enabled' "$tmp/out"
+ echo 'option check_signature' > "$tmp/opkg.conf"
+else
+ if FAIL_REFRESH=1 sh "$script" xray-check package > "$tmp/out" 2>&1; then exit 1; fi
+ grep -q 'apk feed refresh failed' "$tmp/out"
+ if NO_PACKAGE=1 sh "$script" xray-check package > "$tmp/out" 2>&1; then exit 1; fi
+ grep -q 'could not query xray-core' "$tmp/out"
+fi
+if FAIL_PACKAGE=1 sh "$script" xray-install package > "$tmp/out" 2>&1; then exit 1; fi
+grep -q 'previous executable restored' "$tmp/out"
+[ "$("$tmp/core/xray" version)" = 'Xray 25.1.30' ]
+sh "$script" xray-status > "$tmp/status"
+grep -qx 'installed=25.1.30' "$tmp/status"
+grep -qx 'package_version=26.10.21-r1' "$tmp/status"
 sh "$script" xray-install package > "$tmp/out"
 grep -q 'status=verified' "$tmp/out"
 [ "$(cat "$tmp/core/selected")" = package ]
-grep -qx 'upgrade xray-core' "$tmp/opkg-commands"
-! grep -qx 'upgrade' "$tmp/opkg-commands"
+grep -qx 'upgrade xray-core' "$tmp/$manager-commands"
+! grep -qx 'upgrade' "$tmp/$manager-commands"
+! grep -q -- '--allow-untrusted\|--force' "$tmp/$manager-commands"
+sh "$script" xray-status | grep -qx "package_manager=$manager"
+sh "$script" xray-status | grep -qx 'package_version=26.10.21-r1'
+MISSING_PACKAGE=1 sh "$script" xray-install package > "$tmp/out"
+if [ "$manager" = apk ]; then grep -qx 'add xray-core' "$tmp/apk-commands"
+else grep -qx 'install xray-core' "$tmp/opkg-commands"; fi
 cmp "$tmp/config/config.json" "$tmp/original-config"
 [ ! -d "$tmp/runtime/xray-update.lock" ]
-echo 'Xray update/rollback smoke OK (mocked router, no live upgrade)'
+echo "Xray update/rollback smoke OK ($manager; mocked router, no live upgrade)"

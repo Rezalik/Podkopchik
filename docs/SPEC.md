@@ -21,17 +21,20 @@ Runtime state: `/tmp/podkopchik/state.json`
 
 Release version: `0.1.0-beta`
 
+Native APK metadata uses `0.1.0_beta-r1` (APK prerelease syntax); IPK metadata
+keeps `0.1.0-beta-r1`. Displayed application/UCI version remains unchanged.
+
 Target platform:
 - OpenWrt 24.10+
-- LuCI openwrt-24.10 branch
+- LuCI from the corresponding OpenWrt 24.10 or 25.12 release
 - firewall4 / nftables
 - ip-full for fwmark policy routing
-- opkg package manager
+- opkg on OpenWrt 24.10; apk on OpenWrt 25.12
 - no Python, Node.js, npm, Docker, or heavy runtime dependencies on the router
 
 Primary target device:
 - Xiaomi Redmi Router AX6000
-- OpenWrt 24.10.1
+- current OpenWrt 24.10.1; migration target OpenWrt 25.12.6, stock layout
 
 Service behavior:
 - The `podkopchik` service is enabled and started after installation.
@@ -557,12 +560,13 @@ install.sh must:
 
 * check that it runs as root
 * check OpenWrt and report model, OpenWrt version, target, architecture, kernel, `/overlay` free space, and install mode
-* use opkg for OpenWrt 24.10
+* use the shared `packages.sh` adapter: opkg for OpenWrt 24.10, apk for 25.12; refuse a missing expected manager instead of silently using the other one
 * require `/overlay` to have at least 15 MB free before package installation
 * warn when `/overlay` has less than the recommended 25 MB free
 * detect conflicting proxy applications before package installation and stop by default
 * treat an existing `/etc/config/podkopchik` as update mode, not as a conflict
-* run `opkg update`
+* fetch the raw-install payload/shared adapter after space checks when needed, before conflict detection and package changes
+* run `opkg update` or `apk update` with package signature verification enabled
 * install missing required dependencies automatically
 * report dependencies that are already installed
 * validate after dependency installation that `ip-full`/`iproute2`, `nft`, `ucode`, `xray`, a download tool, LuCI, `rpcd`, and `uhttpd` are available
@@ -579,7 +583,9 @@ install.sh must:
 Installer dependencies:
 
 * `luci-base`
+* `luci-light`
 * `rpcd`
+* `rpcd-mod-file`
 * `rpcd-mod-luci`
 * `uhttpd`
 * `ucode`
@@ -595,6 +601,7 @@ Installer dependencies:
 * `ip-full`
 * `dnsmasq`
 * `xray-core`
+* `unzip`
 
 Default conflict list:
 
@@ -617,6 +624,8 @@ uninstall.sh must:
 * remove installed files
 * preserve /etc/config/podkopchik unless purge is explicitly requested
 * be idempotent
+* remove registered Podkopchik/i18n packages through opkg/apk before manual file cleanup; raw installs require no package removal
+* preserve the UCI file independently of package removal scripts unless purge succeeds
 
 Updates
 
@@ -649,7 +658,7 @@ version for each source, last check and operation status. No version is guessed.
 LuCI uses short `xray-start-*` requests and polls background-job status through
 `xray-status`; closing the page does not cancel an in-progress update.
 
-All runtime Xray calls use `xray.sh`. Package mode uses the opkg binary;
+All runtime Xray calls use `xray.sh`. Package mode uses the native package binary;
 official/rollback mode uses `/usr/libexec/podkopchik-core/xray`. The selector,
 previous executable and last update status live in that separate directory,
 which application payload replacement does not overwrite. Normal uninstall
@@ -657,7 +666,8 @@ preserves this directory; explicit purge removes it.
 
 Updates support Linux aarch64 and x86_64, use bounded HTTPS downloads, check
 free space in persistent and temporary filesystems, and lock out concurrent
-apply/health changes. Package mode runs opkg only for `xray-core`; official mode
+apply/health changes. Package mode targets only `xray-core` through opkg/apk
+(with required dependencies resolved by the manager); official mode
 uses the fixed XTLS/Xray-core release endpoint, published SHA256, matching ELF
 machine and executable version. Extraction is limited to the fixed `xray`
 member. The active config must pass candidate validation before activation.
@@ -670,6 +680,13 @@ HTTPS egress through the configured main proxy. Failure restores the old
 binary/selector. Package dependencies/metadata are not downgraded by runtime
 binary rollback. Interrupted operations use traps; abrupt power loss/SIGKILL
 requires inspection of locks and possibly the retained previous binary.
+
+`xray-status` separates the active executable version (`installed`) from
+`package_version` and reports `package_manager`. APK installed/candidate
+versions use structured `apk query` JSON. Package ownership is checked before
+activation. Official/rollback executables remain separate from package files
+and survive application reinstall/update. Neither source performs general
+firmware/package updates. See [migration and recovery](OPENWRT-25.12-MIGRATION.md).
 
 ## Isolated VLESS Checks
 

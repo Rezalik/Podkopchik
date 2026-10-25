@@ -22,7 +22,9 @@ CONFLICTS_FOUND=""
 
 DEPENDENCIES="
 luci-base
+luci-light
 rpcd
+rpcd-mod-file
 rpcd-mod-luci
 uhttpd
 ucode
@@ -127,8 +129,7 @@ load_openwrt_release() {
 }
 
 package_installed() {
-	pkg="$1"
-	opkg list-installed "$pkg" 2>/dev/null | grep -q "^$pkg[[:space:]]*-"
+	pkg_installed "$1"
 }
 
 dependency_present() {
@@ -206,6 +207,7 @@ print_system_report() {
 	echo "Podkopchik installer preflight"
 	echo "  Model: $model"
 	echo "  OpenWrt version: $openwrt"
+	echo "  Package manager: $PKG_MANAGER"
 	echo "  Target: $target"
 	echo "  Arch: $arch"
 	echo "  Kernel: $kernel"
@@ -296,9 +298,10 @@ check_conflicts() {
 	info "conflict check passed"
 }
 
-run_opkg_update() {
-	info "running opkg update"
-	opkg update || die "opkg update failed. Check internet access, OpenWrt repositories, DNS, and free space."
+refresh_packages() {
+	pkg_check_signatures || die "$PKG_MANAGER signature checking must be enabled"
+	info "running $PKG_MANAGER update"
+	pkg_refresh || die "$PKG_MANAGER update failed. Check internet access, OpenWrt repositories, DNS, and free space."
 }
 
 install_dependency() {
@@ -310,14 +313,16 @@ install_dependency() {
 	fi
 
 	info "Installing dependency: $pkg"
-	if ! opkg install "$pkg"; then
-		die "could not install dependency: $pkg. Command failed: opkg install $pkg. Hint: check OpenWrt repositories, internet access, free /overlay space, and kernel kmod compatibility."
+	if ! pkg_install "$pkg"; then
+		install_action=install
+		[ "$PKG_MANAGER" != apk ] || install_action=add
+		die "could not install dependency: $pkg. Command failed: $PKG_MANAGER $install_action $pkg. Hint: check OpenWrt repositories, internet access, free /overlay space, and kernel kmod compatibility."
 	fi
 	INSTALLED_DEPS="$INSTALLED_DEPS $pkg"
 }
 
 install_deps() {
-	run_opkg_update
+	refresh_packages
 	for pkg in $DEPENDENCIES; do
 		install_dependency "$pkg"
 	done
@@ -479,14 +484,17 @@ print_summary() {
 }
 
 need_root
-command -v opkg >/dev/null 2>&1 || die "opkg is required"
 load_openwrt_release
 check_overlay_space
+# Raw GitHub installation must fetch the shared adapter before dependencies.
+# OpenWrt already supplies wget/uclient-fetch; no package is changed here.
+ensure_payload
+. "$ROOT_DIR/usr/libexec/podkopchik/packages.sh"
+pkg_detect || die "could not select the OpenWrt package manager"
 print_system_report
 check_conflicts
 install_deps
 validate_dependencies
-ensure_payload
 install_tree
 install_i18n
 restart_luci

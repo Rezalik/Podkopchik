@@ -10,6 +10,7 @@ CONFIG="$CONFIG_DIR/config.json"
 PROC_DIR="${PODKOPCHIK_PROC_DIR:-/proc}"
 INIT="${PODKOPCHIK_INIT:-/etc/init.d/podkopchik}"
 . "$LIB/xray.sh"
+. "$LIB/packages.sh"
 
 fail() { echo "podkopchik Xray: $*" >&2; exit 1; }
 field() { sed -n "s/^$2=//p" "$1" | head -n 1; }
@@ -31,7 +32,7 @@ free_space() {
 }
 
 package_latest() {
-	opkg list xray-core | awk '$1 == "xray-core" && $2 == "-" { print $3; exit }'
+	pkg_available xray-core
 }
 
 check_update() {
@@ -40,12 +41,13 @@ check_update() {
 	check_file="$TMP_DIR/xray-$channel.check"
 	check_tmp="$(mktemp "$TMP_DIR/xray-check.XXXXXX")"
 	if [ "$channel" = package ]; then
-		if ! awk '$1 == "option" && $2 == "check_signature" { enabled=(NF==2 || $3=="1" || $3 ~ /^#/) } END { exit !enabled }' "${PODKOPCHIK_OPKG_CONF:-/etc/opkg.conf}"; then
-			rm -f "$check_tmp"; fail "opkg signature checking must be enabled before a package update"
+		pkg_detect || { rm -f "$check_tmp"; fail "package manager unavailable"; }
+		if ! pkg_check_signatures; then
+			rm -f "$check_tmp"; fail "$PKG_MANAGER signature checking must be enabled before a package update"
 		fi
-		if ! opkg update >&2; then rm -f "$check_tmp"; fail "opkg feed refresh failed"; fi
-		latest="$(package_latest)"
-		[ -n "$latest" ] || { rm -f "$check_tmp"; fail "xray-core is missing from configured opkg feeds"; }
+		if ! pkg_refresh >&2; then rm -f "$check_tmp"; fail "$PKG_MANAGER feed refresh failed"; fi
+		latest="$(package_latest)" || { rm -f "$check_tmp"; fail "could not query xray-core in configured $PKG_MANAGER feeds"; }
+		[ -n "$latest" ] || { rm -f "$check_tmp"; fail "xray-core is missing from configured $PKG_MANAGER feeds"; }
 		printf 'latest=%s\n' "$latest" > "$check_tmp"
 	else
 		metadata="$(mktemp "$TMP_DIR/xray-release.XXXXXX")"
@@ -83,10 +85,14 @@ status() {
 	installed=""
 	[ -z "$bin" ] || installed="$(version "$bin")"
 	installed_source="$(xray_source)"
-	if [ "$installed_source" = package ] && ! opkg files xray-core 2>/dev/null | grep -Fx "$bin" >/dev/null; then
+	PKG_MANAGER=unknown
+	package_version=""
+	if pkg_detect 2>/dev/null; then package_version="$(pkg_version xray-core 2>/dev/null || true)"; fi
+	if [ "$installed_source" = package ] && { [ "$PKG_MANAGER" = unknown ] || ! pkg_owns xray-core "$bin"; }; then
 		installed_source=system
 	fi
 	printf 'installed=%s\nsource=%s\narchitecture=%s\n' "${installed:-unknown}" "$installed_source" "$(uname -m)"
+	printf 'package_manager=%s\npackage_version=%s\n' "$PKG_MANAGER" "$package_version"
 	for source in package official; do
 		file="$TMP_DIR/xray-$source.check"
 		if [ -s "$file" ]; then
@@ -216,7 +222,7 @@ rollback_binary() {
 		restore_selector="$CORE_DIR/previous/selected"
 	fi
 	[ -s "$restore_file" ] || return 1
-	# Rename the reserved copy: recovery must work even when opkg filled the disk.
+	# Rename the reserved copy even when the package transaction filled the disk.
 	mv "$restore_file" "$CORE_DIR/xray" && mv "$restore_selector" "$CORE_DIR/selected" || return 1
 	"$INIT" core_restart || return 1
 	tries=0
@@ -295,11 +301,16 @@ install_update() {
 	else
 		[ "$channel" = package ] || fail "source must be package or official"
 		check_update
-		# Only opkg may replace its package-owned file. The technical copy above
-		# permits runtime rollback even when the previous IPK is no longer in feeds.
+		# Only the package manager may replace package-owned files. The reserved
+		# executable allows runtime rollback without downgrading package metadata.
 		switch_pending=1
-		opkg upgrade xray-core > "$work/opkg.log" 2>&1 || fail "opkg xray-core upgrade failed; restoring previous runtime binary"
+		if pkg_installed xray-core; then
+			pkg_upgrade xray-core > "$work/package.log" 2>&1 || { cat "$work/package.log" >&2; fail "$PKG_MANAGER xray-core upgrade failed; restoring previous runtime binary"; }
+		else
+			pkg_install xray-core > "$work/package.log" 2>&1 || { cat "$work/package.log" >&2; fail "$PKG_MANAGER xray-core install failed; restoring previous runtime binary"; }
+		fi
 		package_bin="$(command -v xray || command -v xray-core)"
+		pkg_owns xray-core "$package_bin" || fail "Xray executable is not owned by xray-core; check PATH conflicts"
 		cp "$package_bin" "$work/candidate"
 		new_source=package
 	fi
