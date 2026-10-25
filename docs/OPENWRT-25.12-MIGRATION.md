@@ -193,9 +193,17 @@ then apply. Do not purge/reinitialize user configuration to repair installation.
 
 ## Remaining gates
 
-No real 25.12.6 VM or physical upgrade is claimed in this change. This Mac has
-no OpenWrt VM/emulator or native ucode runtime. Real package transactions,
-service behavior, new Xray 26.3.27, FakeDNS and LAN access need the tests above.
+During the first AX6000 deployment, the native BusyBox `tr` did not expand
+`[:upper:]` / `[:lower:]`; it corrupted `port8444` and `auto_proxy_group` during
+CLI target validation. CLI normalization now uses explicit ASCII alphabets,
+with a regression test that refuses character classes. This restores the same
+tag semantics as ucode/LuCI without changing nftables or the failover algorithm.
+
+The initial preparation did not include a real 25.12.6 VM or physical upgrade.
+This Mac has no OpenWrt VM/emulator or native ucode runtime. Physical follow-up
+confirmed AX6000 stock boot on 25.12.6/6.12.112 and native APK dependency
+installation; service behavior, Xray 26.3.27, FakeDNS and LAN egress still need
+their separate post-restore acceptance.
 The previously diagnosed LuCI VLESS precheck RPC `env` denial is a separate
 known issue, not repaired by package-manager migration. AWG remains uninstalled
 and its UI/backend remain gated. Do not perform firmware work until separately

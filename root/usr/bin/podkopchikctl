@@ -98,7 +98,8 @@ has_enabled_route() {
 
 clean_tag() {
 	raw="${1:-${2:-podkopchik}}"
-	tag="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_][^a-z0-9_]*/_/g; s/^_*//; s/_*$//' | cut -c 1-48)"
+	# Some OpenWrt BusyBox builds omit tr character classes.
+	tag="$(printf '%s' "$raw" | tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz' | sed 's/[^a-z0-9_][^a-z0-9_]*/_/g; s/^_*//; s/_*$//' | cut -c 1-48)"
 	[ -n "$tag" ] || tag="${2:-podkopchik}"
 	case "$tag" in
 		[0-9]*) tag="p_$tag" ;;
