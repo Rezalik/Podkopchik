@@ -44,4 +44,8 @@ printf '/usr/bin/xray\000run\000-config\000/etc/podkopchik/config.json\000' > "$
 out="$(PODKOPCHIK_PROC_DIR="$tmp/proc" PATH="$tmp/bin:$PATH" sh "$CTL" status)"
 printf '%s\n' "$out" | grep 'Xray: running' >/dev/null
 
+printf '/usr/bin/xray\000run\000-config\000/etc/podkopchik/config.json.other\000' > "$tmp/proc/200/cmdline"
+out="$(PODKOPCHIK_PROC_DIR="$tmp/proc" PATH="$tmp/bin:$PATH" sh "$CTL" status)"
+printf '%s\n' "$out" | grep 'Xray: not running' >/dev/null
+
 echo "podkopchikctl stability smoke OK"

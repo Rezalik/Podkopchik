@@ -192,8 +192,8 @@ either physical router until the on-device checks below pass.
 - Probe timeout/error paths terminate the isolated process and release its lock;
   a busy listener cannot produce a false UP result.
 - Existing VLESS ordered failover, thresholds and health cleanup continue to pass.
-- AWG lifecycle, handshake, internet checks and mixed failover remain deferred.
-  The separate Stage 1 configuration manager below does not change routing.
+- The original Stage 1 configuration manager did not change routing. Experimental
+  Stages 2–3 and their separate verification limits are recorded below.
 
 Physical router acceptance (GL-MT6000 24.10.4/6.6.110 and Redmi AX6000
 24.10.1/6.6.86 must each be tested separately, with explicit operator approval):
@@ -277,7 +277,39 @@ node tests/lmo_catalog_smoke.js
 ```
 
 Native parser/storage/RPC tests require local ucode with fs; a SKIP is not PASS.
-See [the manual AX6000 installation/rollback plan](AWG-STAGE1.md).
+See [the historical Stage 1 plan](AWG-STAGE1.md).
+
+## AWG 3.1 Stages 2–3: Verification Gates
+
+- [x] Local native parser/storage, lifecycle ownership, role/UCI rollback and
+  generated domain/IP/LAN mixed failover tests; no real network claims from mocks.
+- [x] Main plus three ordered backups shared by VLESS/AWG, restore thresholds,
+  all-down blocked, unavailable AWG outbounds blackholed, unmatched direct retained.
+- [x] Separate alias assignment and numeric iproute2 type7 regression checks.
+- [x] nft atomic batch, repeated apply, failed-batch retention and opt-in UDP/IPv6
+  mocked checks. TCP-only and FakeDNS-off defaults retained; no UDP/443 block.
+- [x] Read/write ACL, secret-free RPC/errors, JS UI/actions and Russian catalog tests.
+- [x] Real AX6000 isolated kernel AWG handshake + HTTPS; temporary Xray-to-AWG
+  HTTPS200 with certificate verification, main routing/nft unchanged.
+- [x] New controller tested from private /tmp only: repeated start/check/stop,
+  unreachable mark after stop and owned interface/both-family policy removal.
+- [x] Actual Xray26.3.27 accepted synthetic mixed config; active config unchanged.
+- [x] Actual nft dry-run accepted the replacement batch without changing the live
+  table; real UDP/IPv6 enforcement is not inferred from this syntax check.
+- [x] Actual native UCI role/group/rollback/delete against private /tmp fixtures,
+  with mocked network/apply, preserved live UCI/delta/config/routes. No non-native
+  cursor.section() assumption remains in production or its test adapter.
+- [ ] New application deployment and full live VLESS→AWG→AWG→VLESS failover,
+  auto-return, simultaneous rule targets and LAN all-down leak capture.
+- [ ] Live multiple profiles without inner-address overlap, reboot recovery and
+  complete protected code rollback; local mocks are not substitutes.
+- [ ] Real UDP/IPv6, DNS leak capture and acceleration/throughput acceptance.
+- [ ] Native signed APK build/install on the target SDK/device. Public overlay
+  built/tested separately; never describe it as an APK.
+
+Details, source bundle, preflight, recovery and remaining limitations:
+[AWG-STAGE23.md](AWG-STAGE23.md). No new Podkopchik was installed on the working
+AX6000 during development. GL-MT6000 was not accessed.
 No new version is installed on the working router by development tests.
 Physical import/ACL checks on 25.12.6 and handshake/HTTPS acceptance remain
 separate operator-approved steps. Do not test on or contact GL-MT6000.

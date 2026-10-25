@@ -42,7 +42,7 @@
 				"/usr/bin/podkopchikctl probe-vless": [ "exec" ]
 			},
 			"ubus": {
-				"podkopchik.awg": [ "import", "replace", "validate", "rename", "delete" ],
+				"podkopchik.awg": [ "import", "replace", "validate", "rename", "delete", "start", "stop", "restart", "check", "assign", "recover", "set_interception", "set_probe" ],
 				"file": [ "exec" ],
 				"uci": [ "add", "apply", "delete", "set" ]
 			}

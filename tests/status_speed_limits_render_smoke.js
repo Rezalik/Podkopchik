@@ -219,3 +219,26 @@ if (!String(downCard.attrs.style || '').includes('background:#fdecea'))
 	throw new Error('Down primary proxy should remain an error card');
 
 console.log('Status speed-limits render smoke OK');
+
+const originalSections = modules.uci.sections;
+const awgID = 'a'.repeat(32), awgTag = 'awg_' + awgID;
+modules.uci.sections = function(config, type) {
+	if (type === 'proxy') return [
+		{ tag: awgTag, protocol: 'amneziawg', awg_id: awgID, name: 'AWG main', role: 'main', enabled: '1' },
+		{ tag: 'ibn', name: 'VLESS backup', role: 'backup', backup_priority: '1', enabled: '1' }
+	];
+	return originalSections(config, type);
+};
+const mixedState = { proxies: { [awgTag]: { status: 'up', checked_at: Date.now()/1000 } },
+	groups: { auto_proxy_group: { active_proxy: awgTag } } };
+const mixedStatus = workingUncheckedStatus.replace('State: not recorded yet', 'State: ' + JSON.stringify(mixedState));
+const stoppedMixed = view.render([mixedStatus, null, { ok: true, connections: [
+	{ id: awgID, tag: awgTag, runtime: { running: false, status: 'down', reason: 'stopped' } }
+]}]);
+if (!findCard(stoppedMixed, 'Main proxy is unavailable')) throw Error('Stopped AWG cannot inherit stale UP from cached health');
+if (!textOf(stoppedMixed).includes('VLESS backup')) throw Error('Mixed backup name is missing');
+mixedState.groups.auto_proxy_group.active_proxy = 'blocked';
+const allDown = view.render([workingUncheckedStatus.replace('State: not recorded yet', 'State: '+JSON.stringify(mixedState))]);
+const blockedCard = findCard(allDown, 'Matching traffic is blocked');
+if (!blockedCard || !blockedCard.attrs.style.includes('background:#fdecea')) throw Error('All-down must render fail-closed as error');
+console.log('Mixed AWG/VLESS Status render smoke OK: stopped override, backup labels, all-down blocking');

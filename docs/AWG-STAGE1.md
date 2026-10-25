@@ -1,5 +1,9 @@
 # AmneziaWG 3.1: Stage 1
 
+Historical baseline. The current tree adds experimental lifecycle and mixed
+routing: see [Stages 2–3](AWG-STAGE23.md). Do not deploy the old partial bundle
+from the current tree; its builder now refuses incompatible mixed code.
+
 ## Scope And Baseline
 
 Development baseline: Git `24fe05826499b038468d69c71fd2f511685bd5ca`.

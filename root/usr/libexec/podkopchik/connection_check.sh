@@ -67,10 +67,14 @@ command -v curl >/dev/null 2>&1 && command -v netstat >/dev/null 2>&1 || unavail
 case "${1:-uri}" in
 	primary) mode=probe-primary ;;
 	uri) mode=probe-uri ;;
+	tag)
+		case "${2:-}" in ''|*[!A-Za-z0-9_]*) unavailable invalid_configuration ;; esac
+		mode=probe-tag
+		;;
 	*) unavailable invalid_configuration ;;
 esac
 # Never put the URI in command arguments, filenames, or error responses.
-if ! ucode -L "$LIB" "$LIB/generate.uc" "$mode" > "$work/probe.json" 2> "$work/error"; then
+if ! ucode -L "$LIB" "$LIB/generate.uc" "$mode" "${2:-}" > "$work/probe.json" 2> "$work/error"; then
 	unavailable invalid_configuration
 fi
 unset PODKOPCHIK_PROBE_URI

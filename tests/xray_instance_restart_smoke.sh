@@ -14,6 +14,8 @@ extra_command() { :; }
 CTL="$tmp/ctl"
 xray_bin() { echo /usr/libexec/podkopchik-core/xray; }
 uci_bool() { return 0; }
+ubus() { echo '{"podkopchik":{"instances":{"health":{"running":true}}}}'; }
+jsonfilter() { echo true; }
 procd_kill() { echo "kill $*" >> "$RESTART_LOG"; }
 procd_open_service() { echo "open $*" >> "$RESTART_LOG"; }
 procd_open_instance() { echo "instance $*" >> "$RESTART_LOG"; }

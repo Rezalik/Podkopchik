@@ -367,8 +367,8 @@ removes them. Application rollback and core rollback are independent.
 
 Proxy Links automatically checks pasted/changed VLESS URIs and checks them
 before saving. **Check again** repeats the isolated check. A failed check is a
-warning and does not prevent saving. The current connection type remains
-VLESS/Reality until AWG 3.1 runtime compatibility is established.
+warning and does not prevent saving. This page remains for VLESS/Reality;
+AmneziaWG has its own controls and shares the same routing targets and roles.
 
 Checks use a separate Xray SOCKS listener on root-owned, locked local port
 20999. The checker verifies the process and listener owner before trusting
@@ -385,12 +385,15 @@ reachability check into a failover. The Proxy Links page hides success/latency/I
 after five minutes and labels the result outdated. Immediate pre-save results
 are held in the current page; periodic results appear from the health state.
 
-### AWG 3.1 Configuration Management (Stage 1)
+### AWG 3.1 Integration (Experimental Stages 2–3)
 
 The separate **AmneziaWG** page imports multiple `.conf` files, lists safe
 metadata, renames, replaces, revalidates and deletes profiles. The existing
-Proxy Links/VLESS workflow is unchanged. This stage does **not** start tunnels,
-check connectivity, assign routing targets or participate in failover.
+Proxy Links/VLESS import workflow is preserved. The AWG page additionally starts,
+stops and checks interfaces, assigns main/backup/rules-only roles and configures
+HTTPS probes. Main/backup assignment requires a real successful availability
+check. VLESS and AWG share one main and three ordered backups, existing health
+thresholds, auto-return and domain/IP/LAN targets. No fastest/random selection.
 "Configuration is valid" means static format validation, not a handshake.
 
 Profiles are limited to 64 KiB each and stored in `/etc/podkopchik/awg/`:
@@ -400,12 +403,27 @@ rpcd API accepts file contents, never a caller-supplied filesystem path.
 Use HTTPS for LuCI when importing keys; protect downloaded sysupgrade backups,
 which include these private files through `/lib/upgrade/keep.d/podkopchik-awg`.
 
-AX6000 stock / OpenWrt 25.12.6 / kernel 6.12.112 has passed the earlier AWG 3.1
-module/tools and temporary-interface checks. This does not establish handshake
-or HTTPS tunnel functionality. Older GL-MT6000/AX6000 kernels remain unverified;
-this change does not install or update any AWG package.
+Each AWG uses its own interface, mark, terminal policy guards and table, never
+a new default in `main`. Stopped/unavailable AWG targets become blackholes, not
+WAN fallback. All-down automatic routing is blocked; unmatched traffic remains
+direct. Persistent profiles and role settings survive service restarts; startup
+regenerates and validates outbounds from live ownership before starting Xray.
 
-See [format, tests, manual installation and rollback](docs/AWG-STAGE1.md).
+TCP-only interception remains the default. **UDP and IPv6 LAN interception** is
+an explicit experimental opt-in in AmneziaWG. It adds IPv6 policy routing and
+UDP TPROXY except DNS/53, with dual-stack FakeDNS pools when FakeDNS is enabled.
+It does not block UDP/443. Do not enable it until the selected transports support
+the required traffic. FakeDNS remains off by default.
+
+On AX6000 stock / OpenWrt 25.12.6 / kernel 6.12.112, real isolated tests confirmed
+AWG handshake, HTTPS, Xray-to-AWG HTTPS and controller start/check/stop/cleanup.
+The installed Podkopchik was **not** replaced. Full mixed live failover, reboot,
+IPv6/UDP traffic and offload acceptance remain pending separate deployment
+approval. No AWG package/module is installed automatically; other kernels and
+GL-MT6000 are not verified by these tests.
+
+See [Stages 2–3 architecture, evidence, installation and rollback](docs/AWG-STAGE23.md)
+and the [historical Stage 1 storage/format specification](docs/AWG-STAGE1.md).
 
 ## Uninstall
 

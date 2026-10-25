@@ -68,7 +68,7 @@ function proxyTag(p) {
 }
 
 function proxyRole(p) {
-	if (p.role == 'main' || p.role == 'backup' || p.role == 'disabled')
+	if (p.role == 'main' || p.role == 'backup' || p.role == 'disabled' || p.role == 'rules_only')
 		return p.role;
 
 	return p.enabled == '0' ? 'disabled' : 'backup';
@@ -146,6 +146,7 @@ function healthTone(health) {
 }
 
 function roleLabel(role) {
+	if (role == 'rules_only') return _('Rules only');
 	if (role == 'main')
 		return _('Main proxy');
 
@@ -160,7 +161,9 @@ function priorityLabel(priority) {
 }
 
 function collectProxyItems(state) {
-	return (uci.sections('podkopchik', 'proxy') || []).map(function(p, idx) {
+	return (uci.sections('podkopchik', 'proxy') || []).filter(function(p) {
+		return p.protocol != 'amneziawg';
+	}).map(function(p, idx) {
 		var tag = proxyTag(p);
 		var role = proxyRole(p);
 
@@ -228,6 +231,11 @@ function readCards() {
 }
 
 function roleState(items) {
+	items = items.concat((uci.sections('podkopchik', 'proxy') || []).filter(function(p) {
+		return p.protocol == 'amneziawg';
+	}).map(function(p) {
+		return { tag: p.tag, role: p.enabled == '0' ? 'disabled' : p.role, backup_priority: p.backup_priority };
+	}));
 	var main = [];
 	var backups = [];
 	var priorities = {};
@@ -242,6 +250,7 @@ function roleState(items) {
 			return;
 		}
 
+		if (p.role != 'backup') return;
 		var priority = parseInt(p.backup_priority || '1', 10) || 1;
 		backups.push({
 			tag: p.tag,
@@ -436,6 +445,7 @@ function renderCard(item, open) {
 	}, [
 		option('main', _('Main proxy'), role == 'main'),
 		option('backup', _('Backup proxy'), role == 'backup'),
+		option('rules_only', _('Rules only'), role == 'rules_only'),
 		option('disabled', _('Disabled'), role == 'disabled')
 	]);
 
@@ -545,7 +555,7 @@ function writeProxiesToUci(items) {
 	var original = {};
 
 	(uci.sections('podkopchik', 'proxy') || []).forEach(function(p) {
-		original[p['.name']] = true;
+		if (p.protocol != 'amneziawg') original[p['.name']] = true;
 	});
 
 	items.forEach(function(item) {
@@ -632,6 +642,9 @@ return view.extend({
 		var items;
 		try {
 			items = readCards();
+			var awgEnabled = (uci.sections('podkopchik', 'proxy') || []).some(function(p) { return p.protocol == 'amneziawg' && p.enabled != '0'; });
+			if (awgEnabled && !canMaintainAutoGroup(items))
+				throw new Error(_('Select one main connection and unique backup priorities from 1 to 3.'));
 		}
 		catch (e) {
 			ui.addNotification(_('Validation error'), E('p', e.message || String(e)), 'error');

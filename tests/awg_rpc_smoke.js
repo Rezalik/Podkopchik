@@ -13,7 +13,7 @@ function run(args, input) {
 	return JSON.parse(r.stdout);
 }
 const methods = run(['list'], '');
-assert.deepStrictEqual(Object.keys(methods).sort(), ['delete','import','list','rename','replace','validate']);
+assert.deepStrictEqual(Object.keys(methods).sort(), ['assign','check','delete','import','list','recover','rename','replace','restart','set_interception','set_probe','start','stop','validate']);
 assert.strictEqual(run(['call', 'execute'], '{}').error, 'request');
 assert.strictEqual(run(['call', 'import'], '{bad').error, 'request');
 assert.strictEqual(run(['call', 'list'], '{"path":"/etc/shadow"}').error, 'request');
@@ -22,7 +22,8 @@ assert.strictEqual(run(['call', 'import'], 'x'.repeat(6 * 65536 + 4097)).error, 
 const moduleText = fs.readFileSync('root/usr/libexec/podkopchik/awg.uc', 'utf8');
 assert(!/\b(system|popen|exec|logger)\s*\(/.test(moduleText), 'storage/parser must not execute or log uploaded data');
 const entry = fs.readFileSync('root/usr/libexec/podkopchik/awg_rpc.uc', 'utf8');
-assert(entry.includes("store('/etc/podkopchik/awg', 0)"));
+assert(entry.includes("require('awg_manage').run"));
+assert(fs.readFileSync('root/usr/libexec/podkopchik/awg_manage.uc', 'utf8').includes("options.root || '/etc/podkopchik/awg'"));
 assert(!entry.includes('getenv'), 'RPC storage path cannot be supplied by the caller');
 assert.strictEqual(fs.readFileSync('root/lib/upgrade/keep.d/podkopchik-awg', 'utf8').trim(), '/etc/podkopchik/awg/');
 console.log('AWG native RPC framing, limits, secret-free errors and fixed storage smoke OK');

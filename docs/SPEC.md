@@ -704,9 +704,9 @@ preserving the existing fail/restore thresholds and selection algorithm.
 External IP failure leaves that metric empty; it does not invalidate an otherwise
 successful existing reachability test. The UI expires stale success/metrics.
 
-## AWG 3.1 Configuration Management: Stage 1
+## AWG 3.1 Configuration Management: Stage 1 Baseline
 
-The additional AmneziaWG LuCI page manages multiple imported profiles without
+The Stage 1 baseline (superseded by Stages 2–3 below) manages multiple imported profiles without
 changing the VLESS page, UCI routing model, Xray, FakeDNS, nftables or services.
 There is no tunnel lifecycle, handshake, HTTPS check, AWG routing target or
 AWG failover in this stage. Configuration validity is not network availability.
@@ -743,6 +743,62 @@ No AWG packages or kernel modules are installed by this stage.
 AX6000 25.12.6/kernel 6.12.112 previously passed module/tools checks; no handshake
 has been verified. See [Stage 1 deployment and tests](AWG-STAGE1.md) and
 [historical compatibility research](XRAY-AWG-RESEARCH.md).
+
+## AWG 3.1 Runtime: Experimental Stages 2–3
+
+The existing protected store/parser is retained. `awg_network.uc` owns kernel
+lifecycle; `awg_manage.uc` coordinates UCI roles, transactions and RPC;
+`awg_cli.uc` reconciles autostart, health and shutdown. The authenticated RPC
+adds start/stop/restart/check/assign/set_probe/set_interception/recover; read
+access remains list-only and never exposes private configuration contents.
+Native ucode UCI named sections use set(config, section, type), not the LuCI-only
+section() helper. CLI adds awg-list/start/stop/restart/check/recover commands.
+
+Bindings are normal `proxy` sections with protocol `amneziawg`, an immutable
+32-hex `awg_id`, and tag `awg_ID`. VLESS sections without protocol remain VLESS;
+their URI format is not migrated. Roles are main, backup (1–3), rules_only and
+disabled. Only the internal auto_proxy_group is maintained; manual groups are
+preserved. Assignment checks real health before selecting a main/backup, writes
+a protected rollback journal, serializes with health/config apply, validates
+Xray, and restores previous UCI/config/state on apply failure. Crash recovery
+is explicit or runs before service startup. This is not fsync/power-loss atomicity.
+
+Stable AWG interfaces use `paw` plus 12 ID hex digits; private tables are
+42000–50191, policy priority 20000–28191 and mark 536870912 + table, with
+protocol 186. Collisions are refused, never taken over. Both families have
+mark/oif policy rules and terminal unreachable defaults. Addresses use
+noprefixroute and are checked against LAN/WAN/other tunnel prefixes. Interface
+alias is set separately after link creation and verified, including runtime
+ifindex tracking for interrupted creation. No awg-quick, hooks, main routes or
+global sysctl changes. Strict global RPF is refused. Peer endpoints keep normal
+WAN routing and supplement automatic endpoint bypass.
+
+Xray AWG outbounds are marked/interface-bound freedom with ForceIP variants.
+Unproven ownership, missing guards or stopped interfaces generate blackholes;
+startup safely blocks stale AWG outbounds if normal regeneration fails. A real
+TCP DNS resolver is added only with enabled AWG, routed through the active
+automatic connection (or a fresh measured-UP independent connection when the
+automatic group is blocked, without unblocking data rules). This is not per-profile
+DNS; ForceIP skips FakeDNS and has no
+system-resolver fallback. Local StatsService binds only 127.0.0.1:10085, rejects
+listener collisions and reports unavailable counters honestly.
+
+AWG availability requires a device-bound, pinned-IP HTTPS request with certificate
+verification plus an actual handshake. HTTPS total duration is not ICMP RTT.
+Checks expose measured counters, last check/success and exit IP when the probe
+response supplies it. No interface-only UP claim. Existing fail/restore
+thresholds and ordered fallback apply across both protocols; all-down is blocked.
+
+`extended_interception=0` preserves TCP-only behavior. Explicit opt-in adds UDP
+except DNS/53, IPv6 mark/table10991 ownership and an IPv6 FakeDNS pool2001:2::/48.
+FakeDNS remains optional/off by default; existing IPv4 DNS redirection and
+endpoint/manual exclusions retain their semantics. nft table replacement is one
+checked atomic batch; failures retain the previous table and remove only newly
+acquired policy resources. No global nft flush, UDP/443 block or default change.
+
+The live AX6000 isolated controller and HTTPS tests passed; installed application
+roles/failover, reboot recovery, real UDP/IPv6 and acceleration still require
+the explicit deployment acceptance in [AWG-STAGE23.md](AWG-STAGE23.md).
 
 Required CLI
 

@@ -1,4 +1,5 @@
 config settings 'main'
+	option extended_interception '0'
 	option enabled '1'
 	option routing_enabled '0'
 	option version '0.1.0-beta'

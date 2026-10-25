@@ -42,7 +42,7 @@ main_xray_running() {
 		cmdline="$(cmdline_for_pid "$pid" || true)"
 
 		case "$cmdline" in
-			*xray*" run -config $CONFIG"*|*xray-core*" run -config $CONFIG"*) return 0 ;;
+			*xray*" run -config $CONFIG "*|*xray*" run -config $CONFIG") return 0 ;;
 		esac
 	done
 
@@ -68,6 +68,9 @@ has_enabled_proxy() {
 	i=0
 	while uci -q get "$APP.@proxy[$i]" >/dev/null 2>&1; do
 		if [ "$(uci -q get "$APP.@proxy[$i].enabled" 2>/dev/null || echo 1)" != "0" ]; then
+			if [ "$(uci -q get "$APP.@proxy[$i].protocol" 2>/dev/null || true)" = amneziawg ]; then
+				return 0
+			fi
 			uri="$(uci -q get "$APP.@proxy[$i].uri" 2>/dev/null || true)"
 			[ -n "$uri" ] && return 0
 		fi
@@ -95,6 +98,27 @@ has_enabled_route() {
 	done
 	return 1
 }
+
+has_enabled_awg() (
+	i=0
+	while uci -q get "$APP.@proxy[$i]" >/dev/null 2>&1; do
+		if [ "$(uci -q get "$APP.@proxy[$i].protocol" 2>/dev/null || true)" = amneziawg ] &&
+			[ "$(uci -q get "$APP.@proxy[$i].enabled" 2>/dev/null || echo 1)" != 0 ]; then
+			exit 0
+		fi
+		i=$((i + 1))
+	done
+	exit 1
+)
+
+has_awg_binding() (
+	i=0
+	while uci -q get "$APP.@proxy[$i]" >/dev/null 2>&1; do
+		[ "$(uci -q get "$APP.@proxy[$i].protocol" 2>/dev/null || true)" != amneziawg ] || exit 0
+		i=$((i + 1))
+	done
+	exit 1
+)
 
 clean_tag() {
 	raw="${1:-${2:-podkopchik}}"
@@ -211,6 +235,7 @@ repair_routing_targets() {
 
 			clean="$(clean_tag "$target" "$target")"
 			target_in_list "$clean" "$valid_targets" && continue
+			case "$clean" in awg_*) die "AWG routing target is unavailable; select an enabled connection explicitly" ;; esac
 
 			if [ "$auto_ready" = "1" ]; then
 				uci -q set "$APP.$section.target=auto_proxy_group"
@@ -231,6 +256,10 @@ repair_routing_targets() {
 refresh_detected() {
 	i=0
 	while uci -q get "$APP.@proxy[$i]" >/dev/null 2>&1; do
+		if [ "$(uci -q get "$APP.@proxy[$i].protocol" 2>/dev/null || true)" = amneziawg ]; then
+			i=$((i + 1))
+			continue
+		fi
 		uri="$(uci -q get "$APP.@proxy[$i].uri" 2>/dev/null || true)"
 		if [ -n "$uri" ]; then
 			if parsed="$(ucode_run "$LIB/parse_vless.uc" "$uri" 2>/tmp/podkopchik-parse.err)"; then
@@ -276,19 +305,41 @@ require_ip_full() {
 	die "Missing required dependency: ip-full. BusyBox ip is not sufficient for fwmark policy routing."
 }
 
+require_stats_port() {
+	has_enabled_awg || return 0
+	command -v netstat >/dev/null 2>&1 || die "netstat is required to reserve the local statistics port"
+	for owner in $(netstat -lntp 2>/dev/null | awk '$4 ~ /:10085$/ { split($NF, p, "/"); print p[1] }'); do
+		case "$owner" in ''|*[!0-9]*) die "local port 10085 is occupied by an unknown process" ;; esac
+		case "$(cmdline_for_pid "$owner" || true)" in
+			*" run -config $CONFIG "*|*" run -config $CONFIG") ;;
+			*) die "local port 10085 is occupied by another service" ;;
+		esac
+	done
+}
+
 replace_active_config() {
 	tmp="$1"
 	[ -s "$tmp" ] || die "generated config is empty"
-	if [ -s "$CONFIG" ]; then
-		cp "$CONFIG" "$CONFIG.prev" || die "could not preserve previous active config"
+	publish="$CONFIG_DIR/config.publish.$$.json"
+	# /tmp and /etc can be different filesystems. Publish with a same-directory
+	# rename, never mv's cross-filesystem copy/unlink fallback.
+	if ! cp "$tmp" "$publish"; then
+		rm -f "$publish"
+		die "could not stage validated config on the active filesystem"
 	fi
-	mv "$tmp" "$CONFIG" || die "could not replace active config"
+	if [ -s "$CONFIG" ]; then
+		cp "$CONFIG" "$CONFIG.prev" || { rm -f "$publish"; die "could not preserve previous active config"; }
+	fi
+	mv "$publish" "$CONFIG" || { rm -f "$publish"; die "could not replace active config"; }
+	rm -f "$tmp"
 	chmod 600 "$CONFIG" || die "could not secure active config"
 }
 
 restore_previous_config() {
 	if [ -s "$CONFIG.prev" ]; then
-		cp "$CONFIG.prev" "$CONFIG" || die "could not restore previous active config"
+		restored="$CONFIG_DIR/config.restore.$$.json"
+		cp "$CONFIG.prev" "$restored" || { rm -f "$restored"; die "could not stage previous active config"; }
+		mv "$restored" "$CONFIG" || { rm -f "$restored"; die "could not restore previous active config"; }
 		chmod 600 "$CONFIG" || die "could not secure restored config"
 	else
 		rm -f "$CONFIG"
@@ -342,20 +393,40 @@ cmd_validate_active() {
 	validate_file "$CONFIG"
 }
 
+cmd_prepare_connections() {
+	# /tmp and kernel interfaces disappear at reboot. Regenerate AWG outbounds
+	# from live ownership before starting the core; never trust yesterday's bind.
+	if ! has_enabled_awg && ! grep -q '"awg_[a-f0-9]' "$CONFIG" 2>/dev/null; then return 0; fi
+	prepare="$CONFIG_DIR/config.connections.$$.json"
+	umask 077
+	if ! ucode_run "$LIB/generate.uc" >"$prepare" || ! validate_file "$prepare"; then
+		log "connection preparation failed; blocking stale AWG outbounds"
+		ucode_run "$LIB/awg_cli.uc" block-active >"$prepare" || { rm -f "$prepare"; return 1; }
+		validate_file "$prepare" || { rm -f "$prepare"; return 1; }
+	fi
+	mv "$prepare" "$CONFIG"
+}
+
 cmd_apply() {
 	mkdir -p "$TMP_DIR" "$CONFIG_DIR"
 
 	lock_dir="$TMP_DIR/config-apply.lock"
 	tmp="$TMP_DIR/config.apply.$$.json"
 	apply_err="$TMP_DIR/apply-rules.$$.err"
+	owns_apply_lock=1
 	cleanup_apply() {
 		[ -n "$tmp" ] && rm -f "$tmp"
 		rm -f "$apply_err"
-		rmdir "$lock_dir" >/dev/null 2>&1 || true
+		[ "$owns_apply_lock" = 0 ] || rmdir "$lock_dir" >/dev/null 2>&1 || true
 	}
 
 	if ! mkdir "$lock_dir" >/dev/null 2>&1; then
-		die "another config apply is in progress"
+		token="$(cat "$lock_dir/connection-token" 2>/dev/null || true)"
+		if [ -n "$token" ] && [ "$token" = "${PODKOPCHIK_CONNECTION_APPLY:-}" ]; then
+			owns_apply_lock=0
+		else
+			die "another config apply is in progress"
+		fi
 	fi
 
 	trap 'cleanup_apply' HUP INT TERM EXIT
@@ -364,10 +435,14 @@ cmd_apply() {
 		uci -q set "$APP.main.routing_enabled=0"
 		uci -q commit "$APP"
 		"$LIB/cleanup_rules.sh" >/dev/null 2>&1 || true
-		die "configure at least one enabled VLESS proxy and one routing rule before applying interception"
+		die "configure at least one enabled connection and one routing rule before applying interception"
 	fi
 
 	require_ip_full
+	require_stats_port
+	if [ -f "$LIB/awg_cli.uc" ]; then
+		ucode_run "$LIB/awg_cli.uc" sync
+	fi
 
 	generate_to "$tmp"
 	validate_file "$tmp"
@@ -378,16 +453,17 @@ cmd_apply() {
 	replace_active_config "$tmp"
 	tmp=""
 
+	previous_routing="$(uci -q get "$APP.main.routing_enabled" 2>/dev/null || echo 0)"
 	if ! "$LIB/apply_rules.sh" apply >"$apply_err" 2>&1; then
 		apply_reason="$(sed -n '1,8p' "$apply_err" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//' || true)"
 		restore_previous_config
-		uci -q set "$APP.main.routing_enabled=0"
+		uci -q set "$APP.main.routing_enabled=$previous_routing"
 		uci -q commit "$APP"
 		if [ -n "$apply_reason" ]; then
-			log "routing rule application failed: $apply_reason; restored previous Xray config and left routing inactive"
+			log "routing rule application failed: $apply_reason; retained previous routing transaction and restored Xray config"
 			die "failed to apply routing rules; previous config restored: $apply_reason"
 		fi
-		log "routing rule application failed; restored previous Xray config and left routing inactive"
+		log "routing rule application failed; retained previous routing transaction and restored Xray config"
 		die "failed to apply routing rules; previous config restored"
 	fi
 	[ -s "$apply_err" ] && cat "$apply_err" >&2
@@ -395,7 +471,15 @@ cmd_apply() {
 
 	uci -q set "$APP.main.routing_enabled=1"
 	uci -q commit "$APP"
-	/etc/init.d/podkopchik restart
+	if has_enabled_awg || grep -q 'amneziawg' /etc/config/podkopchik; then
+		/etc/init.d/podkopchik core_restart || die "could not restart Xray after AWG config apply"
+	else
+		/etc/init.d/podkopchik restart
+	fi
+	if [ "$owns_apply_lock" = 0 ]; then
+		sleep 2
+		main_xray_running || die "Xray did not start after connection selection"
+	fi
 	log "routing configuration applied"
 	trap - HUP INT TERM EXIT
 	cleanup_apply
@@ -731,6 +815,9 @@ cmd_update_install() {
 
 	installer="$(find "$extract_dir" -name install.sh -type f | head -n 1)"
 	[ -n "$installer" ] || die "install.sh not found in update archive"
+	if has_awg_binding && [ ! -f "$(dirname "$installer")/root/usr/libexec/podkopchik/awg_manage.uc" ]; then
+		die "update lacks mixed AWG support; migrate to VLESS-only explicitly before downgrading"
+	fi
 	if ! sh "$installer"; then
 		die "update installer failed; user config restored"
 	fi
@@ -748,6 +835,9 @@ cmd_update_install() {
 
 cmd_rollback() {
 	[ -s "$ROLLBACK" ] || die "rollback archive not found"
+	if has_awg_binding && ! tar -tzf "$ROLLBACK" | grep -Eq '(^|/)usr/libexec/podkopchik/awg_manage.uc$'; then
+		die "old rollback cannot handle AWG bindings; use the protected AWG rollback procedure first"
+	fi
 	tar -xzf "$ROLLBACK" -C /
 	/etc/init.d/rpcd restart >/dev/null 2>&1 || true
 	/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
@@ -760,11 +850,18 @@ case "${1:-}" in
 	generate) shift; cmd_generate "$@" ;;
 	validate) cmd_validate ;;
 	validate-active) cmd_validate_active ;;
+	prepare-connections) cmd_prepare_connections ;;
 	apply) cmd_apply ;;
 	apply-health-state) shift; cmd_apply_health_state "$@" ;;
 	restart) /etc/init.d/podkopchik restart ;;
 	cleanup) cmd_cleanup ;;
 	health) "$LIB/health_check.sh" once ;;
+	awg-list) ucode_run "$LIB/awg_cli.uc" list ;;
+	awg-recover) ucode_run "$LIB/awg_cli.uc" recover apply ;;
+	awg-start|awg-stop|awg-restart|awg-check)
+		action="${1#awg-}"; shift
+		ucode_run "$LIB/awg_cli.uc" "$action" "${1:-}"
+		;;
 	shaping-status) cmd_shaping_status ;;
 	update-check) cmd_update_check ;;
 	update-install) cmd_update_install ;;
@@ -779,7 +876,7 @@ case "${1:-}" in
 		exec sh "$LIB/xray_jobs.sh" start "xray-$job" "${1:-package}"
 		;;
 	*)
-		echo "Usage: podkopchikctl {status|generate|validate|apply|restart|cleanup|health|shaping-status|update-check|update-install|rollback|xray-status|xray-check [package|official]|xray-install [package|official]|xray-rollback}" >&2
+		echo "Usage: podkopchikctl {status|generate|validate|apply|restart|cleanup|health|shaping-status|awg-list|awg-start ID|awg-stop ID|awg-restart ID|awg-check ID|awg-recover|update-check|update-install|rollback|xray-status|xray-check [package|official]|xray-install [package|official]|xray-rollback}" >&2
 		exit 2
 		;;
 esac

@@ -56,6 +56,11 @@ cat > "$tmp/nft" <<'EOF'
 #!/bin/sh
 
 echo "nft $*" >> "$PODKOPCHIK_TEST_LOG"
+case "$*" in
+ 'list table inet podkopchik') exit 1 ;;
+ -c*) exit 0 ;;
+ -f*) sed 's/^/nft /; s/ $//' "$2" >> "$PODKOPCHIK_TEST_LOG" ;;
+esac
 exit 0
 EOF
 
@@ -76,8 +81,7 @@ fi
 
 grep -q "Missing required dependency: ip-full" "$err"
 grep -q "BusyBox ip is not sufficient for fwmark policy routing" "$err"
-grep -q "cleanup" "$log"
-! grep -q "fwmark" "$log"
+[ ! -s "$log" ]
 
 log="$tmp/iproute2.log"
 err="$tmp/iproute2.err"

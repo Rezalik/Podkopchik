@@ -9,7 +9,8 @@ String.prototype.format = function(...args) { let i = 0; return this.replace(/%[
 function E(tag, attrs, children) {
 	assert(/^[a-z][a-z0-9]*$/i.test(tag), 'DOM tag must be constant, not user input');
 	return { tag, attrs: attrs || {}, children: [].concat(children || []),
-		value: attrs && attrs.value || '', files: [],
+		value: attrs && attrs.value || '', files: [], style: {},
+		addEventListener(name, fn) { this.attrs[name] = fn; },
 		replaceChildren() { this.children = []; }, appendChild(child) { this.children.push(child); }
 	};
 }
@@ -35,7 +36,7 @@ async function settle() { for (let i = 0; i < 20; i++) { await new Promise(r => 
 	assert(text(dom).includes('Configuration is valid'));
 	assert(text(dom).includes(item.name), 'untrusted name remains text');
 	assert(!text(dom).includes('SECRET_MUST_NOT_RENDER'));
-	assert(!/Connected|Available|Handshake/.test(text(dom)), 'must not claim tunnel availability');
+	assert(!text(dom).includes('Available'), 'no UP claim without real runtime evidence');
 	assert.strictEqual(page.handleSaveApply, null, 'must not invoke routing Apply');
 	find(dom, n => n.tag === 'button' && text(n) === 'Import .conf').attrs.click();
 	let name = find(modal, n => n.tag === 'input' && n.attrs.type === 'text');
@@ -68,7 +69,20 @@ async function settle() { for (let i = 0; i < 20; i++) { await new Promise(r => 
 	assert(calls.some(x => x.method === 'delete' && x.args[0] === item.id));
 	const acl = JSON.parse(fs.readFileSync('root/usr/share/rpcd/acl.d/luci-app-podkopchik.json'))['luci-app-podkopchik'];
 	assert.deepStrictEqual(acl.read.ubus['podkopchik.awg'], ['list']);
-	assert.deepStrictEqual(acl.write.ubus['podkopchik.awg'].slice().sort(), ['delete','import','rename','replace','validate']);
+	assert.deepStrictEqual(acl.write.ubus['podkopchik.awg'].slice().sort(), ['assign','check','delete','import','recover','rename','replace','restart','set_interception','set_probe','start','stop','validate']);
+	page.assignConnection(item);
+	const selects = [];
+	walk(modal, n => { if (n.tag === 'select') selects.push(n); });
+	selects[0].value = 'backup'; selects[1].value = '2';
+	find(modal, n => n.tag === 'button' && text(n) === 'Apply settings').attrs.click(); await settle();
+	assert.deepStrictEqual(calls.find(x => x.method === 'assign').args, ['awg_' + item.id, 'backup', '2']);
+	page.probeSettings(item);
+	find(modal, n => n.tag === 'button' && text(n) === 'Save').attrs.click(); await settle();
+	assert(calls.some(x => x.method === 'set_probe' && x.args[0] === item.id));
+	for (const [label, method] of [['Start','start'], ['Stop','stop'], ['Restart','restart'], ['Check connection','check']]) {
+		find(list, n => n.tag === 'button' && text(n) === label).attrs.click(); await settle();
+		assert(calls.some(x => x.method === method && x.args[0] === item.id));
+	}
 	for (const access of [acl.read.file, acl.write.file])
 		assert(!Object.keys(access).some(x => x.includes('/etc/podkopchik/awg')), 'no raw secret file ACL');
 	assert(!source.includes('fs.exec'), 'upload must use authenticated RPC, not command arguments');

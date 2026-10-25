@@ -7,6 +7,11 @@ if ! command -v ucode >/dev/null 2>&1; then
 	exit 0
 fi
 
+if ! ucode -L "${UCODE_MODULE_DIR:-/usr/lib/ucode}" -e 'import { cursor } from "uci"; import * as fs from "fs";' >/dev/null 2>&1; then
+	echo "SKIP: native domain generation requires local ucode uci/fs modules (file-backed AWG generator suite is separate)"
+	exit 0
+fi
+
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
@@ -103,7 +108,7 @@ while [ "$i" -le 100 ]; do
 done
 
 out="$tmp/config.json"
-UCI_CONFIG_DIR="$tmp" ucode -L root/usr/libexec/podkopchik root/usr/libexec/podkopchik/generate.uc > "$out"
+UCI_CONFIG_DIR="$tmp" ucode -L "${UCODE_MODULE_DIR:-/usr/lib/ucode}" -L "$PWD/root/usr/libexec/podkopchik" root/usr/libexec/podkopchik/generate.uc > "$out"
 
 grep -q '"domain:legacy.example.com"' "$out"
 grep -q '"domain:list1.example.com"' "$out"

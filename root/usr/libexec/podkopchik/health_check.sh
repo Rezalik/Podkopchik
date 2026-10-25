@@ -86,6 +86,10 @@ trap 'cleanup_on_exit; exit 143' HUP TERM
 
 acquire_health_lock() {
 	mkdir -p "$TMP_DIR"
+	if [ -f "$TMP_DIR/config-apply.lock/connection-token" ]; then
+		logger -t podkopchik "health check skipped; connection selection transaction is running"
+		return 1
+	fi
 	if [ -d "$TMP_DIR/xray-update.lock" ]; then
 		logger -t podkopchik "health check skipped; Xray update is running"
 		return 1
@@ -274,9 +278,7 @@ run_once_locked() {
 	: > "$results"
 
 	bin="$(xray_bin)"
-	if [ -z "$bin" ]; then
-		record_unknown_all "$results" "xray binary not available"
-	elif ! command -v curl >/dev/null 2>&1; then
+	if ! command -v curl >/dev/null 2>&1; then
 		record_unknown_all "$results" "curl not available for proxy probing"
 	else
 		base="$(uci -q get "$APP.main.health_socks_base_port" 2>/dev/null || echo 20800)"
@@ -284,7 +286,24 @@ run_once_locked() {
 		while uci -q get "$APP.@proxy[$i]" >/dev/null 2>&1; do
 			if [ "$(uci -q get "$APP.@proxy[$i].enabled" 2>/dev/null || echo 1)" != "0" ]; then
 				tag="$(proxy_tag "$i")"
-				probe_proxy "$tag" "$((base + i))" "$results" "$bin"
+				if [ "$(uci -q get "$APP.@proxy[$i].protocol" 2>/dev/null || true)" = amneziawg ]; then
+					id="$(uci -q get "$APP.@proxy[$i].awg_id" 2>/dev/null || true)"
+					result="$TMP_DIR/awg-probe.json"
+					if ucode -L "$LIB" "$LIB/awg_cli.uc" health "$id" > "$result"; then
+						status="$(jsonfilter -q -i "$result" -e '@.status' 2>/dev/null || echo unknown)"
+						reason="$(jsonfilter -q -i "$result" -e '@.reason' 2>/dev/null || true)"
+						latency="$(jsonfilter -q -i "$result" -e '@.latency_ms' 2>/dev/null || true)"
+						external_ip="$(jsonfilter -q -i "$result" -e '@.external_ip' 2>/dev/null || true)"
+						record_probe "$results" "$tag" "$status" "$reason" "$latency" "$external_ip"
+					else
+						record_probe "$results" "$tag" unknown "AWG check could not run"
+					fi
+					rm -f "$result"
+				elif [ -z "$bin" ]; then
+					record_probe "$results" "$tag" unknown "xray binary not available"
+				else
+					probe_proxy "$tag" "$((base + i))" "$results" "$bin"
+				fi
 			fi
 			i=$((i + 1))
 		done
@@ -335,7 +354,7 @@ run_once_locked() {
 		logger -t podkopchik "health check completed"
 		if [ "$applied" = "1" ]; then
 			logger -t podkopchik "failover config applied; restarting Xray"
-			( sleep 1; /etc/init.d/podkopchik restart >/dev/null 2>&1 ) &
+			( sleep 1; /etc/init.d/podkopchik core_restart >/dev/null 2>&1 ) &
 		fi
 		rm -f "$events"
 	else

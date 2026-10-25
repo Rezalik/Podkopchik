@@ -1254,3 +1254,159 @@ msgstr "Только управление конфигурациями. На э�
 
 msgid "Import .conf"
 msgstr "Импортировать .conf"
+
+msgid "Required AWG 3.1 tools or kernel support is unavailable."
+msgstr "Не найдены необходимые утилиты AWG 3.1 или поддержка в ядре."
+
+msgid "Strict global reverse-path filtering is unsupported. No global network setting was changed."
+msgstr "Строгая глобальная проверка обратного маршрута не поддерживается. Системные сетевые настройки не изменены."
+
+msgid "AWG network operation failed. The new connection was not selected."
+msgstr "Не удалось выполнить сетевую операцию AWG. Новое подключение не выбрано."
+
+msgid "An interface, routing table or policy rule is already owned by another service."
+msgstr "Интерфейс, таблица маршрутизации или правило уже используются другим сервисом."
+
+msgid "The AWG profile needs an Interface Address."
+msgstr "В профиле AWG необходимо указать Address в секции Interface."
+
+msgid "The AWG address overlaps an existing LAN, WAN or tunnel network."
+msgstr "Адрес AWG пересекается с существующей сетью LAN, WAN или другого туннеля."
+
+msgid "An IPv6-only AWG profile requires extended IPv6 interception before assigning a role."
+msgstr "Для назначения роли профилю AWG только с IPv6 сначала включите расширенный перехват IPv6."
+
+msgid "Use an HTTPS hostname URL, a literal probe IP and a timeout from 1 to 30 seconds."
+msgstr "Укажите HTTPS-адрес с доменом, IP-адрес проверки и тайм-аут от 1 до 30 секунд."
+
+msgid "Select one main connection and unique backup priorities from 1 to 3."
+msgstr "Выберите одно основное подключение и уникальные приоритеты резервных от 1 до 3."
+
+msgid "Handshake and HTTPS must succeed before this connection can be selected."
+msgstr "Перед выбором подключения необходимы успешный handshake и проверка HTTPS."
+
+msgid "This profile is in use. Remove its routing assignments and stop it before replacing or deleting it."
+msgstr "Профиль используется. Перед заменой или удалением уберите его из правил и остановите туннель."
+
+msgid "Connection apply failed. The previous configuration was restored."
+msgstr "Не удалось применить подключение. Предыдущая конфигурация восстановлена."
+
+msgid "Automatic recovery failed. Keep SSH open and restore the saved backup."
+msgstr "Автоматическое восстановление не удалось. Не закрывайте SSH и восстановите сохранённую резервную копию."
+
+msgid "An interrupted connection change needs recovery. Use Recover connection change."
+msgstr "Прерванное изменение подключения требует восстановления. Нажмите «Восстановить изменение подключения»."
+
+msgid "Interface"
+msgstr "Интерфейс"
+
+msgid "Started"
+msgstr "Запущен"
+
+msgid "Stopped"
+msgstr "Остановлен"
+
+msgid "Last handshake"
+msgstr "Последний handshake"
+
+msgid "No handshake yet"
+msgstr "Handshake ещё не выполнен"
+
+msgid "HTTPS latency"
+msgstr "Задержка HTTPS"
+
+msgid "External IP"
+msgstr "Внешний IP"
+
+msgid "Last checked"
+msgstr "Последняя проверка"
+
+msgid "Received / sent"
+msgstr "Получено / отправлено"
+
+msgid "Start"
+msgstr "Запустить"
+
+msgid "Stop"
+msgstr "Остановить"
+
+msgid "Check connection"
+msgstr "Проверить подключение"
+
+msgid "Connection role"
+msgstr "Роль подключения"
+
+msgid "Check settings"
+msgstr "Настройки проверки"
+
+msgid "Main and backup selection requires a successful check. Domain and IP rules keep their existing targets."
+msgstr "Основное и резервное подключения выбираются после успешной проверки. Цели доменных и IP-правил сохраняются."
+
+msgid "Connection role applied."
+msgstr "Роль подключения применена."
+
+msgid "Probe IP address"
+msgstr "IP-адрес проверки"
+
+msgid "The probe IP is pinned to avoid WAN DNS. HTTPS certificate verification remains enabled."
+msgstr "IP проверки задан явно, чтобы не использовать DNS через WAN. Проверка сертификата HTTPS включена."
+
+msgid "Check settings saved."
+msgstr "Настройки проверки сохранены."
+
+msgid "AWG interface started. Check the connection before using it."
+msgstr "Интерфейс AWG запущен. Перед использованием проверьте подключение."
+
+msgid "AWG interface stopped. Selected traffic remains blocked until failover."
+msgstr "Интерфейс AWG остановлен. Выбранный трафик заблокирован до переключения на резерв."
+
+msgid "AWG interface restarted."
+msgstr "Интерфейс AWG перезапущен."
+
+msgid "Connection check completed. See the measured result."
+msgstr "Проверка завершена. Результат измерения показан в карточке."
+
+msgid "Traffic counters unavailable"
+msgstr "Счётчики трафика недоступны"
+
+msgid "Interception settings applied."
+msgstr "Настройки перехвата применены."
+
+msgid "Experimental AWG integration. TCP-only interception is the default. Enable UDP and IPv6 only after checking tunnel support."
+msgstr "Экспериментальная интеграция AWG. По умолчанию перехватывается только TCP. Включайте UDP и IPv6 после проверки поддержки туннелем."
+
+msgid "UDP and IPv6 LAN interception (experimental)"
+msgstr "Перехват UDP и IPv6 из LAN (экспериментально)"
+
+msgid "Connection change recovered."
+msgstr "Предыдущее состояние подключения восстановлено."
+
+msgid "Recover connection change"
+msgstr "Восстановить изменение подключения"
+
+msgid "Select one main connection in Proxy Links or AmneziaWG."
+msgstr "Выберите одно основное подключение во вкладке «Прокси-ссылки» или AmneziaWG."
+
+msgid "Active connection"
+msgstr "Активное подключение"
+
+msgid "Matching traffic is blocked"
+msgstr "Трафик по правилам заблокирован"
+
+msgid "No active connection selected."
+msgstr "Активное подключение не выбрано."
+
+msgid "Unmatched traffic keeps its normal direct route."
+msgstr "Трафик вне правил сохраняет обычный прямой маршрут."
+
+msgid "Last successful check"
+msgstr "Последняя успешная проверка"
+
+msgid "At most 10 AWG interfaces can be started at the same time."
+msgstr "Одновременно можно запустить не более 10 интерфейсов AWG."
+
+msgid "HTTPS or handshake verification failed."
+msgstr "Проверка HTTPS или handshake не пройдена."
+
+msgid "A configured AWG address is missing from the interface. Restart the connection and check the profile."
+msgstr "На интерфейсе отсутствует настроенный адрес AWG. Перезапустите подключение и проверьте профиль."

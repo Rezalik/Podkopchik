@@ -19,17 +19,54 @@ PODKOPCHIK_PRIO="10991"
 bypass4=""
 bypass6=""
 bypass_failed_hosts=""
+batch=""
+new4=0
+new6=0
+committed=0
 reserved4_cidrs="0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.168.0.0/16 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 224.0.0.0/4 240.0.0.0/4"
 
 fail_apply() {
 	reason="${1:-failed to apply Podkopchik routing rules}"
-	logger -t podkopchik "$reason; cleaning up partial state" >/dev/null 2>&1 || true
+	logger -t podkopchik "$reason; previous nft transaction retained" >/dev/null 2>&1 || true
 	echo "podkopchik apply: $reason" >&2
-	"$CLEANUP" >/dev/null 2>&1 || true
 	exit 1
 }
 
+finish_apply() {
+	# nft -f is atomic: a failed batch leaves the old table intact. Remove only
+	# policy resources acquired by this invocation, never existing ownership.
+	if [ "$committed" = 0 ]; then
+		if { [ "$new4" = 1 ] || [ "$new6" = 1 ]; } && "$NFT" list table inet podkopchik >/dev/null 2>&1; then
+			# A signal can arrive after the kernel committed but before the shell
+			# records success. Retaining owned policy is fail-closed; deleting it
+			# while TPROXY is live could expose LAN packets to normal WAN routing.
+			logger -t podkopchik 'retaining owned policy guards after an interrupted/failed apply with an existing nft table' >/dev/null 2>&1 || true
+			[ -z "$batch" ] || rm -f "$batch"
+			return
+		fi
+		if [ "$new4" = 1 ]; then
+			"$IP" rule del fwmark "$PODKOPCHIK_MARK" table "$PODKOPCHIK_TABLE" priority "$PODKOPCHIK_PRIO" >/dev/null 2>&1 || true
+			"$IP" route del local default dev lo table "$PODKOPCHIK_TABLE" >/dev/null 2>&1 || true
+			rm -f "$ROUTE_STATE"
+		fi
+		if [ "$new6" = 1 ]; then
+			"$IP" -6 rule del fwmark "$PODKOPCHIK_MARK" table "$PODKOPCHIK_TABLE" priority "$PODKOPCHIK_PRIO" >/dev/null 2>&1 || true
+			"$IP" -6 route del local default dev lo table "$PODKOPCHIK_TABLE" >/dev/null 2>&1 || true
+			rm -f "$TMP_DIR/routing6.env"
+		fi
+	fi
+	[ -z "$batch" ] || rm -f "$batch"
+}
+trap finish_apply EXIT
+trap 'exit 1' HUP INT TERM
+
 run_rule() {
+	if [ "$1" = "$NFT" ] && [ -n "$batch" ]; then
+		shift
+		printf '%s ' "$@" >> "$batch"
+		printf '\n' >> "$batch"
+		return
+	fi
 	err="$TMP_DIR/apply-rule.err"
 
 	if ! "$@" >"$err" 2>&1; then
@@ -289,6 +326,21 @@ add_bypass_elements() {
 	run_rule "$NFT" add element inet podkopchik "$set_name" "{ $elements }"
 }
 
+collect_awg_bypass() {
+	[ -d /etc/podkopchik/awg ] && [ -f "$LIB/awg_cli.uc" ] || return 0
+	for host in $("$UCODE" -L "$LIB" "$LIB/awg_cli.uc" endpoints 2>/dev/null || true); do
+		add_bypass_ip "$host" && continue
+		resolved=0
+		for ip in $(resolve_endpoint_host "$host" 2>/dev/null || true); do
+			if add_bypass_ip "$ip"; then resolved=1; fi
+		done
+		if [ "$resolved" = 0 ]; then
+			record_failed_host "$host"
+			warn_apply "could not resolve AWG endpoint for bypass: $host"
+		fi
+	done
+}
+
 reserved4_elements() {
 	elements=""
 
@@ -333,6 +385,7 @@ fakedns_enabled="$(uci -q get "$APP.main.fakedns_enabled" 2>/dev/null || echo 0)
 fakedns_hijack_dns="$(uci -q get "$APP.main.fakedns_hijack_dns" 2>/dev/null || echo 0)"
 fakedns_port="$(uci -q get "$APP.main.fakedns_port" 2>/dev/null || echo 1053)"
 fakedns_pool_v4="$(uci -q get "$APP.main.fakedns_pool_v4" 2>/dev/null || echo 198.18.0.0/15)"
+extended_interception="$(uci -q get "$APP.main.extended_interception" 2>/dev/null || echo 0)"
 dns_redirect_port=""
 
 if [ "$fakedns_enabled" = "1" ] && [ "$fakedns_hijack_dns" = "1" ]; then
@@ -343,13 +396,41 @@ fi
 
 require_ip_full
 
-"$CLEANUP"
-
+case "$lan" in ''|*[!A-Za-z0-9_.-]*) fail_apply "invalid LAN interface name" ;; esac
+for number in "$port" "${dns_redirect_port:-53}"; do
+	case "$number" in ''|*[!0-9]*) fail_apply "invalid listener port" ;; esac
+	[ "$number" -ge 1 ] && [ "$number" -le 65535 ] || fail_apply "invalid listener port"
+done
+umask 077
 mkdir -p "$TMP_DIR"
-printf '%s\n' 'podkopchik-routing-v1' > "$ROUTE_STATE" || fail_apply
+batch="$(mktemp "$TMP_DIR/nft-apply.XXXXXX")" || fail_apply
+if "$NFT" list table inet podkopchik >/dev/null 2>&1; then
+	[ "$(cat "$ROUTE_STATE" 2>/dev/null || true)" = podkopchik-routing-v1 ] || fail_apply "nft table exists without Podkopchik ownership"
+	printf '%s\n' 'delete table inet podkopchik' >> "$batch"
+fi
 
-run_rule "$IP" rule add fwmark "$PODKOPCHIK_MARK" table "$PODKOPCHIK_TABLE" priority "$PODKOPCHIK_PRIO"
-run_rule "$IP" route add local default dev lo table "$PODKOPCHIK_TABLE"
+prepare_policy() {
+	family="$1"; marker="$2"; expected="$3"
+	policy="$("$IP" $family rule show | awk '$1 == "10991:"')"
+	routes="$("$IP" $family route show table "$PODKOPCHIK_TABLE" 2>/dev/null || true)"
+	if [ "$(cat "$marker" 2>/dev/null || true)" = "$expected" ]; then
+		# Do not repair a partly foreign namespace by deleting it.
+		printf '%s\n' "$policy" | grep -Eq '^10991:[[:space:]]+from all fwmark 0x100000 lookup 10991$' || fail_apply "owned policy rule changed; refusing takeover"
+		[ "$(printf '%s\n' "$policy" | wc -l | tr -d ' ')" = 1 ] || fail_apply "duplicate policy priority"
+		printf '%s\n' "$routes" | grep -Eq '^local default dev lo( scope host)?( metric [0-9]+)?( pref medium)?$' || fail_apply "owned policy route changed; refusing takeover"
+		[ "$(printf '%s\n' "$routes" | wc -l | tr -d ' ')" = 1 ] || fail_apply "foreign policy routes"
+		return
+	fi
+	[ -z "$policy$routes" ] || fail_apply "policy priority/table 10991 already in use"
+	if [ -z "$family" ]; then new4=1; else new6=1; fi
+	run_rule "$IP" $family rule add fwmark "$PODKOPCHIK_MARK" table "$PODKOPCHIK_TABLE" priority "$PODKOPCHIK_PRIO"
+	run_rule "$IP" $family route add local default dev lo table "$PODKOPCHIK_TABLE"
+	printf '%s\n' "$expected" > "$marker" || fail_apply "could not record policy ownership"
+}
+prepare_policy '' "$ROUTE_STATE" podkopchik-routing-v1
+if [ "$extended_interception" = 1 ]; then
+	prepare_policy -6 "$TMP_DIR/routing6.env" podkopchik-routing6-v1
+fi
 
 run_rule "$NFT" add table inet podkopchik
 run_rule "$NFT" 'add chain inet podkopchik prerouting { type filter hook prerouting priority mangle; policy accept; }'
@@ -362,14 +443,17 @@ run_rule "$NFT" add set inet podkopchik reserved4 '{ type ipv4_addr; flags inter
 run_rule "$NFT" add element inet podkopchik reserved4 "{ $(reserved4_elements) }"
 run_rule "$NFT" add set inet podkopchik reserved6 '{ type ipv6_addr; flags interval; }'
 run_rule "$NFT" add element inet podkopchik reserved6 '{ ::1/128, fc00::/7, fe80::/10 }'
+if [ "$extended_interception" = 1 ]; then
+	run_rule "$NFT" add element inet podkopchik reserved6 '{ ff00::/8 }'
+fi
 run_rule "$NFT" add set inet podkopchik proxy_bypass4 '{ type ipv4_addr; flags interval; }'
 run_rule "$NFT" add set inet podkopchik proxy_bypass6 '{ type ipv6_addr; flags interval; }'
 
 collect_proxy_bypass
+collect_awg_bypass
 collect_manual_bypass
 add_bypass_elements proxy_bypass4 "$bypass4"
 add_bypass_elements proxy_bypass6 "$bypass6"
-write_bypass_state
 
 run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" meta mark "$PODKOPCHIK_MARK" return
 run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" ip daddr @reserved4 return
@@ -378,5 +462,25 @@ run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" ip daddr @pro
 run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" ip6 daddr @proxy_bypass6 return
 
 run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" meta l4proto tcp meta mark set "$PODKOPCHIK_MARK" tproxy to :"$port" accept
+if [ "$extended_interception" = 1 ]; then
+	# DNS UDP/53 must reach the existing NAT DNS chain, not the TPROXY socket.
+	run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" meta l4proto udp udp dport != 53 meta mark set "$PODKOPCHIK_MARK" tproxy to :"$port" accept
+fi
 
+# Check and commit the complete replacement without an unprotected delete/add
+# interval. No unrelated fw4 tables/chains are part of this transaction.
+err="$TMP_DIR/apply-rule.err"
+"$NFT" -c -f "$batch" >"$err" 2>&1 || fail_apply "nft validation failed: $(cat "$err")"
+"$NFT" -f "$batch" >"$err" 2>&1 || fail_apply "nft commit failed: $(cat "$err")"
+committed=1
+if [ "$extended_interception" != 1 ] && [ "$(cat "$TMP_DIR/routing6.env" 2>/dev/null || true)" = podkopchik-routing6-v1 ]; then
+	if "$IP" -6 rule del fwmark "$PODKOPCHIK_MARK" table "$PODKOPCHIK_TABLE" priority "$PODKOPCHIK_PRIO" &&
+		"$IP" -6 route del local default dev lo table "$PODKOPCHIK_TABLE"; then
+		rm -f "$TMP_DIR/routing6.env"
+	else
+		warn_apply 'IPv6 interception is disabled; retained ownership marker for pending policy cleanup'
+	fi
+fi
+write_bypass_state
+rm -f "$err"
 exit 0

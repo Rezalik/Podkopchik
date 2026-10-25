@@ -65,6 +65,31 @@ function domain(v) {
 
 function ip(v) { return ipv4(v) || ipv6(v); }
 
+function ip_bytes(v) {
+	if (ipv4(v)) return map(split(v, '.'), function(x) { return +x; });
+	if (index(v, '.') >= 0) {
+		let pos = rindex(v, ':'), bytes = ip_bytes(substr(v, pos + 1));
+		v = substr(v, 0, pos + 1) + sprintf('%x:%x', bytes[0] * 256 + bytes[1], bytes[2] * 256 + bytes[3]);
+	}
+	let sides = split(v, '::'), left = length(sides[0]) ? split(sides[0], ':') : [];
+	let right = length(sides) == 2 && length(sides[1]) ? split(sides[1], ':') : [];
+	if (length(sides) == 2) while (length(left) + length(right) < 8) push(left, '0');
+	let out = [];
+	for (let word in [ ...left, ...right ]) { let n = hex(word); push(out, n >> 8, n & 255); }
+	return out;
+}
+
+function overlap(a, b) {
+	let x = split(a, '/'), y = split(b, '/'), bx = ip_bytes(x[0]), by = ip_bytes(y[0]);
+	if (length(bx) != length(by)) return false;
+	let bits = min(+x[1], +y[1]);
+	for (let i = 0; bits > 0; i++, bits -= 8) {
+		let mask = bits >= 8 ? 255 : (255 << (8 - bits)) & 255;
+		if ((bx[i] & mask) != (by[i] & mask)) return false;
+	}
+	return true;
+}
+
 function cidr(v, required) {
 	let p = split(v, '/');
 	return length(p) <= 2 && ip(p[0]) &&
@@ -186,7 +211,8 @@ function parse(text) {
 		for (let old in headers) if (h[0] <= old[1] && old[0] <= h[1]) fail('headers');
 		push(headers, h);
 	}
-	return { config: join('\n', lines) + '\n', endpoints: endpoints, peer_count: length(peers) };
+	return { config: join('\n', lines) + '\n', endpoints: endpoints, peer_count: length(peers),
+		interface: iface, peers: peers };
 }
 
 function valid_id(id) { return type(id) == 'string' && !!match(id, /^[a-f0-9]{32}$/); }
@@ -263,6 +289,11 @@ function store(root, owner, filesystem) {
 			peer_count: validation ? validation.peer_count : 0 };
 	}
 	function dispatch(method, args) {
+		// Internal caller only; never present in the RPC method allowlist.
+		if (method == 'profile') {
+			let meta = load(args.id);
+			return { meta: meta, parsed: parse(read(conf_path(meta), MAX_CONFIG)) };
+		}
 		if (method == 'list') {
 			let result = [];
 			for (let file in (fs.lsdir(root) || [])) {
@@ -333,4 +364,5 @@ function store(root, owner, filesystem) {
 	};
 }
 
-return { parse: parse, store: store, fail: fail, error: error, max_config: MAX_CONFIG, max_request: MAX_REQUEST };
+return { parse: parse, store: store, fail: fail, error: error, ip: ip, nonce: random_id,
+	domain: domain, overlap: overlap, max_config: MAX_CONFIG, max_request: MAX_REQUEST };

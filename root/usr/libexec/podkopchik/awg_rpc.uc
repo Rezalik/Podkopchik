@@ -8,7 +8,15 @@ const methods = {
 	replace: { id: '', name: '', config: '' },
 	validate: { id: '' },
 	rename: { id: '', name: '' },
-	delete: { id: '' }
+	delete: { id: '' },
+	start: { id: '' },
+	stop: { id: '' },
+	restart: { id: '' },
+	check: { id: '' },
+	recover: {},
+	set_interception: { enabled: '' },
+	set_probe: { id: '', url: '', address: '', timeout: '' },
+	assign: { tag: '', role: '', priority: '' }
 };
 
 if (ARGV[0] == 'list') {
@@ -26,7 +34,7 @@ try {
 	for (let field, value in args)
 		if (field != 'ubus_rpc_session' && (!exists(methods[ARGV[1]], field) || type(value) != 'string'))
 			awg.fail('request');
-	let result = awg.store('/etc/podkopchik/awg', 0).run(ARGV[1], args);
+	let result = require('awg_manage').run(ARGV[1], args);
 	result.ok = true;
 	printf('%J\n', result);
 }

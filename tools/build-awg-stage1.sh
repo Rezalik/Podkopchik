@@ -1,5 +1,9 @@
 #!/bin/sh
 set -eu
+if [ -f "$(dirname -- "$0")/../root/usr/libexec/podkopchik/awg_manage.uc" ]; then
+	echo 'Stage 1 partial overlays are unsafe with mixed runtime code; use tools/build-awg-stage23.sh' >&2
+	exit 1
+fi
 umask 077
 [ "$#" = 1 ] || { echo 'Usage: tools/build-awg-stage1.sh /absolute/path/bundle.tar.gz' >&2; exit 1; }
 case "$1" in /*) out="$1" ;; *) echo 'Output path must be absolute' >&2; exit 1 ;; esac

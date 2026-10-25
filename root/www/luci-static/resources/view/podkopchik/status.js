@@ -3,6 +3,11 @@
 'require fs';
 'require ui';
 'require uci';
+'require rpc';
+
+function readAWGStatus() {
+	return rpc.declare({ object: 'podkopchik.awg', method: 'list', expect: { '': {} } })().catch(function() { return null; });
+}
 
 var COLORS = {
 	ok: {
@@ -43,7 +48,7 @@ function asFlag(value) {
 }
 
 function proxyRole(p) {
-	if (p.role == 'main' || p.role == 'backup' || p.role == 'disabled')
+	if (p.role == 'main' || p.role == 'backup' || p.role == 'disabled' || p.role == 'rules_only')
 		return p.role;
 
 	return p.enabled == '0' ? 'disabled' : 'backup';
@@ -52,12 +57,14 @@ function proxyRole(p) {
 function simpleProxyModel() {
 	var model = {
 		main: [],
-		backups: []
+		backups: [],
+		labels: {}
 	};
 
 	(uci.sections('podkopchik', 'proxy') || []).forEach(function(p) {
 		var tag = p.tag || p.name || '';
 		var role = proxyRole(p);
+		model.labels[tag] = (p.name || tag) + (p.protocol == 'amneziawg' ? ' · AmneziaWG' : ' · VLESS');
 
 		if (!tag || role == 'disabled')
 			return;
@@ -219,6 +226,8 @@ function proxyHealth(data) {
 
 		var item = proxies[tag] || {};
 		var status = item.status || 'unknown';
+		if (status == 'up' && (!item.checked_at || Date.now() / 1000 - item.checked_at >= Number(item.valid_for || 300)))
+			status = 'unknown';
 		seen++;
 
 		if (status == 'up')
@@ -231,6 +240,7 @@ function proxyHealth(data) {
 		out.items.push({
 			tag: tag,
 			status: status,
+			latency: item.latency_ms,
 			lastError: item.last_error || ''
 		});
 	}
@@ -330,23 +340,26 @@ function countText(n, one, many) {
 
 function mainProxySummary(model, health) {
 	if (model.main.length == 0)
-		return card(_('Main proxy'), 'error', _('Select one main proxy.'), _('Open Proxy Links and mark one VLESS link as the main proxy.'));
+		return card(_('Main proxy'), 'error', _('Select one main proxy.'), _('Select one main connection in Proxy Links or AmneziaWG.'));
 
 	if (model.main.length > 1)
-		return card(_('Main proxy'), 'error', _('Only one main proxy can be selected.'), _('Open Proxy Links and leave exactly one VLESS link marked as the main proxy.'));
+		return card(_('Main proxy'), 'error', _('Only one main proxy can be selected.'), _('Select one main connection in Proxy Links or AmneziaWG.'));
 
 	var item = healthByTag(health, model.main[0]);
 
 	if (item.status == 'up')
-		return card(_('Main proxy'), 'ok', _('Main proxy is available'), model.main[0]);
+		return card(_('Main proxy'), 'ok', _('Main proxy is available'),
+			(model.labels?.[model.main[0]] || model.main[0]) + (item.latency != null ? ' · ' + Number(item.latency) + ' ms' : ''));
 
 	if (item.status == 'down')
-		return card(_('Main proxy'), 'error', _('Main proxy is unavailable'), _('Open technical details to see the raw proxy error.'));
+		return card(_('Main proxy'), 'error', _('Main proxy is unavailable'),
+			(model.labels?.[model.main[0]] || model.main[0]) + '. ' + _('Open technical details to see the raw proxy error.'));
 
 	return card(
 		_('Primary proxy check'),
 		'inactive',
 		_('Proxy availability check has not been updated yet.'),
+		(model.labels?.[model.main[0]] || model.main[0]) + '. ' +
 		_('Routing can work if Xray is running and an active proxy is selected. Click "Check proxy availability" to refresh the status.')
 	);
 }
@@ -355,6 +368,7 @@ function backupProxySummary(model, health) {
 	var up = 0;
 	var down = 0;
 	var unknown = 0;
+	var names = model.backups.map(function(tag) { return model.labels?.[tag] || tag; }).join(', ');
 
 	for (var i = 0; i < model.backups.length; i++) {
 		var item = healthByTag(health, model.backups[i]);
@@ -371,12 +385,12 @@ function backupProxySummary(model, health) {
 		return card(_('Backup proxies'), 'inactive', _('No backup proxies selected.'), _('Backups are optional, but they help keep routing working if the main proxy is unavailable.'));
 
 	if (up > 0)
-		return card(_('Backup proxies'), 'ok', countText(model.backups.length, _('1 backup proxy selected'), _('%d backup proxies selected')), _('%d backup proxies are available').format(up));
+		return card(_('Backup proxies'), 'ok', countText(model.backups.length, _('1 backup proxy selected'), _('%d backup proxies selected')), _('%d backup proxies are available').format(up) + ' · ' + names);
 
 	if (down == model.backups.length)
-		return card(_('Backup proxies'), 'error', _('All backup proxies are unavailable'), _('Open technical details to see the raw proxy errors.'));
+		return card(_('Backup proxies'), 'error', _('All backup proxies are unavailable'), names + '. ' + _('Open technical details to see the raw proxy errors.'));
 
-	return card(_('Backup proxies'), 'warning', countText(model.backups.length, _('1 backup proxy selected'), _('%d backup proxies selected')), unknown > 0 ? _('Some backup proxies have not been checked yet.') : _('Backup proxies need attention.'));
+	return card(_('Backup proxies'), 'warning', countText(model.backups.length, _('1 backup proxy selected'), _('%d backup proxies selected')), names + '. ' + (unknown > 0 ? _('Some backup proxies have not been checked yet.') : _('Backup proxies need attention.')));
 }
 
 function ruleDetails(data) {
@@ -448,10 +462,27 @@ function technicalDetails(data, health) {
 	return rows;
 }
 
-function renderCards(statusText) {
+function renderCards(statusText, awg) {
 	var data = parseStatus(statusText);
+	if (awg && awg.ok) {
+		data.state = data.state || {};
+		(awg.connections || []).forEach(function(connection) {
+			var enabled = (uci.sections('podkopchik', 'proxy') || []).some(function(p) {
+				return p.protocol == 'amneziawg' && p.awg_id == connection.id && p.enabled != '0';
+			});
+			if (!enabled) return;
+			var runtime = connection.runtime || {};
+			data.state.proxies = data.state.proxies || {};
+			data.state.proxies[connection.tag] = {
+				status: runtime.status || 'unknown', checked_at: runtime.checked_at || 0,
+				last_error: runtime.reason || '', latency_ms: runtime.latency_ms
+			};
+		});
+	}
 	var health = proxyHealth(data);
 	var model = simpleProxyModel();
+	var activeTag = data.state?.groups?.auto_proxy_group?.active_proxy || (model.main.length == 1 ? model.main[0] : null);
+	var activeHealth = healthByTag(health, activeTag).status;
 	var domainGroups = domainGroupModel();
 	var speedLimits = speedLimitModel();
 	var summary = summaryState(data, health);
@@ -482,6 +513,10 @@ function renderCards(statusText) {
 				data.xray == 'running' ? _('Xray is running') : (data.routingApplied ? _('Xray is not running although routing is enabled') : _('Xray is stopped; this is normal while routing is disabled')),
 				data.xray == 'running' ? _('Proxy traffic can be handled by Xray.') : ''),
 			mainProxySummary(model, health),
+			card(_('Active connection'), activeTag == 'blocked' || activeHealth == 'down' ? 'error' : activeHealth == 'up' ? 'ok' : 'inactive',
+				activeTag == 'blocked' ? _('Matching traffic is blocked') :
+				(model.labels[activeTag] || _('No active connection selected.')),
+				_('Unmatched traffic keeps its normal direct route.')),
 			backupProxySummary(model, health),
 			card(_('Domain groups'), domainGroups.groupCount > 0 ? 'ok' : 'inactive',
 				domainGroups.groupCount > 0 ? countText(domainGroups.groupCount, _('1 domain group configured'), _('%d domain groups configured')) : _('No domain groups configured.'),
@@ -505,19 +540,20 @@ return view.extend({
 	load: function() {
 		return Promise.all([
 			runCommand([ 'status' ]),
-			uci.load('podkopchik')
+			uci.load('podkopchik'),
+			readAWGStatus()
 		]);
 	},
 
 	render: function(data) {
 		var status = data[0];
-		var content = E('div', renderCards(status));
+		var content = E('div', renderCards(status, data[2]));
 
 		function refresh() {
-			return runCommand([ 'status' ]).then(function(next) {
+			return Promise.all([runCommand([ 'status' ]), readAWGStatus()]).then(function(next) {
 				while (content.firstChild)
 					content.removeChild(content.firstChild);
-				content.appendChild(renderCards(next));
+				content.appendChild(renderCards(next[0], next[1]));
 			});
 		}
 

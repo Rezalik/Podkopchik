@@ -8,6 +8,7 @@ push(REQUIRE_SEARCH_PATH, '/usr/libexec/podkopchik/*.uc');
 push(REQUIRE_SEARCH_PATH, './root/usr/libexec/podkopchik/*.uc');
 
 const vless = require('vless');
+const awg_net = require('awg_network');
 const APP = 'podkopchik';
 const STATE_FILE = '/tmp/podkopchik/state.json';
 let state_file = STATE_FILE;
@@ -81,7 +82,11 @@ function collect_proxies(enabled_only, parse_links) {
 			return;
 
 		let uri = opt(s, 'uri', '');
-		let parsed = parse_links ? vless.parse(uri) : null;
+		let protocol = opt(s, 'protocol', 'vless');
+		if (protocol != 'vless' && protocol != 'amneziawg') die('unsupported connection protocol');
+		let parsed = parse_links && protocol == 'vless' ? vless.parse(uri) : null;
+		let resource = protocol == 'amneziawg' ? awg_net.resources(opt(s, 'awg_id', '')) : null;
+		if (resource && tag != resource.tag) die('AWG tag must match profile ID');
 
 		let p = {
 			section: s['.name'],
@@ -91,6 +96,9 @@ function collect_proxies(enabled_only, parse_links) {
 			parsed: parsed
 		};
 
+		p.protocol = protocol;
+		p.resource = resource;
+		if (by_tag[tag] || (protocol != 'amneziawg' && match(tag, /^awg_[a-f0-9]{32}$/))) die('duplicate or reserved connection tag');
 		push(list, p);
 		by_tag[tag] = p;
 	});
@@ -177,7 +185,11 @@ function resolve_target(ref, proxies, groups, state) {
 		let group_state = state.groups ? state.groups[clean] : null;
 		let active = group_state ? group_state.active_proxy : null;
 
-		if (active && proxies.by_tag[active])
+		if (active == 'blocked') return 'blocked';
+		let g = groups.by_tag[clean];
+		let members = [ g.primary, g.fixed_proxy, g.manual_override_proxy ];
+		for (let ref in g.backups) push(members, ref);
+		if (active && proxies.by_tag[active] && index(members, active) >= 0)
 			return active;
 
 		active = default_group_proxy(groups.by_tag[clean], proxies);
@@ -190,6 +202,12 @@ function resolve_target(ref, proxies, groups, state) {
 }
 
 function vless_outbound(p) {
+	if (p.protocol == 'amneziawg') {
+		let r = p.resource, runtime = null;
+		try { runtime = awg_net.controller().run('status', r.id); } catch (e) { }
+		let alias = trim(readfile('/sys/class/net/' + r.interface + '/ifalias') || '');
+		return awg_net.outbound(r, runtime && runtime.running && runtime.guarded && runtime.addresses_assigned && alias == r.alias, runtime?.addresses);
+	}
 	let x = p.parsed;
 	let user = {
 		id: x.uuid,
@@ -234,6 +252,20 @@ function vless_outbound(p) {
 		},
 		streamSettings: stream
 	};
+}
+
+function real_dns_target(proxies, groups, state) {
+	let target = groups.by_tag.auto_proxy_group ?
+		resolve_target('auto_proxy_group', proxies, groups, state) : proxies.list[0].tag;
+	// An independent rules-only tunnel must not depend on a failed automatic
+	// group merely to resolve a public hostname. Data routing stays unchanged.
+	if (target == 'blocked')
+		for (let p in proxies.list) {
+			let health = state.proxies?.[p.tag];
+			if (health?.status == 'up' && health.checked_at && time() - health.checked_at >= 0 &&
+				time() - health.checked_at < 300) return p.tag;
+		}
+	return target;
 }
 
 function private_direct_rule(exclude_ipv4) {
@@ -416,6 +448,7 @@ function build_config() {
 	let groups = collect_groups();
 	let state = read_state();
 	let fakedns_enabled = boolopt(main, 'fakedns_enabled', false);
+	let extended = boolopt(main, 'extended_interception', false);
 	let inbounds = [ transparent_inbound(main, fakedns_enabled) ];
 	let rules = [];
 	let outbounds = [
@@ -454,6 +487,15 @@ function build_config() {
 
 	for (let p in proxies.list)
 		push(outbounds, vless_outbound(p));
+
+	let has_awg = false;
+	for (let p in proxies.list) if (p.protocol == 'amneziawg') has_awg = true;
+	if (has_awg) {
+		let dns_target = real_dns_target(proxies, groups, state);
+		// Xray skips FakeDNS for real target lookups. The real DNS transport
+		// is routed through a connection, without a localhost/WAN fallback.
+		unshift(rules, { type: 'field', inboundTag: [ 'awg-resolver' ], outboundTag: dns_target });
+	}
 
 	for (let d in sections('lan_device', true)) {
 		let mode = opt(d, 'mode', 'rules_only');
@@ -511,20 +553,45 @@ function build_config() {
 
 	if (fakedns_enabled) {
 		config.dns = {
-			queryStrategy: 'UseIPv4',
+			queryStrategy: extended ? 'UseIP' : 'UseIPv4',
 			servers: [ 'fakedns' ]
 		};
 		config.fakedns = {
 			ipPool: opt(main, 'fakedns_pool_v4', '198.18.0.0/15'),
 			poolSize: intopt(main, 'fakedns_pool_size', 65535)
 		};
+		if (extended) config.fakedns = [
+			config.fakedns, { ipPool: '2001:2::/48', poolSize: intopt(main, 'fakedns_pool_size', 65535) }
+		];
 	}
 
+	if (has_awg) {
+		if (intopt(main, 'transparent_port', 12345) == 10085 ||
+			(fakedns_enabled && intopt(main, 'fakedns_port', 1053) == 10085))
+			die('port 10085 is reserved for local Podkopchik statistics');
+		if (!config.dns) config.dns = { queryStrategy: 'UseIP', servers: [] };
+		config.dns.tag = 'awg-resolver';
+		if (extended) config.dns.queryStrategy = 'UseIP';
+		let dns_ref = real_dns_target(proxies, groups, state);
+		let dns_proxy = proxies.by_tag[dns_ref], ipv6_resolver = false;
+		if (dns_proxy?.protocol == 'amneziawg') {
+			let r = dns_proxy.resource, runtime = null;
+			try { runtime = json(readfile('/tmp/podkopchik/awg/' + r.id + '.json') || '{}'); } catch (e) { }
+			ipv6_resolver = runtime?.addresses && index(runtime.addresses, '.') < 0;
+		}
+		push(config.dns.servers, ipv6_resolver ? 'tcp://[2606:4700:4700::1111]' : 'tcp://1.1.1.1');
+		config.stats = {};
+		config.policy = { system: { statsOutboundUplink: true, statsOutboundDownlink: true } };
+		config.api = { tag: 'podkopchik-api', services: [ 'StatsService' ] };
+		push(config.inbounds, { tag: 'podkopchik-api-in', listen: '127.0.0.1', port: 10085,
+			protocol: 'dokodemo-door', settings: { address: '127.0.0.1', network: 'tcp' } });
+		unshift(config.routing.rules, { type: 'field', inboundTag: [ 'podkopchik-api-in' ], outboundTag: 'podkopchik-api' });
+	}
 	return config;
 }
 
 function health_config(outbound, port) {
-	return {
+	let config = {
 		log: { loglevel: 'warning' },
 		inbounds: [ {
 			tag: 'health-in', listen: '127.0.0.1', port: int(port),
@@ -536,6 +603,11 @@ function health_config(outbound, port) {
 			rules: [ { type: 'field', inboundTag: [ 'health-in' ], outboundTag: outbound.tag } ]
 		}
 	};
+	if (outbound.protocol == 'freedom')
+		config.dns = { tag: 'health-in', queryStrategy: 'UseIP', servers: [
+			outbound.streamSettings?.sockopt?.domainStrategy == 'ForceIPv6' ? 'tcp://[2606:4700:4700::1111]' : 'tcp://1.1.1.1'
+		] };
+	return config;
 }
 
 function build_health_config(tag, port) {
@@ -673,7 +745,7 @@ function choose_group(g, proxies_state, prev_state) {
 					reason = 'primary_down_switched_to_backup';
 				}
 				else {
-					active = active || primary;
+					active = 'blocked';
 					reason = 'primary_down_no_healthy_backup';
 				}
 			}
@@ -716,14 +788,21 @@ function build_state(results_path) {
 		proxy_state[p.tag].valid_for = 300;
 		proxy_state[p.tag].latency_ms = result && result.status == 'up' ? result.latency_ms : null;
 		proxy_state[p.tag].external_ip = result && result.status == 'up' ? result.external_ip : '';
+		proxy_state[p.tag].protocol = p.protocol;
+		proxy_state[p.tag].last_success_at = result && result.status == 'up' ? result.checked_at :
+			(old.proxies?.[p.tag]?.last_success_at || null);
 	}
 
 	for (let g in groups.list) {
 		let previous = old.groups ? old.groups[g.tag] : null;
 		group_state[g.tag] = choose_group(g, proxy_state, previous);
 
-		if (previous && previous.active_proxy != group_state[g.tag].active_proxy) {
-			push(events, 'group ' + g.tag + ' switched from ' + (previous.active_proxy || 'none') + ' to ' + (group_state[g.tag].active_proxy || 'none') + ': ' + group_state[g.tag].reason);
+		// After reboot state is empty, but startup config already uses the
+		// configured default. A first check selecting backup/blocked must apply
+		// that decision too, not just record it and wait for another switch.
+		let from = previous ? previous.active_proxy : default_group_proxy(g, proxies);
+		if (from != group_state[g.tag].active_proxy) {
+			push(events, 'group ' + g.tag + ' switched from ' + (from || 'none') + ' to ' + (group_state[g.tag].active_proxy || 'none') + ': ' + group_state[g.tag].reason);
 		}
 	}
 
@@ -759,9 +838,22 @@ else if (mode == 'probe-primary') {
 	});
 	if (primary == null)
 		die('select one main proxy');
-	obj = health_config(vless_outbound({ tag: 'probe', parsed: vless.parse(opt(primary, 'uri', '')) }), 20999);
+	let p = collect_proxies(true, true).by_tag[proxy_tag(primary, 0)];
+	obj = health_config(vless_outbound(p), 20999);
+}
+else if (mode == 'probe-tag') {
+	let selected = null, idx = 0;
+	ctx.foreach(APP, 'proxy', function(p) {
+		if (proxy_tag(p, idx++) == vless.clean_tag(ARGV[1], ARGV[1])) {
+			if (selected || opt(p, 'protocol', 'vless') != 'vless') die('unknown VLESS connection');
+			selected = p;
+		}
+	});
+	if (!selected) die('unknown VLESS connection');
+	obj = health_config(vless_outbound({ tag: 'probe', parsed: vless.parse(opt(selected, 'uri', '')) }), 20999);
 }
 else if (mode == 'state') {
+	if (ARGV[2]) state_file = ARGV[2];
 	obj = build_state(ARGV[1]);
 }
 else if (mode == 'config-state') {

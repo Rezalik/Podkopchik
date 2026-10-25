@@ -62,6 +62,11 @@ cat > "$tmp/nft" <<'EOF'
 #!/bin/sh
 
 echo "nft $*" >> "$PODKOPCHIK_TEST_LOG"
+case "$*" in
+ 'list table inet podkopchik') exit 1 ;;
+ -c*) exit 0 ;;
+ -f*) sed 's/^/nft /; s/ $//' "$2" >> "$PODKOPCHIK_TEST_LOG" ;;
+esac
 exit 0
 EOF
 

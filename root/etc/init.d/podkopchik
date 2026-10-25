@@ -35,7 +35,19 @@ core_restart() {
 	procd_kill "$APP" xray
 	procd_open_service "$APP" /etc/init.d/podkopchik
 	xray_instance || return 1
+	if ! ubus call service list '{"name":"podkopchik"}' 2>/dev/null | jsonfilter -q -e '@.podkopchik.instances.health.running' | grep -q true; then
+		health_instance
+	fi
 	procd_close_service add
+}
+
+health_instance() {
+	procd_open_instance health
+	procd_set_param command "$HEALTH" daemon
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
 }
 
 uci_bool() {
@@ -46,13 +58,18 @@ start_service() {
 	uci_bool "$APP.main.enabled" || return 0
 
 	mkdir -p /tmp/podkopchik /etc/podkopchik
+	ucode -L /usr/libexec/podkopchik /usr/libexec/podkopchik/awg_cli.uc recover ||
+		logger -t podkopchik "AWG transaction recovery requires attention"
+	# Kernel interfaces have no per-connection daemon. Restore desired state
+	# before starting Xray, without changing main/default routing.
+	ucode -L /usr/libexec/podkopchik /usr/libexec/podkopchik/awg_cli.uc sync ||
+		logger -t podkopchik "AWG restore failed; unavailable AWG targets must remain blocked"
+	"$CTL" prepare-connections || {
+		logger -t podkopchik "could not prepare safe connection config; Xray startup refused"
+		return 1
+	}
 
-	procd_open_instance health
-	procd_set_param command "$HEALTH" daemon
-	procd_set_param respawn 3600 5 5
-	procd_set_param stdout 1
-	procd_set_param stderr 1
-	procd_close_instance
+	health_instance
 
 	if uci_bool "$APP.main.routing_enabled" && [ -s "$CONFIG" ]; then
 		if "$CTL" validate-active >/dev/null 2>&1; then
@@ -73,6 +90,7 @@ start_service() {
 
 stop_service() {
 	"$CLEANUP" >/dev/null 2>&1 || true
+	ucode -L /usr/libexec/podkopchik /usr/libexec/podkopchik/awg_cli.uc stop-all >/dev/null 2>&1 || true
 }
 
 reload_service() {
