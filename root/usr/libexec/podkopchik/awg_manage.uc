@@ -49,12 +49,24 @@ function recovery_needed() {
 	if (index(cmd, 'awg_rpc.uc') >= 0 || index(cmd, 'awg_cli.uc') >= 0) awg.fail('busy');
 	return journal;
 }
-function recover() {
+function recover(apply_runtime) {
 	let journal;
 	try { journal = recovery_needed(); }
 	catch (e) { if (awg.error(e).code == 'busy') return false; die(e.message); }
 	if (!journal) return false;
-	if (journal.phase != 'committed') restore(journal);
+	if (journal.phase != 'committed') {
+		restore(journal);
+		if (apply_runtime) {
+			let token = awg.nonce();
+			journal.pid = options.pid || int(split(fs.readfile('/proc/self/stat') || '', ' ')[0]);
+			if (!journal.pid) awg.fail('component');
+			atomic(LOCK + '/connection-token', token);
+			atomic(JOURNAL, sprintf('%J', journal));
+			try { apply_runtime(token); }
+			catch (e) { awg.fail('rollback_failed'); }
+			journal.phase = 'committed'; atomic(JOURNAL, sprintf('%J', journal));
+		}
+	}
 	remove_transaction(); return true;
 }
 
@@ -89,10 +101,22 @@ function shell(args) {
 	if (options.shell) return options.shell(args);
 	let words = [];
 	for (let arg in args) push(words, "'" + replace('' + arg, "'", "'\\''") + "'");
-	let p = fs.popen(join(' ', words) + ' 2>/dev/null', 'r');
-	if (!p) awg.fail('apply_failed');
-	let output = p.read('all');
-	if (p.close() != 0) awg.fail('apply_failed');
+	let err = TMP + '/connection-command-' + awg.nonce() + '.err';
+	let f = fs.open(err, 'wx', 0o600);
+	if (!f) awg.fail('storage');
+	f.close();
+	let p = fs.popen(join(' ', words) + " 2>'" + replace(err, "'", "'\\''") + "'", 'r');
+	if (!p) { fs.unlink(err); awg.fail('apply_failed'); }
+	let output = p.read('all'), rc = p.close();
+	let is_apply = index(args, '/usr/bin/podkopchikctl') >= 0 && args[length(args) - 1] == 'apply';
+	if (rc != 0 && is_apply) {
+		// Keep bounded stderr root-only for SSH diagnostics. Never include the
+		// command/token or raw error in RPC responses or public health state.
+		try { atomic(TMP + '/connection-last-apply-error', fs.readfile(err, 4096) || 'Apply command failed\n'); }
+		catch (ignored) { }
+	}
+	fs.unlink(err);
+	if (rc != 0) awg.fail('apply_failed');
 	return output;
 }
 function active_ref(tag) {
@@ -309,7 +333,10 @@ function run(method, args) {
 	if (!lock || !lock.lock('xn')) awg.fail('busy');
 	try {
 		let result;
-		if (method == 'recover') { if (recover()) shell([ '/usr/bin/podkopchikctl', 'apply' ]); result = {}; }
+		if (method == 'recover') {
+			recover(function(token) { shell([ 'env', 'PODKOPCHIK_CONNECTION_APPLY=' + token, '/usr/bin/podkopchikctl', 'apply' ]); });
+			result = {};
+		}
 		else if (method == 'list') result = list();
 		else if (method == 'set_interception') {
 			if (args.enabled != '0' && args.enabled != '1') awg.fail('request');

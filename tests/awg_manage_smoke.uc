@@ -109,5 +109,42 @@ fails('list', {}, 'recovery_required', 'interrupted transition is visible, not s
 check(manager.recover(), 'recover dead transaction');
 check(fs.readfile(cfg) == original && fs.readfile(active) == original_active, 'crash journal restores previous files');
 check(!fs.lstat(root + '/config-apply.lock'), 'crash lock removed');
+fs.mkdir(root + '/config-apply.lock');
+write(root + '/config-apply.lock/connection-journal.json', sprintf('%J', {
+	pid: 99999999, phase: 'prepared', uci: original, active: original_active, state: old_state
+}));
+write(root + '/config-apply.lock/connection-token', 'synthetic-recovery-token');
+write(cfg, '[]'); write(active, '{"outbounds":[]}');
+failures = 1;
+fails('recover', {}, 'rollback_failed', 'failed runtime recovery is reported');
+check(fs.lstat(root + '/config-apply.lock/connection-journal.json') != null, 'failed runtime recovery retains journal');
+check(fs.readfile(cfg) == original && fs.readfile(active) == original_active, 'failed recovery retains restored files');
+fails('list', {}, 'recovery_required', 'failed recovery remains visible for retry');
+manager.run('recover', {});
+check(!fs.lstat(root + '/config-apply.lock'), 'successful runtime recovery removes journal only after apply');
+check(fs.readfile(cfg) == original && by_tag('ibn').uri == 'SYNTHETIC_URI_UNCHANGED', 'recovery retry preserves VLESS');
+// Exercise the real bounded-stderr path only where the absolute router command
+// is absent. Never execute a host/router's installed controller from this test.
+if (!fs.lstat('/usr/bin/podkopchikctl')) {
+	let mock_manager = manager;
+	manager = backend.create({ root: root + '/profiles', tmp: root, owner: owner, uci_file: cfg, active: active,
+		cursor: cursor, store: db, network: { run: net }, pid: 123,
+		process_alive: function() { return ''; }, traffic: function() { return {}; } });
+	fs.mkdir(root + '/config-apply.lock');
+	write(root + '/config-apply.lock/connection-journal.json', sprintf('%J', {
+		pid: 99999999, phase: 'prepared', uci: original, active: original_active, state: old_state
+	}));
+	write(root + '/config-apply.lock/connection-token', 'synthetic-error-token');
+	fails('recover', {}, 'rollback_failed', 'real subprocess failure remains a safe error code');
+	let detail = fs.lstat(root + '/connection-last-apply-error');
+	check(detail && detail.uid == owner && (detail.mode & 0o777) == 0o600 && detail.size <= 4096,
+		'apply stderr is bounded and private');
+	check(index(fs.readfile(root + '/connection-last-apply-error') || '', 'SYNTHETIC_URI_UNCHANGED') < 0,
+		'diagnostic contains no UCI URI');
+	check(length(filter(fs.lsdir(root), function(name) { return substr(name, 0, 19) == 'connection-command-'; })) == 0,
+		'temporary stderr file is removed');
+	manager = mock_manager;
+	manager.run('recover', {});
+}
 check(index(sprintf('%J', calls), 'SYNTHETIC_URI_UNCHANGED') < 0, 'URIs never passed to subprocess argv');
 printf('AWG/VLESS role/rollback UCI MOCK integration OK (%d assertions; no real network claims)\n', assertions);

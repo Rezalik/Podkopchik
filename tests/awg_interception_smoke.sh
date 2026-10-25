@@ -25,8 +25,18 @@ if [ "${1:-}" = -6 ]; then family=6; shift; fi
 rule="$AWG_TEST_ROOT/rule$family"
 route="$AWG_TEST_ROOT/route$family"
 case "$*" in
- 'rule show') [ ! -f "$rule" ] || echo '10991: from all fwmark 0x100000 lookup 10991' ;;
- 'route show table 10991') [ ! -f "$route" ] || echo 'local default dev lo scope host' ;;
+ 'rule show') [ ! -f "$rule" ] || printf '10991:\tfrom all fwmark 0x100000 lookup 10991 \t\n' ;;
+ 'route show table 10991')
+  if [ -f "$route" ]; then
+   if [ "${FOREIGN_ROUTE:-0}" = 1 ]; then
+    echo 'local default dev other0 scope host '
+   elif [ "$family" = 6 ]; then
+    printf 'local default dev lo metric 1024 pref medium \t\n'
+   else
+    printf 'local default dev lo scope host \t\n'
+   fi
+  fi
+  ;;
  'rule add '* ) touch "$rule" ;;
  'route add '* ) touch "$route" ;;
  'rule del '* ) rm -f "$rule" ;;
@@ -57,6 +67,13 @@ grep -q 'dns_prerouting.*udp dport 53 redirect to :1053' "$root/committed"
 apply
 test "$(grep -c 'tproxy to :12345 accept' "$root/committed")" = 1
 cp "$root/committed" "$root/previous"
+if env FOREIGN_ROUTE=1 sh root/usr/libexec/podkopchik/apply_rules.sh apply 2>"$root/foreign-error"; then
+ echo 'FAIL: whitespace normalization accepted a foreign route'; exit 1
+fi
+grep -q 'owned policy route changed' "$root/foreign-error"
+cmp "$root/previous" "$root/committed"
+test -f "$root/rule4"
+test -f "$root/route4"
 if env FAIL_NFT=1 sh root/usr/libexec/podkopchik/apply_rules.sh apply 2>"$root/error"; then echo 'FAIL: nft error ignored'; exit 1; fi
 cmp "$root/previous" "$root/committed"
 test -f "$root/rule4"

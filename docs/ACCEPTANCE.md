@@ -281,6 +281,15 @@ See [the historical Stage 1 plan](AWG-STAGE1.md).
 
 ## AWG 3.1 Stages 2–3: Verification Gates
 
+Recovery regression: iproute2's trailing spaces/tabs are normalized before
+strict policy ownership checks, for IPv4 and IPv6. Different devices, extra
+routes and changed policy tokens remain rejected. Failed explicit recovery
+retains the protected journal and token for retry; they are removed only after
+the restored configuration applies successfully. Bounded apply stderr is kept
+root600 in `/tmp/podkopchik/connection-last-apply-error`, never sent through RPC
+or public health state. A successful rollback does not erase the last failure;
+use its file timestamp when diagnosing it. Treat this file as potentially confidential.
+
 - [x] Local native parser/storage, lifecycle ownership, role/UCI rollback and
   generated domain/IP/LAN mixed failover tests; no real network claims from mocks.
 - [x] Main plus three ordered backups shared by VLESS/AWG, restore thresholds,

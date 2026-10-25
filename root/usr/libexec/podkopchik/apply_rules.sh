@@ -411,8 +411,10 @@ fi
 
 prepare_policy() {
 	family="$1"; marker="$2"; expected="$3"
-	policy="$("$IP" $family rule show | awk '$1 == "10991:"')"
-	routes="$("$IP" $family route show table "$PODKOPCHIK_TABLE" 2>/dev/null || true)"
+	# iproute2 appends whitespace to normal route output. Canonicalize spacing
+	# only; keep every row and semantic token for strict ownership checks.
+	policy="$("$IP" $family rule show | awk '$1 == "10991:" { $1=$1; print }')"
+	routes="$( { "$IP" $family route show table "$PODKOPCHIK_TABLE" 2>/dev/null || true; } | awk '{ $1=$1; print }')"
 	if [ "$(cat "$marker" 2>/dev/null || true)" = "$expected" ]; then
 		# Do not repair a partly foreign namespace by deleting it.
 		printf '%s\n' "$policy" | grep -Eq '^10991:[[:space:]]+from all fwmark 0x100000 lookup 10991$' || fail_apply "owned policy rule changed; refusing takeover"
