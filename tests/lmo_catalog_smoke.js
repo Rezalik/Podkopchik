@@ -99,5 +99,7 @@ assert.strictEqual(lookup('Enable FakeDNS'), 'Включить FakeDNS');
 assert.strictEqual(lookup('Hijack LAN DNS queries'), 'Перехватывать DNS-запросы LAN-устройств');
 assert.strictEqual(lookup('FakeDNS port'), 'Порт FakeDNS');
 assert.strictEqual(lookup('Podkopchik'), null, 'brand name should not be translated');
+assert.strictEqual(lookup('Import .conf'), 'Импортировать .conf');
+assert.strictEqual(lookup('Configuration is valid'), 'Конфигурация корректна');
 
 console.log('LMO catalog smoke OK');

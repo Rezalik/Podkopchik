@@ -1,0 +1,3 @@
+#!/bin/sh
+
+exec /usr/bin/ucode -L /usr/libexec/podkopchik /usr/libexec/podkopchik/awg_rpc.uc "$@"

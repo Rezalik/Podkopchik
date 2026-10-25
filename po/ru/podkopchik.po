@@ -1116,3 +1116,141 @@ msgstr "Системный Xray (принадлежность пакету не 
 
 msgid "Last checked: %s"
 msgstr "Последняя проверка: %s"
+
+msgid "AmneziaWG"
+msgstr "AmneziaWG"
+
+msgid "Choose a non-empty .conf file no larger than 64 KiB."
+msgstr "Выберите непустой файл .conf размером не более 64 КиБ."
+
+msgid "Invalid configuration syntax."
+msgstr "Неверный синтаксис конфигурации."
+
+msgid "Only one Interface section followed by Peer sections is supported."
+msgstr "Поддерживается одна секция Interface, за которой следуют секции Peer."
+
+msgid "Unsupported directive. Commands, hooks and file paths are not allowed."
+msgstr "Неподдерживаемая директива. Команды, хуки и пути к файлам запрещены."
+
+msgid "Duplicate configuration parameter."
+msgstr "Параметр конфигурации указан повторно."
+
+msgid "Invalid configuration parameter."
+msgstr "Недопустимое значение параметра конфигурации."
+
+msgid "The Interface section must contain a valid PrivateKey."
+msgstr "Секция Interface должна содержать корректный PrivateKey."
+
+msgid "At least one Peer section is required."
+msgstr "Требуется хотя бы одна секция Peer."
+
+msgid "A required Peer parameter is missing."
+msgstr "Отсутствует обязательный параметр Peer."
+
+msgid "AdvancedSecurity cannot be disabled for an AWG connection."
+msgstr "Нельзя отключить AdvancedSecurity для подключения AWG."
+
+msgid "No AWG 3.1 parameters found. Plain WireGuard and older AWG profiles are not accepted here."
+msgstr "Параметры AWG 3.1 не найдены. Обычный WireGuard и профили старых версий AWG здесь не принимаются."
+
+msgid "HeaderProtectionKey requires S1, S2, S3 and S4 to be at least 12."
+msgstr "При использовании HeaderProtectionKey значения S1, S2, S3 и S4 должны быть не меньше 12."
+
+msgid "Jmin must not exceed Jmax."
+msgstr "Jmin не должен превышать Jmax."
+
+msgid "H1, H2, H3 and H4 ranges must not overlap."
+msgstr "Диапазоны H1, H2, H3 и H4 не должны пересекаться."
+
+msgid "Enter a connection name of at most 128 bytes without control characters."
+msgstr "Введите имя подключения длиной не более 128 байт без управляющих символов."
+
+msgid "Invalid connection identifier."
+msgstr "Недопустимый идентификатор подключения."
+
+msgid "This connection no longer exists. Refresh the list."
+msgstr "Это подключение больше не существует. Обновите список."
+
+msgid "Could not access protected AWG storage. Check permissions and free space."
+msgstr "Нет доступа к защищённому хранилищу AWG. Проверьте права и свободное место."
+
+msgid "Another AWG operation is running. Try again."
+msgstr "Выполняется другая операция AWG. Повторите попытку."
+
+msgid "Invalid AWG request."
+msgstr "Некорректный запрос AWG."
+
+msgid "AWG operation failed."
+msgstr "Не удалось выполнить операцию AWG."
+
+msgid "Line %d."
+msgstr "Строка %d."
+
+msgid "Parameter: %s."
+msgstr "Параметр: %s."
+
+msgid "Identifier"
+msgstr "Идентификатор"
+
+msgid "Endpoint"
+msgstr "Адрес сервера"
+
+msgid "Added on"
+msgstr "Дата добавления"
+
+msgid "Configuration is valid"
+msgstr "Конфигурация корректна"
+
+msgid "Configuration needs attention"
+msgstr "Конфигурация требует проверки"
+
+msgid "Last configuration check"
+msgstr "Последняя проверка конфигурации"
+
+msgid "Check configuration"
+msgstr "Проверить конфигурацию"
+
+msgid "Edit AWG connection"
+msgstr "Редактировать подключение AWG"
+
+msgid "Import AWG connection"
+msgstr "Импорт подключения AWG"
+
+msgid "Replacement .conf file (optional)"
+msgstr "Новый файл .conf для замены (необязательно)"
+
+msgid "Configuration file (.conf)"
+msgstr "Файл конфигурации (.conf)"
+
+msgid "Private keys are stored only on the router. Existing keys are never displayed."
+msgstr "Приватные ключи хранятся только на роутере. Сохранённые ключи не отображаются."
+
+msgid "Cancel"
+msgstr "Отмена"
+
+msgid "AWG connection saved."
+msgstr "Подключение AWG сохранено."
+
+msgid "AWG configuration imported. No tunnel was started."
+msgstr "Конфигурация AWG импортирована. Туннель не запускался."
+
+msgid "Import"
+msgstr "Импортировать"
+
+msgid "No AWG configurations imported."
+msgstr "Конфигурации AWG ещё не импортированы."
+
+msgid "Delete AWG connection"
+msgstr "Удалить подключение AWG"
+
+msgid "Delete this AWG configuration? This cannot be undone."
+msgstr "Удалить эту конфигурацию AWG? Действие нельзя отменить."
+
+msgid "AWG connection deleted."
+msgstr "Подключение AWG удалено."
+
+msgid "Configuration management only. AWG tunnels, connectivity checks and routing are not enabled in this phase."
+msgstr "Только управление конфигурациями. На этом этапе туннели AWG, проверка подключения и маршрутизация не включаются."
+
+msgid "Import .conf"
+msgstr "Импортировать .conf"

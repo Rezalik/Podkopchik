@@ -26,6 +26,14 @@
 			"path": "podkopchik/proxies"
 		}
 	},
+	"admin/services/podkopchik/awg": {
+		"title": "AmneziaWG",
+		"order": 25,
+		"action": {
+			"type": "view",
+			"path": "podkopchik/awg"
+		}
+	},
 	"admin/services/podkopchik/domain-rules": {
 		"title": "Domain Groups",
 		"order": 40,

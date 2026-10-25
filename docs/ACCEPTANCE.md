@@ -192,8 +192,8 @@ either physical router until the on-device checks below pass.
 - Probe timeout/error paths terminate the isolated process and release its lock;
   a busy listener cannot produce a false UP result.
 - Existing VLESS ordered failover, thresholds and health cleanup continue to pass.
-- AWG 3.1 is deferred pending exact ABI/runtime verification. No AWG upload,
-  lifecycle, handshake, AWG internet checks or mixed AWG failover is claimed.
+- AWG lifecycle, handshake, internet checks and mixed failover remain deferred.
+  The separate Stage 1 configuration manager below does not change routing.
 
 Physical router acceptance (GL-MT6000 24.10.4/6.6.110 and Redmi AX6000
 24.10.1/6.6.86 must each be tested separately, with explicit operator approval):
@@ -245,6 +245,42 @@ Run `podkopchikctl xray-install official` (or `package`) and
   acceptance. Do not contact/update GL-MT6000 for this migration.
 
 See [the audit, VM procedure and post-sysupgrade recovery](OPENWRT-25.12-MIGRATION.md).
+
+## AWG 3.1 Stage 1: Configuration Management
+
+Local acceptance (not on-router deployment acceptance):
+
+- Multiple valid synthetic 3.1 profiles import with independent IDs, including
+  duplicate display/upload names; no artificial connection-count limit.
+- Rename, replace, static revalidation and confirmed deletion work.
+- Invalid keys, missing peers, invalid endpoints/IP/CIDR/ranges, overlapping
+  headers, hooks, unsupported directives, unsafe paths and oversized files fail.
+- Private keys never appear in metadata/list/RPC errors/notifications or UCI.
+- Files are owner-only `0600`, storage directory `0700`; fixed storage and
+  generated IDs prevent caller-selected filesystem paths.
+- Native ucode tests cover real writes/flock, failed metadata commit preserving
+  the previous config, and refusal of symlink configuration files.
+- LuCI uses only authenticated rpcd methods with separate read/write ACLs,
+  handles uploaded names as text and requires confirmation before deletion.
+- List statuses indicate configuration validity only, never connected/UP.
+- AWG backup inclusion and normal-uninstall preservation are verified.
+- Existing VLESS, generator, FakeDNS, nft, health and routing code are unchanged.
+
+Commands:
+
+```sh
+sh tests/awg_model_smoke.sh
+node tests/awg_rpc_smoke.js
+node tests/awg_ui_smoke.js
+node tests/i18n_coverage_smoke.js
+node tests/lmo_catalog_smoke.js
+```
+
+Native parser/storage/RPC tests require local ucode with fs; a SKIP is not PASS.
+See [the manual AX6000 installation/rollback plan](AWG-STAGE1.md).
+No new version is installed on the working router by development tests.
+Physical import/ACL checks on 25.12.6 and handshake/HTTPS acceptance remain
+separate operator-approved steps. Do not test on or contact GL-MT6000.
 
 ## Required commands
 

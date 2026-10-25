@@ -24,18 +24,18 @@ parse_ok() {
 		exit 1
 	}
 
-	printf '%s\n' "$out" | grep -q '"host":"famalymovi.ru"' || {
+	printf '%s\n' "$out" | grep -q '"host"[[:space:]]*:[[:space:]]*"famalymovi.ru"' || {
 		echo "FAIL: $label parsed wrong host"
 		exit 1
 	}
 
-	printf '%s\n' "$out" | grep -q '"port":443' || {
+	printf '%s\n' "$out" | grep -q '"port"[[:space:]]*:[[:space:]]*443' || {
 		echo "FAIL: $label parsed wrong port"
 		exit 1
 	}
 
 	if [ -n "$expected_path" ]; then
-		printf '%s\n' "$out" | grep -q "\"path\":\"$expected_path\"" || {
+		printf '%s\n' "$out" | grep -q "\"path\"[[:space:]]*:[[:space:]]*\"$expected_path\"" || {
 			echo "FAIL: $label parsed wrong path"
 			exit 1
 		}

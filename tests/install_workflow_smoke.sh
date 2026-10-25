@@ -184,6 +184,8 @@ run_case "$success_case" 51200 env
 grep -q "opkg install ip-full" "$success_case/log"
 ! grep -q "Missing required dependency: ip-full" "$success_case/err"
 test -x "$success_case/rootfs/usr/bin/podkopchikctl"
+test -x "$success_case/rootfs/usr/libexec/rpcd/podkopchik.awg"
+test -f "$success_case/rootfs/lib/upgrade/keep.d/podkopchik-awg"
 test -f "$success_case/rootfs/usr/share/ucode/luci/i18n/podkopchik.ru.lmo"
 test -f "$success_case/rootfs/usr/lib/lua/luci/i18n/podkopchik.ru.lmo"
 grep -q "default /etc/config/podkopchik created" "$success_case/out"
@@ -239,6 +241,10 @@ EOF
 mkdir -p "$update_case/rootfs/usr/libexec/podkopchik-core"
 printf '%s\n' official > "$update_case/rootfs/usr/libexec/podkopchik-core/selected"
 printf '%s\n' keep-official-binary > "$update_case/rootfs/usr/libexec/podkopchik-core/xray"
+mkdir -p "$update_case/rootfs/etc/podkopchik/awg"
+chmod 700 "$update_case/rootfs/etc/podkopchik/awg"
+printf '%s\n' synthetic-awg-storage-marker > "$update_case/rootfs/etc/podkopchik/awg/profile.conf"
+chmod 600 "$update_case/rootfs/etc/podkopchik/awg/profile.conf"
 run_case "$update_case" 51200 env
 grep -q "preserve-me" "$update_case/rootfs/etc/config/podkopchik"
 grep -q "Mode: update" "$update_case/out"
@@ -248,6 +254,8 @@ run_case "$update_case" 51200 env
 cmp "$update_case/config.expected" "$update_case/rootfs/etc/config/podkopchik"
 grep -qx official "$update_case/rootfs/usr/libexec/podkopchik-core/selected"
 grep -qx keep-official-binary "$update_case/rootfs/usr/libexec/podkopchik-core/xray"
+grep -qx synthetic-awg-storage-marker "$update_case/rootfs/etc/podkopchik/awg/profile.conf"
+test "$(find "$update_case/rootfs/etc/podkopchik/awg" -type f -perm 600 | wc -l | tr -d ' ')" = 1
 
 failure_case="$(make_case dependency-failure)"
 if run_case "$failure_case" 51200 env PODKOPCHIK_TEST_FAIL_PKG=ip-full; then
@@ -310,9 +318,15 @@ uninstall_case "$update_case" env
 cmp "$update_case/config.expected" "$update_case/rootfs/etc/config/podkopchik"
 grep -qx official "$update_case/rootfs/usr/libexec/podkopchik-core/selected"
 test ! -e "$update_case/rootfs/usr/bin/podkopchikctl"
+test ! -e "$update_case/rootfs/usr/libexec/rpcd/podkopchik.awg"
+test ! -e "$update_case/rootfs/lib/upgrade/keep.d/podkopchik-awg"
+grep -qx synthetic-awg-storage-marker "$update_case/rootfs/etc/podkopchik/awg/profile.conf"
 uninstall_case "$update_case" env
+mkdir -p "$success_case/rootfs/etc/podkopchik/awg"
+printf '%s\n' synthetic-awg-storage-marker > "$success_case/rootfs/etc/podkopchik/awg/profile.conf"
 PATH="$success_case/bin:$PATH" PODKOPCHIK_TEST_BIN="$success_case/bin" \
 PODKOPCHIK_TEST_LOG="$success_case/log" PODKOPCHIK_TEST_INSTALLED="$success_case/installed" \
 PODKOPCHIK_INSTALL_ROOT="$success_case/rootfs" PODKOPCHIK_INSTALL_ASSUME_ROOT=1 sh uninstall.sh --purge > /dev/null
 test ! -e "$success_case/rootfs/etc/config/podkopchik"
+test ! -e "$success_case/rootfs/etc/podkopchik/awg"
 echo "installer workflow smoke OK ($manager)"

@@ -14,6 +14,7 @@
 				"/etc/podkopchik/config.json": [ "read" ]
 			},
 			"ubus": {
+				"podkopchik.awg": [ "list" ],
 				"uci": [ "get" ]
 			}
 		},
@@ -41,6 +42,7 @@
 				"/usr/bin/podkopchikctl probe-vless": [ "exec" ]
 			},
 			"ubus": {
+				"podkopchik.awg": [ "import", "replace", "validate", "rename", "delete" ],
 				"file": [ "exec" ],
 				"uci": [ "add", "apply", "delete", "set" ]
 			}

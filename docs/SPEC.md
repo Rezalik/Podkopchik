@@ -704,13 +704,45 @@ preserving the existing fail/restore thresholds and selection algorithm.
 External IP failure leaves that metric empty; it does not invalidate an otherwise
 successful existing reachability test. The UI expires stale success/metrics.
 
-## AWG 3.1 Gate
+## AWG 3.1 Configuration Management: Stage 1
 
-See [research](XRAY-AWG-RESEARCH.md). Matching 3.1 kernel/userspace availability
-has not been verified for OpenWrt 24.10.4/kernel 6.6.110 and
-24.10.1/kernel 6.6.86 on mediatek/filogic. AWG type selection, file upload,
-tunnel lifecycle, AWG probes and mixed-protocol failover remain deferred.
-No UI-only AWG option or WireGuard/AWG-2.0 substitution is allowed.
+The additional AmneziaWG LuCI page manages multiple imported profiles without
+changing the VLESS page, UCI routing model, Xray, FakeDNS, nftables or services.
+There is no tunnel lifecycle, handshake, HTTPS check, AWG routing target or
+AWG failover in this stage. Configuration validity is not network availability.
+
+The root-only rpcd executable plugin exposes `podkopchik.awg` methods:
+`list` (read ACL); `import`, `replace`, `rename`, `validate`, `delete` (write ACL).
+Input uses JSON on stdin, not shell arguments, environment variables or an
+arbitrary upload path. Backend validation is mandatory independently of LuCI.
+No raw configuration/key read method or file ACL is provided.
+
+Storage is `/etc/podkopchik/awg/`, root-owned mode `0700`. IDs and revision
+names are random 128-bit hex strings independent of display/upload filenames.
+Each ID has a `0600` JSON metadata record and its own `0600` revision `.conf`.
+A new config is validated, written exclusively, flushed and atomically renamed;
+metadata is atomically renamed last as the commit point. Failed replacement
+keeps the old record/config. Exclusive OS file locks serialize operations and
+release automatically when the RPC process exits. Symlinks, hardlinked files,
+unsafe permissions and wrong ownership are rejected. Interrupted commits can
+leave root-only orphan revisions; deletion removes only that ID's revisions.
+No guarantee of power-loss durability beyond filesystem rename is asserted.
+
+Validation uses an allowlist derived from tools `v3.1.20260812` and kernel
+`v3.1.20260906`. It covers keys, IP/CIDR, IPv4/IPv6/domain endpoints, all
+supported AWG device/peer parameters including CPS and timer ranges, and rejects
+hooks, route-management directives, unknown sections and directives. Files are
+limited to 64 KiB; at least one 3.x parameter is required rather than labelling
+plain WireGuard/older AWG as 3.1. This is a strict supported profile format,
+not proof of server protocol version or kernel acceptance of every combination.
+Errors contain only a fixed code, line and allowlisted parameter name.
+
+Profiles are kept by OpenWrt sysupgrade via `keep.d`; backups contain secrets.
+Normal uninstall preserves profiles, explicit purge removes them.
+No AWG packages or kernel modules are installed by this stage.
+AX6000 25.12.6/kernel 6.12.112 previously passed module/tools checks; no handshake
+has been verified. See [Stage 1 deployment and tests](AWG-STAGE1.md) and
+[historical compatibility research](XRAY-AWG-RESEARCH.md).
 
 Required CLI
 

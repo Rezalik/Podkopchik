@@ -65,6 +65,8 @@ done
 rm -f "$(path /etc/init.d/podkopchik)"
 rm -f "$(path /usr/bin/podkopchikctl)"
 rm -rf "$(path /usr/libexec/podkopchik)"
+rm -f "$(path /usr/libexec/rpcd/podkopchik.awg)"
+rm -f "$(path /lib/upgrade/keep.d/podkopchik-awg)"
 rm -f "$(path /usr/share/luci/menu.d/luci-app-podkopchik.json)"
 rm -f "$(path /usr/share/rpcd/acl.d/luci-app-podkopchik.json)"
 rm -f "$(path /usr/share/ucode/luci/i18n/podkopchik.ru.lmo)"

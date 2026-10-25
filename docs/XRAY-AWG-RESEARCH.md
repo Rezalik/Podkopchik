@@ -19,7 +19,14 @@ use temporary Xray SOCKS listeners; state thresholds and ordered failover
 are centralized in `generate.uc`. Apply/failover serialize through
 `config-apply.lock`; health probes serialize through `health-check.lock`.
 
-## AWG compatibility gate
+## AWG compatibility gate (historical)
+
+Update 2026-10-25: AX6000 stock layout was subsequently upgraded, with explicit
+operator approval, to OpenWrt 25.12.6/kernel 6.12.112. Matching AWG 3.1 module
+and tools were installed and local module/temporary-interface checks passed.
+Handshake and AWG HTTPS are still unverified. Stage 1 now implements
+[configuration management only](AWG-STAGE1.md); the older-kernel findings below
+remain historical and do not establish compatibility for GL-MT6000.
 
 The requested combination is **not confirmed** for either target:
 
@@ -44,8 +51,9 @@ Primary evidence:
 The architecture string alone cannot establish kernel-module compatibility.
 Do not install 24.10.8 kmods into these two systems, use `--force-depends`,
 remove 3.1 configuration parameters, or substitute WireGuard/AWG 2.0.
-No AWG installer, upload form, protocol selector, tunnel, or AWG failover is
-shipped while this gate is unresolved. No private AWG configuration is stored.
+At that earlier checkpoint no AWG upload or secret storage was implemented.
+The subsequent Stage 1 manager adds protected storage only; no AWG package
+installer, tunnel, network check or failover is introduced.
 
 To unblock: provide or build using the exact OpenWrt SDK/kernel configuration
 an audited AWG 3.1 module and matching tools for each kernel ABI, or verify a

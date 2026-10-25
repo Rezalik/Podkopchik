@@ -385,14 +385,27 @@ reachability check into a failover. The Proxy Links page hides success/latency/I
 after five minutes and labels the result outdated. Immediate pre-save results
 are held in the current page; periodic results appear from the health state.
 
-### AWG 3.1 Compatibility Gate
+### AWG 3.1 Configuration Management (Stage 1)
 
-AWG 3.1 is **not implemented or advertised as usable** in this change. Verified
-matching 3.1 packages/runtime were not found for GL-MT6000 / OpenWrt 24.10.4 /
-kernel 6.6.110 or Redmi AX6000 / OpenWrt 24.10.1 / kernel 6.6.86. Existing
-24.10.4 builds carry AWG 2.0; newer 24.10.8 modules cannot be installed into
-these kernels. See [the investigation and follow-up architecture](docs/XRAY-AWG-RESEARCH.md).
-No AWG secrets are uploaded/stored and no AWG kernel modules are installed.
+The separate **AmneziaWG** page imports multiple `.conf` files, lists safe
+metadata, renames, replaces, revalidates and deletes profiles. The existing
+Proxy Links/VLESS workflow is unchanged. This stage does **not** start tunnels,
+check connectivity, assign routing targets or participate in failover.
+"Configuration is valid" means static format validation, not a handshake.
+
+Profiles are limited to 64 KiB each and stored in `/etc/podkopchik/awg/`:
+root-owned directory `0700`, configuration and metadata files `0600`. Keys are
+not stored in UCI, returned by RPC or shown in the list/edit form. The authenticated
+rpcd API accepts file contents, never a caller-supplied filesystem path.
+Use HTTPS for LuCI when importing keys; protect downloaded sysupgrade backups,
+which include these private files through `/lib/upgrade/keep.d/podkopchik-awg`.
+
+AX6000 stock / OpenWrt 25.12.6 / kernel 6.12.112 has passed the earlier AWG 3.1
+module/tools and temporary-interface checks. This does not establish handshake
+or HTTPS tunnel functionality. Older GL-MT6000/AX6000 kernels remain unverified;
+this change does not install or update any AWG package.
+
+See [format, tests, manual installation and rollback](docs/AWG-STAGE1.md).
 
 ## Uninstall
 
