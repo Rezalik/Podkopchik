@@ -1,0 +1,16 @@
+luci-base
+luci-light
+rpcd-mod-file
+rpcd-mod-luci
+ucode
+ucode-mod-fs
+ucode-mod-uci
+ucode-mod-ubus
+curl
+ca-bundle
+jsonfilter
+nftables-json
+kmod-nft-tproxy
+ip-full
+xray-core
+unzip

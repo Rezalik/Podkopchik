@@ -1,0 +1,17 @@
+opkg update
+opkg install luci-base
+opkg install luci-light
+opkg install rpcd-mod-file
+opkg install rpcd-mod-luci
+opkg install ucode
+opkg install ucode-mod-fs
+opkg install ucode-mod-uci
+opkg install ucode-mod-ubus
+opkg install curl
+opkg install ca-bundle
+opkg install jsonfilter
+opkg install nftables-json
+opkg install kmod-nft-tproxy
+opkg install ip-full
+opkg install xray-core
+opkg install unzip

@@ -1,0 +1,3 @@
+podkopchik install: conflicting proxy applications were found:
+  - config: /etc/config/podkop
+podkopchik install: stop or remove these services manually, then rerun the installer. Existing /etc/config/podkopchik is treated as update mode and is not a conflict.

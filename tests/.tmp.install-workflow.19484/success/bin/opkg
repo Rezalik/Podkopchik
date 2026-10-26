@@ -1,0 +1,44 @@
+#!/bin/sh
+
+cmd="${1:-}"
+[ "$#" -gt 0 ] && shift
+
+case "$cmd" in
+	update)
+		echo "opkg update" >> "$PODKOPCHIK_TEST_LOG"
+		exit 0
+		;;
+	install)
+		for pkg in "$@"; do
+			echo "opkg install $pkg" >> "$PODKOPCHIK_TEST_LOG"
+			if [ "${PODKOPCHIK_TEST_FAIL_PKG:-}" = "$pkg" ]; then
+				exit 1
+			fi
+			grep -qx "$pkg" "$PODKOPCHIK_TEST_INSTALLED" 2>/dev/null || echo "$pkg" >> "$PODKOPCHIK_TEST_INSTALLED"
+		done
+		exit 0
+		;;
+	remove)
+		echo "opkg remove $1" >> "$PODKOPCHIK_TEST_LOG"
+		rm -f "$PODKOPCHIK_INSTALL_ROOT/etc/config/podkopchik"
+		[ "${PODKOPCHIK_TEST_FAIL_REMOVE:-0}" != 1 ] || exit 1
+		grep -vx "$1" "$PODKOPCHIK_TEST_INSTALLED" > "$PODKOPCHIK_TEST_INSTALLED.new"
+		mv "$PODKOPCHIK_TEST_INSTALLED.new" "$PODKOPCHIK_TEST_INSTALLED"
+		exit 0
+		;;
+	list-installed)
+		pkg="${1:-}"
+		if [ -n "$pkg" ] && grep -qx "$pkg" "$PODKOPCHIK_TEST_INSTALLED" 2>/dev/null; then
+			echo "$pkg - 1"
+		fi
+		exit 0
+		;;
+	print-architecture)
+		echo "aarch64_cortex-a53 10"
+		echo "all 1"
+		exit 0
+		;;
+	*)
+		exit 0
+		;;
+esac

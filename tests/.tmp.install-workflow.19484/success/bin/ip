@@ -1,0 +1,12 @@
+#!/bin/sh
+
+if [ "${1:-}" = "-V" ]; then
+	if grep -qx "ip-full" "$PODKOPCHIK_TEST_INSTALLED" 2>/dev/null; then
+		echo "ip utility, iproute2-6.11.0"
+	else
+		echo "BusyBox v1.36.1 (OpenWrt) multi-call binary."
+	fi
+	exit 0
+fi
+
+exit 0

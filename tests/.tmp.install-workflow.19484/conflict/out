@@ -1,0 +1,15 @@
+Podkopchik installer preflight
+  Model: GL.iNet Flint 2
+  OpenWrt version: 24.10.4
+  Package manager: opkg
+  Target: mediatek/filogic
+  Arch: aarch64_cortex-a53
+  Kernel: 25.6.0
+  Overlay free: 50 MB
+  Install mode: fresh install
+  LuCI: present
+  rpcd: present
+  uhttpd: present
+  nft: present
+  firewall4: present
+  dnsmasq: present

@@ -1,0 +1,61 @@
+Podkopchik installer preflight
+  Model: GL.iNet Flint 2
+  OpenWrt version: 24.10.4
+  Package manager: opkg
+  Target: mediatek/filogic
+  Arch: aarch64_cortex-a53
+  Kernel: 25.6.0
+  Overlay free: 50 MB
+  Install mode: fresh install
+  LuCI: present
+  rpcd: present
+  uhttpd: present
+  nft: present
+  firewall4: present
+  dnsmasq: present
+podkopchik install: conflict check passed
+podkopchik install: running opkg update
+podkopchik install: Installing dependency: luci-base
+podkopchik install: Installing dependency: luci-light
+podkopchik install: Dependency already installed: rpcd
+podkopchik install: Installing dependency: rpcd-mod-file
+podkopchik install: Installing dependency: rpcd-mod-luci
+podkopchik install: Dependency already installed: uhttpd
+podkopchik install: Installing dependency: ucode
+podkopchik install: Installing dependency: ucode-mod-fs
+podkopchik install: Installing dependency: ucode-mod-uci
+podkopchik install: Installing dependency: ucode-mod-ubus
+podkopchik install: Installing dependency: curl
+podkopchik install: Installing dependency: ca-bundle
+podkopchik install: Installing dependency: jsonfilter
+podkopchik install: Installing dependency: nftables-json
+podkopchik install: Installing dependency: kmod-nft-tproxy
+podkopchik install: Dependency already installed: firewall4
+podkopchik install: Installing dependency: ip-full
+podkopchik install: Dependency already installed: dnsmasq
+podkopchik install: Installing dependency: xray-core
+podkopchik install: Installing dependency: unzip
+podkopchik install: dependency validation passed
+podkopchik install: default /etc/config/podkopchik created
+podkopchik install: test root detected; skipping rpcd/uhttpd restart
+podkopchik install: test root detected; skipping service enable/start
+podkopchik install: test root detected; skipping post-install runtime checks
+
+Podkopchik install summary
+  Mode: fresh install
+  OpenWrt: 24.10.4
+  Model: GL.iNet Flint 2
+  Dependencies installed: luci-base luci-light rpcd-mod-file rpcd-mod-luci ucode ucode-mod-fs ucode-mod-uci ucode-mod-ubus curl ca-bundle jsonfilter nftables-json kmod-nft-tproxy ip-full xray-core unzip
+  Dependencies already present: rpcd uhttpd firewall4 dnsmasq
+  Conflicts checked: yes
+  Files installed: yes
+  Config: created default /etc/config/podkopchik
+
+Next steps:
+  1. Open LuCI: Services -> Podkopchik.
+  2. Add a VLESS proxy link and choose one main proxy.
+  3. Optional: enable FakeDNS if your app routing needs it.
+  4. Optional: add Presets for Telegram, YouTube, X / Twitter, and other services.
+  5. Click Save & Apply.
+
+No reboot was performed.

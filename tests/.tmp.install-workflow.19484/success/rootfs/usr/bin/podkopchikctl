@@ -1,0 +1,784 @@
+#!/bin/sh
+
+set -eu
+umask 077
+
+APP="podkopchik"
+LIB="${PODKOPCHIK_LIB:-/usr/libexec/podkopchik}"
+CONFIG_DIR="${PODKOPCHIK_CONFIG_DIR:-/etc/podkopchik}"
+CONFIG="$CONFIG_DIR/config.json"
+UCI_CONFIG="/etc/config/$APP"
+TMP_DIR="${PODKOPCHIK_TMP_DIR:-/tmp/podkopchik}"
+STATE="$TMP_DIR/state.json"
+BYPASS_STATE="$TMP_DIR/proxy_bypass.env"
+ROLLBACK="$TMP_DIR/rollback.tar.gz"
+VERSION="0.1.0-beta"
+PROC_DIR="${PODKOPCHIK_PROC_DIR:-/proc}"
+
+die() {
+	echo "podkopchikctl: $*" >&2
+	exit 1
+}
+
+log() {
+	logger -t podkopchik "$*"
+}
+
+xray_bin() {
+	. "$LIB/xray.sh"
+	xray_bin
+}
+
+cmdline_for_pid() {
+	pid="$1"
+	[ -r "$PROC_DIR/$pid/cmdline" ] || return 1
+	tr '\000' ' ' < "$PROC_DIR/$pid/cmdline" 2>/dev/null
+}
+
+main_xray_running() {
+	for proc in "$PROC_DIR"/[0-9]*; do
+		[ -d "$proc" ] || continue
+		pid="${proc##*/}"
+		cmdline="$(cmdline_for_pid "$pid" || true)"
+
+		case "$cmdline" in
+			*xray*" run -config $CONFIG"*|*xray-core*" run -config $CONFIG"*) return 0 ;;
+		esac
+	done
+
+	return 1
+}
+
+ucode_run() {
+	ucode -L "$LIB" "$@"
+}
+
+section_count() {
+	type="$1"
+	i=0
+	count=0
+	while uci -q get "$APP.@$type[$i]" >/dev/null 2>&1; do
+		count=$((count + 1))
+		i=$((i + 1))
+	done
+	echo "$count"
+}
+
+has_enabled_proxy() {
+	i=0
+	while uci -q get "$APP.@proxy[$i]" >/dev/null 2>&1; do
+		if [ "$(uci -q get "$APP.@proxy[$i].enabled" 2>/dev/null || echo 1)" != "0" ]; then
+			uri="$(uci -q get "$APP.@proxy[$i].uri" 2>/dev/null || true)"
+			[ -n "$uri" ] && return 0
+		fi
+		i=$((i + 1))
+	done
+	return 1
+}
+
+has_enabled_route() {
+	for type in domain_rule ip_rule lan_device; do
+		i=0
+		while uci -q get "$APP.@$type[$i]" >/dev/null 2>&1; do
+			if [ "$(uci -q get "$APP.@$type[$i].enabled" 2>/dev/null || echo 1)" != "0" ]; then
+				case "$type" in
+					domain_rule) [ -n "$(uci -q get "$APP.@$type[$i].domain" 2>/dev/null || true)" ] && return 0 ;;
+					ip_rule) [ -n "$(uci -q get "$APP.@$type[$i].cidr" 2>/dev/null || true)" ] && return 0 ;;
+					lan_device)
+						mode="$(uci -q get "$APP.@$type[$i].mode" 2>/dev/null || echo rules_only)"
+						[ "$mode" != "rules_only" ] && [ -n "$(uci -q get "$APP.@$type[$i].source_ip" 2>/dev/null || true)" ] && return 0
+						;;
+				esac
+			fi
+			i=$((i + 1))
+		done
+	done
+	return 1
+}
+
+clean_tag() {
+	raw="${1:-${2:-podkopchik}}"
+	tag="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_][^a-z0-9_]*/_/g; s/^_*//; s/_*$//' | cut -c 1-48)"
+	[ -n "$tag" ] || tag="${2:-podkopchik}"
+	case "$tag" in
+		[0-9]*) tag="p_$tag" ;;
+	esac
+	printf '%s\n' "$tag" | cut -c 1-48
+}
+
+target_in_list() {
+	tag="$1"
+	list="$2"
+
+	case " $list " in
+		*" $tag "*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+proxy_target_tags() {
+	i=0
+	while uci -q get "$APP.@proxy[$i]" >/dev/null 2>&1; do
+		if [ "$(uci -q get "$APP.@proxy[$i].enabled" 2>/dev/null || echo 1)" != "0" ]; then
+			raw="$(uci -q get "$APP.@proxy[$i].tag" 2>/dev/null || uci -q get "$APP.@proxy[$i].name" 2>/dev/null || echo "proxy_$i")"
+			clean_tag "$raw" "proxy_$i"
+		fi
+		i=$((i + 1))
+	done
+}
+
+group_target_tags() {
+	i=0
+	while uci -q get "$APP.@proxy_group[$i]" >/dev/null 2>&1; do
+		if [ "$(uci -q get "$APP.@proxy_group[$i].enabled" 2>/dev/null || echo 1)" != "0" ]; then
+			raw="$(uci -q get "$APP.@proxy_group[$i].tag" 2>/dev/null || uci -q get "$APP.@proxy_group[$i].name" 2>/dev/null || echo "group_$i")"
+			clean_tag "$raw" "group_$i"
+		fi
+		i=$((i + 1))
+	done
+}
+
+valid_routing_targets() {
+	targets="direct"
+
+	for tag in $(proxy_target_tags); do
+		targets="$targets $tag"
+	done
+
+	for tag in $(group_target_tags); do
+		targets="$targets $tag"
+	done
+
+	printf '%s\n' "$targets"
+}
+
+auto_group_resolves() {
+	proxies=" "
+	for tag in $(proxy_target_tags); do
+		proxies="$proxies $tag"
+	done
+
+	i=0
+	while uci -q get "$APP.@proxy_group[$i]" >/dev/null 2>&1; do
+		[ "$(uci -q get "$APP.@proxy_group[$i].enabled" 2>/dev/null || echo 1)" != "0" ] || {
+			i=$((i + 1))
+			continue
+		}
+
+		raw="$(uci -q get "$APP.@proxy_group[$i].tag" 2>/dev/null || uci -q get "$APP.@proxy_group[$i].name" 2>/dev/null || echo "group_$i")"
+		[ "$(clean_tag "$raw" "group_$i")" = "auto_proxy_group" ] || {
+			i=$((i + 1))
+			continue
+		}
+
+		mode="$(uci -q get "$APP.@proxy_group[$i].mode" 2>/dev/null || echo strict_primary)"
+		if [ "$mode" = "fixed_proxy" ]; then
+			ref="$(uci -q get "$APP.@proxy_group[$i].fixed_proxy" 2>/dev/null || true)"
+		else
+			ref="$(uci -q get "$APP.@proxy_group[$i].manual_override_proxy" 2>/dev/null || true)"
+			[ -n "$ref" ] || ref="$(uci -q get "$APP.@proxy_group[$i].primary" 2>/dev/null || true)"
+		fi
+
+		[ -n "$ref" ] || return 1
+		target_in_list "$(clean_tag "$ref" "$ref")" "$proxies"
+		return $?
+	done
+
+	return 1
+}
+
+repair_routing_targets() {
+	valid_targets="$(valid_routing_targets)"
+	auto_ready=0
+	auto_group_resolves && auto_ready=1
+	changed=0
+
+	for type in domain_rule ip_rule lan_device; do
+		i=0
+		while uci -q get "$APP.@$type[$i]" >/dev/null 2>&1; do
+			section="@$type[$i]"
+			i=$((i + 1))
+
+			[ "$(uci -q get "$APP.$section.enabled" 2>/dev/null || echo 1)" != "0" ] || continue
+			if [ "$type" = "lan_device" ]; then
+				[ "$(uci -q get "$APP.$section.mode" 2>/dev/null || echo rules_only)" = "full_proxy" ] || continue
+			fi
+
+			target="$(uci -q get "$APP.$section.target" 2>/dev/null || true)"
+			[ -n "$target" ] || continue
+			[ "$target" != "direct" ] || continue
+
+			clean="$(clean_tag "$target" "$target")"
+			target_in_list "$clean" "$valid_targets" && continue
+
+			if [ "$auto_ready" = "1" ]; then
+				uci -q set "$APP.$section.target=auto_proxy_group"
+				changed=1
+				echo "podkopchikctl: repaired stale routing target '$target' in $section -> auto_proxy_group" >&2
+				log "repaired stale routing target '$target' in $section -> auto_proxy_group"
+			else
+				die "unknown routing target '$target' in $section; select Automatic: main + backups or a valid proxy, then apply again"
+			fi
+		done
+	done
+
+	if [ "$changed" = "1" ]; then
+		uci -q commit "$APP" || die "could not commit repaired routing targets"
+	fi
+}
+
+refresh_detected() {
+	i=0
+	while uci -q get "$APP.@proxy[$i]" >/dev/null 2>&1; do
+		uri="$(uci -q get "$APP.@proxy[$i].uri" 2>/dev/null || true)"
+		if [ -n "$uri" ]; then
+			if parsed="$(ucode_run "$LIB/parse_vless.uc" "$uri" 2>/tmp/podkopchik-parse.err)"; then
+				network="$(printf '%s\n' "$parsed" | jsonfilter -q -e '@.network' 2>/dev/null || true)"
+				security="$(printf '%s\n' "$parsed" | jsonfilter -q -e '@.security' 2>/dev/null || true)"
+				uci -q set "$APP.@proxy[$i].detected_transport=$network"
+				uci -q set "$APP.@proxy[$i].detected_security=$security"
+			else
+				err="$(cat /tmp/podkopchik-parse.err 2>/dev/null || echo invalid)"
+				uci -q set "$APP.@proxy[$i].detected_transport=invalid"
+				uci -q set "$APP.@proxy[$i].detected_security=invalid"
+				uci -q set "$APP.@proxy[$i].last_error=$err"
+			fi
+		fi
+		i=$((i + 1))
+	done
+	rm -f /tmp/podkopchik-parse.err
+	uci -q commit "$APP"
+}
+
+generate_to() {
+	out="$1"
+	mkdir -p "$TMP_DIR" "$CONFIG_DIR"
+	repair_routing_targets
+	refresh_detected
+	touch "$out"
+	chmod 600 "$out"
+	ucode_run "$LIB/generate.uc" > "$out"
+}
+
+validate_file() {
+	file="$1"
+	bin="$(xray_bin)"
+	[ -n "$bin" ] || die "xray binary not found"
+	"$bin" run -test -config "$file"
+}
+
+require_ip_full() {
+	case "$(ip -V 2>&1 || true)" in
+		*iproute2*) return 0 ;;
+	esac
+
+	die "Missing required dependency: ip-full. BusyBox ip is not sufficient for fwmark policy routing."
+}
+
+replace_active_config() {
+	tmp="$1"
+	[ -s "$tmp" ] || die "generated config is empty"
+	if [ -s "$CONFIG" ]; then
+		cp "$CONFIG" "$CONFIG.prev" || die "could not preserve previous active config"
+	fi
+	mv "$tmp" "$CONFIG" || die "could not replace active config"
+	chmod 600 "$CONFIG" || die "could not secure active config"
+}
+
+restore_previous_config() {
+	if [ -s "$CONFIG.prev" ]; then
+		cp "$CONFIG.prev" "$CONFIG" || die "could not restore previous active config"
+		chmod 600 "$CONFIG" || die "could not secure restored config"
+	else
+		rm -f "$CONFIG"
+	fi
+}
+
+cmd_status() {
+	echo "Podkopchik $VERSION"
+	echo "Service enabled: $(uci -q get "$APP.main.enabled" 2>/dev/null || echo 1)"
+	echo "Routing applied: $(uci -q get "$APP.main.routing_enabled" 2>/dev/null || echo 0)"
+	echo "Configured proxies: $(section_count proxy)"
+	echo "Proxy groups: $(section_count proxy_group)"
+	echo "Domain rules: $(section_count domain_rule)"
+	echo "IP rules: $(section_count ip_rule)"
+	echo "LAN device rules: $(section_count lan_device)"
+	if main_xray_running; then
+		echo "Xray: running"
+	else
+		echo "Xray: not running"
+	fi
+	if [ -s "$BYPASS_STATE" ]; then
+		echo
+		echo "Transparent proxy bypass:"
+		cat "$BYPASS_STATE"
+	fi
+	if [ -s "$STATE" ]; then
+		echo
+		echo "State:"
+		cat "$STATE"
+	else
+		echo
+		echo "State: not recorded yet"
+	fi
+}
+
+cmd_generate() {
+	out="${1:-$CONFIG_DIR/config.generated.json}"
+	generate_to "$out"
+	echo "$out"
+}
+
+cmd_validate() {
+	tmp="$TMP_DIR/config.validate.json"
+	generate_to "$tmp"
+	validate_file "$tmp"
+	echo "Xray config is valid."
+}
+
+cmd_validate_active() {
+	[ -s "$CONFIG" ] || die "active config does not exist"
+	validate_file "$CONFIG"
+}
+
+cmd_apply() {
+	mkdir -p "$TMP_DIR" "$CONFIG_DIR"
+
+	lock_dir="$TMP_DIR/config-apply.lock"
+	tmp="$TMP_DIR/config.apply.$$.json"
+	apply_err="$TMP_DIR/apply-rules.$$.err"
+	cleanup_apply() {
+		[ -n "$tmp" ] && rm -f "$tmp"
+		rm -f "$apply_err"
+		rmdir "$lock_dir" >/dev/null 2>&1 || true
+	}
+
+	if ! mkdir "$lock_dir" >/dev/null 2>&1; then
+		die "another config apply is in progress"
+	fi
+
+	trap 'cleanup_apply' HUP INT TERM EXIT
+
+	if ! has_enabled_proxy || ! has_enabled_route; then
+		uci -q set "$APP.main.routing_enabled=0"
+		uci -q commit "$APP"
+		"$LIB/cleanup_rules.sh" >/dev/null 2>&1 || true
+		die "configure at least one enabled VLESS proxy and one routing rule before applying interception"
+	fi
+
+	require_ip_full
+
+	generate_to "$tmp"
+	validate_file "$tmp"
+
+	uci -q set "$APP.main.enabled=1"
+	uci -q commit "$APP"
+
+	replace_active_config "$tmp"
+	tmp=""
+
+	if ! "$LIB/apply_rules.sh" apply >"$apply_err" 2>&1; then
+		apply_reason="$(sed -n '1,8p' "$apply_err" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//' || true)"
+		restore_previous_config
+		uci -q set "$APP.main.routing_enabled=0"
+		uci -q commit "$APP"
+		if [ -n "$apply_reason" ]; then
+			log "routing rule application failed: $apply_reason; restored previous Xray config and left routing inactive"
+			die "failed to apply routing rules; previous config restored: $apply_reason"
+		fi
+		log "routing rule application failed; restored previous Xray config and left routing inactive"
+		die "failed to apply routing rules; previous config restored"
+	fi
+	[ -s "$apply_err" ] && cat "$apply_err" >&2
+	rm -f "$apply_err"
+
+	uci -q set "$APP.main.routing_enabled=1"
+	uci -q commit "$APP"
+	/etc/init.d/podkopchik restart
+	log "routing configuration applied"
+	trap - HUP INT TERM EXIT
+	cleanup_apply
+	echo "Podkopchik routing applied."
+}
+
+cmd_apply_health_state() {
+	state_file="${1:-}"
+	[ -s "$state_file" ] || die "health state file does not exist"
+	[ "$(uci -q get "$APP.main.routing_enabled" 2>/dev/null || echo 0)" = "1" ] || die "routing is inactive"
+	[ -s "$CONFIG" ] || die "active config does not exist"
+
+	lock_dir="$TMP_DIR/config-apply.lock"
+	tmp="$TMP_DIR/config.failover.$$.json"
+	cleanup_failover_apply() {
+		rm -f "$tmp"
+		rmdir "$lock_dir" >/dev/null 2>&1 || true
+	}
+
+	if ! mkdir "$lock_dir" >/dev/null 2>&1; then
+		die "another config apply is in progress"
+	fi
+
+	trap 'cleanup_failover_apply' HUP INT TERM EXIT
+
+	if ! ucode_run "$LIB/generate.uc" config-state "$state_file" > "$tmp"; then
+		log "failover config generation failed; keeping previous active config"
+		die "could not generate failover config"
+	fi
+
+	if ! validate_file "$tmp"; then
+		log "failover config validation failed; keeping previous active config"
+		die "failover config validation failed"
+	fi
+
+	replace_active_config "$tmp"
+	tmp=""
+	trap - HUP INT TERM EXIT
+	rmdir "$lock_dir" >/dev/null 2>&1 || true
+	log "failover config replaced after group active proxy change"
+}
+
+cmd_cleanup() {
+	"$LIB/cleanup_rules.sh"
+	uci -q set "$APP.main.routing_enabled=0"
+	uci -q commit "$APP"
+	/etc/init.d/podkopchik restart
+	echo "Podkopchik routing disabled and owned nftables rules removed."
+}
+
+time_to_minutes() {
+	t="$1"
+	case "$t" in
+		[0-2][0-9]:[0-5][0-9]) ;;
+		*) return 1 ;;
+	esac
+
+	h="${t%:*}"
+	m="${t#*:}"
+	h="${h#0}"
+	m="${m#0}"
+	[ -n "$h" ] || h=0
+	[ -n "$m" ] || m=0
+	[ "$h" -le 23 ] || return 1
+	echo $((h * 60 + m))
+}
+
+time_in_window() {
+	now="$(time_to_minutes "$1")" || return 1
+	start="$(time_to_minutes "$2")" || return 1
+	end="$(time_to_minutes "$3")" || return 1
+
+	if [ "$start" -lt "$end" ]; then
+		[ "$now" -ge "$start" ] && [ "$now" -lt "$end" ]
+	elif [ "$start" -gt "$end" ]; then
+		[ "$now" -ge "$start" ] || [ "$now" -lt "$end" ]
+	else
+		return 1
+	fi
+}
+
+weekday_name() {
+	case "$(date +%u 2>/dev/null || echo 1)" in
+		1) echo mon ;;
+		2) echo tue ;;
+		3) echo wed ;;
+		4) echo thu ;;
+		5) echo fri ;;
+		6) echo sat ;;
+		7) echo sun ;;
+		*) echo mon ;;
+	esac
+}
+
+day_is_selected() {
+	days="$1"
+	day="$2"
+
+	[ -n "$days" ] || return 0
+
+	case " $days " in
+		*" $day "*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+speed_limit_decision() {
+	section="$1"
+	mode="$(uci -q get "$APP.$section.speed_limit_mode" 2>/dev/null || echo always)"
+	now_time="$(date +%H:%M 2>/dev/null || echo 00:00)"
+
+	case "$mode" in
+		always)
+			echo "active now"
+			;;
+		duration)
+			until="$(uci -q get "$APP.$section.speed_limit_until" 2>/dev/null || true)"
+			now_epoch="$(date +%s 2>/dev/null || echo 0)"
+			case "$until" in
+				''|*[!0-9]*)
+					echo "inactive now (temporary limit has no active timer)"
+					;;
+				*)
+					if [ "$until" -gt "$now_epoch" ]; then
+						echo "active now (temporary limit timer is active)"
+					else
+						echo "inactive now (temporary limit expired)"
+					fi
+					;;
+			esac
+			;;
+		schedule)
+			days="$(uci -q get "$APP.$section.schedule_days" 2>/dev/null || true)"
+			start="$(uci -q get "$APP.$section.schedule_start" 2>/dev/null || echo 18:00)"
+			end="$(uci -q get "$APP.$section.schedule_end" 2>/dev/null || echo 22:00)"
+			if day_is_selected "$days" "$(weekday_name)" && time_in_window "$now_time" "$start" "$end"; then
+				echo "active now"
+			else
+				echo "inactive now"
+			fi
+			;;
+		unlimited_window)
+			start="$(uci -q get "$APP.$section.unlimited_window_start" 2>/dev/null || echo 00:00)"
+			end="$(uci -q get "$APP.$section.unlimited_window_end" 2>/dev/null || echo 06:00)"
+			if time_in_window "$now_time" "$start" "$end"; then
+				echo "inactive now (unlimited window)"
+			else
+				echo "active now"
+			fi
+			;;
+		*)
+			echo "inactive now (unknown speed limit mode)"
+			;;
+	esac
+}
+
+cmd_shaping_status() {
+	lan="$(uci -q get "$APP.main.lan_ifname" 2>/dev/null || echo br-lan)"
+
+	echo "mode=diagnostic-only"
+	echo "lan_interface=$lan"
+	echo "enforcement=inactive"
+	echo "reason=tc/ifb enforcement not implemented in this phase"
+	echo "warning=WAN-side QoS by original LAN source IP may fail for proxied traffic because Xray creates router-to-proxy-server connections."
+
+	tmp="$TMP_DIR/shaping-status.$$"
+	mkdir -p "$TMP_DIR"
+	: > "$tmp"
+
+	i=0
+	count=0
+	while uci -q get "$APP.@lan_device[$i]" >/dev/null 2>&1; do
+		section="@lan_device[$i]"
+		enabled="$(uci -q get "$APP.$section.enabled" 2>/dev/null || echo 1)"
+		limit_enabled="$(uci -q get "$APP.$section.speed_limit_enabled" 2>/dev/null || echo 0)"
+
+		if [ "$enabled" != "0" ] && [ "$limit_enabled" = "1" ]; then
+			count=$((count + 1))
+			{
+				echo "device[$count].name=$(uci -q get "$APP.$section.name" 2>/dev/null || echo "LAN device $count")"
+				echo "device[$count].ip=$(uci -q get "$APP.$section.source_ip" 2>/dev/null || echo unknown)"
+				echo "device[$count].mode=$(uci -q get "$APP.$section.mode" 2>/dev/null || echo rules_only)"
+				echo "device[$count].target=$(uci -q get "$APP.$section.target" 2>/dev/null || echo auto_proxy_group)"
+				echo "device[$count].download_mbit=$(uci -q get "$APP.$section.download_mbit" 2>/dev/null || echo 0)"
+				echo "device[$count].upload_mbit=$(uci -q get "$APP.$section.upload_mbit" 2>/dev/null || echo 0)"
+				echo "device[$count].speed_limit_mode=$(uci -q get "$APP.$section.speed_limit_mode" 2>/dev/null || echo always)"
+				echo "device[$count].schedule_decision=$(speed_limit_decision "$section")"
+			} >> "$tmp"
+		fi
+
+		i=$((i + 1))
+	done
+
+	echo "configured_devices=$count"
+	cat "$tmp"
+	rm -f "$tmp"
+}
+
+update_repo() {
+	uci -q get "$APP.main.github_repo" 2>/dev/null || echo rezalik/Podkopchik
+}
+
+update_branch() {
+	uci -q get "$APP.main.github_branch" 2>/dev/null || echo main
+}
+
+update_channel() {
+	channel="$(uci -q get "$APP.main.update_channel" 2>/dev/null || echo main)"
+	case "$channel" in
+		main|stable) echo "$channel" ;;
+		*) echo main ;;
+	esac
+}
+
+branch_archive_url() {
+	repo="$(update_repo)"
+	branch="$(update_branch)"
+	echo "https://github.com/$repo/archive/refs/heads/$branch.tar.gz"
+}
+
+latest_release_json() {
+	repo="${1:-$(update_repo)}"
+	curl -fsSL --connect-timeout 10 "https://api.github.com/repos/$repo/releases/latest"
+}
+
+asset_url() {
+	json_file="$1"
+	suffix="$2"
+	prefix="$(uci -q get "$APP.main.release_asset_prefix" 2>/dev/null || echo luci-app-podkopchik)"
+	i=0
+	while name="$(jsonfilter -q -i "$json_file" -e "@.assets[$i].name" 2>/dev/null)"; do
+		[ -n "$name" ] || break
+		url="$(jsonfilter -q -i "$json_file" -e "@.assets[$i].browser_download_url" 2>/dev/null || true)"
+		case "$name" in
+			"$prefix"*"$suffix") echo "$url"; return 0 ;;
+		esac
+		i=$((i + 1))
+	done
+	return 1
+}
+
+cmd_update_check() {
+	mkdir -p "$TMP_DIR"
+	current="$VERSION"
+	channel="$(update_channel)"
+	repo="$(update_repo)"
+
+	if [ "$channel" = "main" ]; then
+		branch="$(update_branch)"
+		archive="$(branch_archive_url)"
+
+		echo "current=$current"
+		echo "channel=main"
+		echo "repo=$repo"
+		echo "branch=$branch"
+		echo "archive_url=$archive"
+		echo "latest=$branch"
+		echo "warning=Development update from branch; no release checksum available."
+		return 0
+	fi
+
+	json_file="$TMP_DIR/latest-release.json"
+	latest_release_json "$repo" > "$json_file" || die "could not fetch GitHub Releases"
+	latest="$(jsonfilter -q -i "$json_file" -e '@.tag_name' 2>/dev/null || echo unknown)"
+	changelog="$(jsonfilter -q -i "$json_file" -e '@.body' 2>/dev/null || true)"
+	archive="$(asset_url "$json_file" ".tar.gz" || true)"
+	sum="$(asset_url "$json_file" ".sha256" || true)"
+
+	echo "current=$current"
+	echo "channel=stable"
+	echo "repo=$repo"
+	echo "latest=$latest"
+	echo "archive_url=$archive"
+	echo "sha256_url=$sum"
+	echo
+	echo "changelog:"
+	[ -n "$changelog" ] && echo "$changelog" || echo "No changelog provided."
+}
+
+cmd_update_install() {
+	mkdir -p "$TMP_DIR"
+	update_config_backup=""
+	restore_update_config() {
+		[ -n "$update_config_backup" ] && [ -f "$update_config_backup" ] && cp -p "$update_config_backup" "$UCI_CONFIG" >/dev/null 2>&1 || true
+	}
+	restart_update_services() {
+		/etc/init.d/rpcd restart >/dev/null 2>&1 || true
+		/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
+		/etc/init.d/podkopchik restart >/dev/null 2>&1 || true
+	}
+
+	if [ -f "$UCI_CONFIG" ]; then
+		update_config_backup="$TMP_DIR/update.podkopchik.config.$$"
+		cp -p "$UCI_CONFIG" "$update_config_backup" || die "could not backup user config before update"
+		trap 'restore_update_config' HUP INT TERM EXIT
+	fi
+
+	channel="$(update_channel)"
+	repo="$(update_repo)"
+	archive_file="$TMP_DIR/update.tar.gz"
+	sum_file="$TMP_DIR/update.sha256"
+	extract_dir="$TMP_DIR/update"
+
+	if [ "$channel" = "main" ]; then
+		archive="$(branch_archive_url)"
+		curl -fL "$archive" -o "$archive_file" || die "could not download main branch archive"
+	else
+		json_file="$TMP_DIR/latest-release.json"
+		latest_release_json "$repo" > "$json_file" || die "could not fetch GitHub Releases"
+		archive="$(asset_url "$json_file" ".tar.gz" || true)"
+		sum_url="$(asset_url "$json_file" ".sha256" || true)"
+		[ -n "$archive" ] || die "release archive asset not found"
+		[ -n "$sum_url" ] || die "sha256 asset not found; refusing unverified update"
+
+		curl -fL "$archive" -o "$archive_file" || die "could not download release archive"
+		curl -fL "$sum_url" -o "$sum_file" || die "could not download sha256 file"
+		expected="$(awk '{print $1; exit}' "$sum_file")"
+		actual="$(sha256sum "$archive_file" | awk '{print $1}')"
+		[ "$expected" = "$actual" ] || die "sha256 verification failed"
+	fi
+
+	rm -rf "$extract_dir"
+	mkdir -p "$extract_dir"
+	tar -xzf "$archive_file" -C "$extract_dir" || die "could not extract update"
+
+	tar -czf "$ROLLBACK" \
+		/etc/init.d/podkopchik \
+		/usr/bin/podkopchikctl \
+		/usr/libexec/podkopchik \
+		/usr/share/luci/menu.d/luci-app-podkopchik.json \
+		/usr/share/rpcd/acl.d/luci-app-podkopchik.json \
+		/www/luci-static/resources/view/podkopchik 2>/dev/null || true
+
+	installer="$(find "$extract_dir" -name install.sh -type f | head -n 1)"
+	[ -n "$installer" ] || die "install.sh not found in update archive"
+	if ! sh "$installer"; then
+		die "update installer failed; user config restored"
+	fi
+	if [ -n "$update_config_backup" ]; then
+		cp -p "$update_config_backup" "$UCI_CONFIG" || die "could not restore user config after update"
+		rm -f "$update_config_backup"
+		trap - HUP INT TERM EXIT
+	fi
+	restart_update_services
+	if [ "$channel" = "main" ]; then
+		echo "Development update from branch installed. No release checksum was available."
+	fi
+	echo "Update installed. Rollback is available with: podkopchikctl rollback"
+}
+
+cmd_rollback() {
+	[ -s "$ROLLBACK" ] || die "rollback archive not found"
+	tar -xzf "$ROLLBACK" -C /
+	/etc/init.d/rpcd restart >/dev/null 2>&1 || true
+	/etc/init.d/uhttpd restart >/dev/null 2>&1 || true
+	/etc/init.d/podkopchik restart >/dev/null 2>&1 || true
+	echo "Podkopchik rollback restored."
+}
+
+case "${1:-}" in
+	status) cmd_status ;;
+	generate) shift; cmd_generate "$@" ;;
+	validate) cmd_validate ;;
+	validate-active) cmd_validate_active ;;
+	apply) cmd_apply ;;
+	apply-health-state) shift; cmd_apply_health_state "$@" ;;
+	restart) /etc/init.d/podkopchik restart ;;
+	cleanup) cmd_cleanup ;;
+	health) "$LIB/health_check.sh" once ;;
+	shaping-status) cmd_shaping_status ;;
+	update-check) cmd_update_check ;;
+	update-install) cmd_update_install ;;
+	rollback) cmd_rollback ;;
+	xray-status|xray-check|xray-install|xray-rollback)
+		action="$1"; shift
+		exec "$LIB/xray_update.sh" "$action" "$@"
+		;;
+	probe-vless) exec "$LIB/connection_check.sh" uri ;;
+	xray-start-check|xray-start-install|xray-start-rollback)
+		job="${1#xray-start-}"; shift
+		exec sh "$LIB/xray_jobs.sh" start "xray-$job" "${1:-package}"
+		;;
+	*)
+		echo "Usage: podkopchikctl {status|generate|validate|apply|restart|cleanup|health|shaping-status|update-check|update-install|rollback|xray-status|xray-check [package|official]|xray-install [package|official]|xray-rollback}" >&2
+		exit 2
+		;;
+esac
