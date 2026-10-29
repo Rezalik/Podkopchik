@@ -1,5 +1,13 @@
 # Podkopchik
 
+Experimental AmneziaWG integration: [Stage 4 safety, independent UDP/IPv6
+settings, test evidence, installation and rollback](docs/AWG-STAGE4.md).
+Both interception extensions are off by default. Local tests do not establish
+live UDP/IPv6 support or packet-level leak protection on your VPN server.
+The [authorized AX6000 live report](docs/AWG-STAGE4-LIVE-20261029.md) records
+verified IPv4 TCP/UDP, failover and scoped fail-closed checks, plus remaining
+IPv6/HTTP3/reboot limits. Final router settings leave UDP and IPv6 off.
+
 Podkopchik is an OpenWrt 24.10+ LuCI application for routing selected LAN traffic through Xray VLESS proxy links.
 
 Package: `luci-app-podkopchik`  

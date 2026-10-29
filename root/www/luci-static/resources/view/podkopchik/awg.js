@@ -16,7 +16,7 @@ var callRestart = rpc.declare({ object: 'podkopchik.awg', method: 'restart', par
 var callCheck = rpc.declare({ object: 'podkopchik.awg', method: 'check', params: [ 'id' ], expect: { '': {} } });
 var callAssign = rpc.declare({ object: 'podkopchik.awg', method: 'assign', params: [ 'tag', 'role', 'priority' ], expect: { '': {} } });
 var callRecover = rpc.declare({ object: 'podkopchik.awg', method: 'recover', expect: { '': {} } });
-var callSetInterception = rpc.declare({ object: 'podkopchik.awg', method: 'set_interception', params: [ 'enabled' ], expect: { '': {} } });
+var callSetInterception = rpc.declare({ object: 'podkopchik.awg', method: 'set_interception', params: [ 'udp', 'ipv6' ], expect: { '': {} } });
 var callSetProbe = rpc.declare({ object: 'podkopchik.awg', method: 'set_probe', params: [ 'id', 'url', 'address', 'timeout' ], expect: { '': {} } });
 
 function errorText(result) {
@@ -49,7 +49,11 @@ function errorText(result) {
 		address: _('The AWG profile needs an Interface Address.'),
 		address_missing: _('A configured AWG address is missing from the interface. Restart the connection and check the profile.'),
 		address_conflict: _('The AWG address overlaps an existing LAN, WAN or tunnel network.'),
-		ipv6_requires_extension: _('An IPv6-only AWG profile requires extended IPv6 interception before assigning a role.'),
+		ipv6_requires_extension: _('An IPv6-only AWG profile requires IPv6 LAN interception before assigning a role.'),
+		ipv6_lan: _('IPv6 interception requires a usable IPv6 address on the LAN interface.'),
+		ipv6_unsupported: _('Every enabled AWG profile needs an IPv6 address and AllowedIPs ::/0 before enabling IPv6 interception.'),
+		ipv6_route: _('The AWG IPv6 interface address or isolated default route is missing.'),
+		ipv6_probe: _('The IPv6 HTTPS check failed. IPv6 interception was not enabled.'),
 		probe_settings: _('Use an HTTPS hostname URL, a literal probe IP and a timeout from 1 to 30 seconds.'),
 		roles: _('Select one main connection and unique backup priorities from 1 to 3.'),
 		unhealthy: _('Handshake and HTTPS must succeed before this connection can be selected.'),
@@ -267,19 +271,28 @@ return view.extend({
 		var self = this;
 		this.list = E('div', { 'class': 'podkopchik-awg-list' });
 		this.updateList(data);
-		var extended = E('input', { type: 'checkbox', checked: !!data.extended_interception });
-		extended.addEventListener('change', function() {
-			var enabled = extended.checked ? '1' : '0';
-			extended.disabled = true;
-			self.perform(function() { return callSetInterception(enabled); }, _('Interception settings applied.')).then(function() {
-				return callList().then(function(current) { extended.checked = !!current.extended_interception; });
-			}).finally(function() { extended.disabled = false; });
-		});
+		// Boolean HTML attributes are true even when their text is "false".
+		// Set DOM properties after creation, never checked=false attributes.
+		var udp = E('input', { type: 'checkbox' }), ipv6 = E('input', { type: 'checkbox' });
+		function sync(current) {
+			udp.checked = current.udp_interception === true;
+			ipv6.checked = current.ipv6_interception === true;
+		}
+		sync(data);
+		function change() {
+			udp.disabled = ipv6.disabled = true;
+			self.perform(function() { return callSetInterception(udp.checked ? '1' : '0', ipv6.checked ? '1' : '0'); }, _('Interception settings applied.')).then(function() {
+				return callList().then(sync);
+			}).finally(function() { udp.disabled = ipv6.disabled = false; });
+		}
+		udp.addEventListener('change', change);
+		ipv6.addEventListener('change', change);
 		return E('div', {}, [
 			E('h2', {}, 'Podkopchik'),
 			E('h3', {}, _('AmneziaWG')),
-			E('p', { 'class': 'alert-message warning' }, _('Experimental AWG integration. TCP-only interception is the default. Enable UDP and IPv6 only after checking tunnel support.')),
-			E('label', {}, [ extended, ' ', _('UDP and IPv6 LAN interception (experimental)') ]),
+			E('p', { 'class': 'alert-message warning' }, _('Experimental AWG integration. UDP and IPv6 interception are off by default and can be enabled independently. Disabled protocols are not protected by transparent routing.')),
+			E('div', {}, E('label', {}, [ udp, ' ', _('UDP LAN interception (experimental)') ])),
+			E('div', {}, E('label', {}, [ ipv6, ' ', _('IPv6 LAN interception (experimental)') ])),
 			this.list,
 			E('button', { 'class': 'cbi-button cbi-button-add', 'click': function() { self.editConnection(null); } }, _('Import .conf')),
 			' ',

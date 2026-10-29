@@ -6,7 +6,7 @@ ifeq ($(CONFIG_USE_APK),y)
   # APK uses _beta suffixes; the application still displays 0.1.0-beta.
   PKG_VERSION:=0.1.0_beta
 endif
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 PKG_LICENSE:=MIT
 PKG_MAINTAINER:=Podkopchik maintainers
 

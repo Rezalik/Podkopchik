@@ -789,12 +789,50 @@ Checks expose measured counters, last check/success and exit IP when the probe
 response supplies it. No interface-only UP claim. Existing fail/restore
 thresholds and ordered fallback apply across both protocols; all-down is blocked.
 
-`extended_interception=0` preserves TCP-only behavior. Explicit opt-in adds UDP
-except DNS/53, IPv6 mark/table10991 ownership and an IPv6 FakeDNS pool2001:2::/48.
-FakeDNS remains optional/off by default; existing IPv4 DNS redirection and
-endpoint/manual exclusions retain their semantics. nft table replacement is one
-checked atomic batch; failures retain the previous table and remove only newly
-acquired policy resources. No global nft flush, UDP/443 block or default change.
+Stage 4 separates `udp_interception=0` and `ipv6_interception=0`. UDP alone
+does not enable IPv6 or AAAA FakeDNS. The old explicit `extended_interception`
+value is a fallback only for absent new options; saving the new controls removes
+it. LuCI assigns checkbox properties, not a boolean HTML attribute containing
+the string `false`. Missing settings therefore render unchecked.
+
+IPv4 TCP TPROXY remains enabled while routing is active. IPv6 interception adds
+the IPv6 local policy route in table10991 and the FakeDNS pool2001:2::/48;
+without it, interception is explicitly IPv4-only. UDP can be enabled independently
+for the enabled address families. ND/RA/ICMPv6 are never intercepted, and IPv6
+multicast/link-local/ULA/loopback remain bypassed. DNS/53 returns to the existing
+NAT redirect chain when redirection is configured, for both TCP and UDP; otherwise
+UDP/53 follows normal routing rules when UDP interception is enabled. Router
+output and proxy endpoint destinations remain excluded. No UDP/443 block.
+
+Enabling IPv6 through LuCI requires a usable LAN IPv6 address, an IPv6 address
+and AllowedIPs `::/0` in every enabled AWG profile, its owned live IPv6 route,
+and pinned IPv6 HTTPS through every enabled connection, including VLESS. Partial
+IPv6 AllowedIPs are conservatively unsupported by the toggle. WAN IPv6 alone
+does not pass this gate. Direct UCI Apply also runs the structural LAN/profile
+preflight before any nft replacement. Regular health checks include IPv6 HTTPS
+while IPv6 interception is enabled. No imported key or main default is changed.
+
+Fail/restore thresholds have an effective minimum of two consecutive results.
+Unknown/expired results break the consecutive streak. A new backup requires a
+latest successful probe younger than 300 seconds, not merely a retained UP
+state. `switch_cooldown` defaults to 60 seconds (0–3600): it delays preference
+changes only while the current path has a fresh successful check, never escape
+from a failed path or all-down blocking. Switch reasons/times remain in health
+state/events and syslog; no Xray restart occurs without a selection change.
+
+FakeDNS remains optional/off by default. nft replacement is one checked atomic
+batch; failures retain the previous table and remove only newly acquired policy
+resources. No global nft flush or default-route change. Disabled protocols,
+unmatched/direct rules and explicit exclusions are outside proxy protection.
+Full IPv6/QUIC and exhaustive WAN-leak acceptance are pending, not inferred from
+local mocks. See [Stage 4 verification and deployment](AWG-STAGE4.md).
+
+The authorized [AX6000 live pass, 2026-10-29](AWG-STAGE4-LIVE-20261029.md)
+subsequently verified IPv4 TCP/UDP through AWG/VLESS, threshold failover/return,
+scoped all-down packet counters and independent procd snapshot recovery.
+IPv6/QUIC/exhaustive pcap and reboot remain unverified. Deployment requires a
+matching armed independent watchdog; canonical snapshots reject root/system
+parent directory entries. No private staging `tar .` repack is permitted.
 
 The live AX6000 isolated controller and HTTPS tests passed; installed application
 roles/failover, reboot recovery, real UDP/IPv6 and acceleration still require

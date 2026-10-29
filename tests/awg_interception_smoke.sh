@@ -13,6 +13,8 @@ case "$*" in
  *main.fakedns_enabled|*main.fakedns_hijack_dns) echo 1 ;;
  *main.fakedns_port) echo 1053 ;;
  *main.extended_interception) echo "${EXTENDED:-0}" ;;
+ *main.udp_interception) [ -z "${UDP+x}" ] && exit 1; echo "$UDP" ;;
+ *main.ipv6_interception) [ -z "${IPV6+x}" ] && exit 1; echo "$IPV6" ;;
  *) exit 1 ;;
 esac
 EOF
@@ -44,6 +46,10 @@ case "$*" in
  *) exit 1 ;;
 esac
 EOF
+cat > "$root/bin/ucode" <<'EOF'
+#!/bin/sh
+case "$*" in *interception-preflight*) [ "${NO_IPV6:-0}" = 0 ] ;; *) exit 1 ;; esac
+EOF
 cat > "$root/bin/nft" <<'EOF'
 #!/bin/sh
 set -eu
@@ -62,10 +68,10 @@ export PODKOPCHIK_IP=ip PODKOPCHIK_NFT=nft
 apply() { sh root/usr/libexec/podkopchik/apply_rules.sh apply; }
 apply
 if grep -q 'l4proto udp' "$root/committed"; then echo 'FAIL: default UDP interception'; exit 1; fi
-grep -q 'meta l4proto tcp.*tproxy to :12345 accept' "$root/committed"
+grep -q 'meta l4proto tcp.*tproxy ip to :12345 accept' "$root/committed"
 grep -q 'dns_prerouting.*udp dport 53 redirect to :1053' "$root/committed"
 apply
-test "$(grep -c 'tproxy to :12345 accept' "$root/committed")" = 1
+test "$(grep -c 'tproxy ip to :12345 accept' "$root/committed")" = 1
 cp "$root/committed" "$root/previous"
 if env FOREIGN_ROUTE=1 sh root/usr/libexec/podkopchik/apply_rules.sh apply 2>"$root/foreign-error"; then
  echo 'FAIL: whitespace normalization accepted a foreign route'; exit 1
@@ -81,10 +87,36 @@ test -f "$root/route4"
 grep -q 'nft validation failed' "$root/error"
 env EXTENDED=1 sh root/usr/libexec/podkopchik/apply_rules.sh apply
 if [ -n "${PODKOPCHIK_TEST_NFT_BATCH:-}" ]; then cp "$root/committed" "$PODKOPCHIK_TEST_NFT_BATCH"; fi
-grep -q 'udp udp dport != 53.*tproxy to :12345 accept' "$root/committed"
+grep -q 'meta l4proto udp.*tproxy to :12345 accept' "$root/committed"
 test -f "$root/rule6"
 test -f "$root/route6"
 if grep -q 'dport 443.*drop' "$root/committed"; then echo 'FAIL: UDP443 blocking'; exit 1; fi
+for udp in 0 1; do
+ for ipv6 in 0 1; do
+  env UDP="$udp" IPV6="$ipv6" sh root/usr/libexec/podkopchik/apply_rules.sh apply
+  if [ -n "${PODKOPCHIK_TEST_NFT_DIR:-}" ]; then cp "$root/committed" "$PODKOPCHIK_TEST_NFT_DIR/udp$udp-ipv6$ipv6.nft"; fi
+  test "$(grep -c 'l4proto udp.*tproxy' "$root/committed" || true)" = "$udp"
+  if [ "$ipv6" = 1 ]; then
+   test -f "$root/rule6"
+   ! grep -q 'nfproto ipv4.*tproxy' "$root/committed"
+  else
+   test ! -f "$root/rule6"
+   grep -q 'nfproto ipv4.*l4proto tcp.*tproxy ip to' "$root/committed"
+  fi
+  grep -q 'ff00::/8' "$root/committed"
+  dns_line="$(grep -n 'th dport 53 return' "$root/committed" | cut -d: -f1)"
+  tcp_line="$(grep -n 'l4proto tcp.*tproxy' "$root/committed" | cut -d: -f1)"
+  bypass_line="$(grep -n 'ip daddr @proxy_bypass4 return' "$root/committed" | cut -d: -f1)"
+  test "$dns_line" -lt "$tcp_line"
+  test "$bypass_line" -lt "$tcp_line"
+ done
+done
+cp "$root/committed" "$root/previous"
+if env UDP=0 IPV6=1 NO_IPV6=1 sh root/usr/libexec/podkopchik/apply_rules.sh apply 2>"$root/error"; then
+ echo 'FAIL: unsupported IPv6 accepted'; exit 1
+fi
+grep -q 'IPv6 interception requires' "$root/error"
+cmp "$root/previous" "$root/committed"
 apply
 test ! -f "$root/rule6"
 test ! -f "$root/route6"

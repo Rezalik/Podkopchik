@@ -64,11 +64,13 @@ bin="$(xray_bin || true)"
 [ -n "$bin" ] || unavailable missing_component
 command -v curl >/dev/null 2>&1 && command -v netstat >/dev/null 2>&1 || unavailable missing_component
 
+ipv6_probe=0
 case "${1:-uri}" in
 	primary) mode=probe-primary ;;
 	uri) mode=probe-uri ;;
-	tag)
+	tag|tag-ipv6)
 		case "${2:-}" in ''|*[!A-Za-z0-9_]*) unavailable invalid_configuration ;; esac
+		[ "$1" != tag-ipv6 ] || ipv6_probe=1
 		mode=probe-tag
 		;;
 	*) unavailable invalid_configuration ;;
@@ -88,9 +90,18 @@ netstat -lntp 2>/dev/null | grep -E ":20999[[:space:]].*[[:space:]]$probe_pid/" 
 
 # One HTTPS request verifies egress, measures request time and obtains the exit IP.
 rc=0
-curl --noproxy '' --proto '=https' -fsS --connect-timeout 5 --max-time 10 --max-filesize 128 \
-	--socks5-hostname 127.0.0.1:20999 -w '%{time_total}' -o "$work/ip" \
-	https://api.ipify.org > "$work/time" 2> "$work/error" || rc=$?
+if [ "$ipv6_probe" = 1 ]; then
+	# SOCKS5 with local resolution sends this pinned IPv6 destination through
+	# the candidate, not a dual-stack hostname which might fall back to IPv4.
+	curl --noproxy '' --proto '=https' -fsS --connect-timeout 5 --max-time 10 --max-filesize 4096 \
+		--socks5 127.0.0.1:20999 --resolve 'one.one.one.one:443:[2606:4700:4700::1111]' \
+		-w '%{time_total}' -o "$work/trace" https://one.one.one.one/cdn-cgi/trace > "$work/time" 2> "$work/error" || rc=$?
+	if [ "$rc" = 0 ]; then sed -n 's/^ip=//p' "$work/trace" > "$work/ip"; fi
+else
+	curl --noproxy '' --proto '=https' -fsS --connect-timeout 5 --max-time 10 --max-filesize 128 \
+		--socks5-hostname 127.0.0.1:20999 -w '%{time_total}' -o "$work/ip" \
+		https://api.ipify.org > "$work/time" 2> "$work/error" || rc=$?
+fi
 kill -0 "$probe_pid" 2>/dev/null || unavailable probe_start_failed
 if [ "$rc" != 0 ]; then
 	case "$rc" in
@@ -105,6 +116,9 @@ fi
 # Treat the provider's response as data, never interpolate arbitrary text into JSON.
 if ! ip="$(ucode "$LIB/probe_result.uc" "$work/ip" 2>/dev/null)"; then
 	unavailable external_ip_error
+fi
+if [ "$ipv6_probe" = 1 ]; then
+	case "$ip" in *:*) ;; *) unavailable external_ip_error ;; esac
 fi
 ms="$(awk '/^[0-9]+([.][0-9]+)?$/ { printf "%.0f", $1 * 1000 }' "$work/time")"
 [ -n "$ms" ] || unavailable external_ip_error

@@ -17,7 +17,7 @@ for dir in usr/share/ucode/luci/i18n usr/lib/lua/luci/i18n; do
 	cp "$base/i18n/ru/podkopchik.ru.lmo" "$stage/$dir/"
 done
 mkdir -p "$stage/usr/share/podkopchik/tools"
-for tool in awg-preflight.sh awg-rollback.sh; do cp "$base/tools/$tool" "$stage/usr/share/podkopchik/tools/"; done
+for tool in awg-preflight.sh awg-rollback.sh awg-stage4-install.sh awg-stage4-watchdog.sh awg-stage4-deploy-worker.sh awg-stage4-guard-lock.uc; do cp "$base/tools/$tool" "$stage/usr/share/podkopchik/tools/"; done
 find "$stage" -name .DS_Store -delete
 find "$stage" -type d -exec chmod 755 {} \;
 find "$stage" -type f -exec chmod 644 {} \;

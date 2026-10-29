@@ -7,7 +7,7 @@ const a = '11111111111111111111111111111111', b = '22222222222222222222222222222
 const ta = 'awg_' + a, tb = 'awg_' + b, cfg = path.join(dir, 'uci.json');
 const flags = ['-L', process.env.UCODE_MODULE_DIR || '/usr/lib/ucode', '-L', path.resolve('tests/ucode'), '-L', path.resolve('root/usr/libexec/podkopchik')];
 const rows = [
-	{'.type':'settings','.name':'main', fakedns_enabled:'1',fail_threshold:'2',restore_threshold:'2'},
+	{'.type':'settings','.name':'main', fakedns_enabled:'1',fail_threshold:'2',restore_threshold:'2',switch_cooldown:'0'},
 	{'.type':'proxy','.name':'ibn',tag:'ibn',role:'main',enabled:'1',
 		uri:'vless://11111111-2222-3333-4444-555555555555@203.0.113.1:443?type=tcp&security=reality&sni=example.invalid&pbk=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE&sid=abcd'},
 	{'.type':'proxy','.name':'a',tag:ta,protocol:'amneziawg',awg_id:a,enabled:'1'},
@@ -27,9 +27,9 @@ function run(mode, file, state) {
 }
 function stateFile(value) { const file=path.join(dir,'state.json');fs.writeFileSync(file,JSON.stringify(value));return file; }
 let state = {proxies:{ibn:{status:'up'},[ta]:{status:'up'},[tb]:{status:'up'}},groups:{auto_proxy_group:{active_proxy:'ibn'}}};
-function probe(status) {
+function probe(status, ages={}) {
 	const file=path.join(dir,'results.tsv');
-	fs.writeFileSync(file,Object.entries(status).map(([tag,value])=>[tag,value,'',85,'192.0.2.8',Math.floor(Date.now()/1000)].join('\t')).join('\n'));
+	fs.writeFileSync(file,Object.entries(status).map(([tag,value])=>[tag,value,'',85,'192.0.2.8',Math.floor(Date.now()/1000)-(ages[tag]||0)].join('\t')).join('\n'));
 	state=run('state',file,stateFile(state));return state.groups.auto_proxy_group.active_proxy;
 }
 try {
@@ -66,10 +66,35 @@ try {
 	state.proxies[tb]={status:'down'};
 	assert.strictEqual(probe({ibn:'up',[ta]:'down',[tb]:'down'}),'blocked','restore threshold retained');
 	assert.strictEqual(probe({ibn:'up',[ta]:'down',[tb]:'down'}),'ibn','AWG to VLESS / automatic return');
-	rows[0].extended_interception='1';saveRows();
+	rows[0].udp_interception='1';rows[0].ipv6_interception='0';saveRows();
+	config=run('config-state',stateFile(state));
+	assert.strictEqual(config.fakedns.ipPool,'198.18.0.0/15','UDP alone must not enable IPv6 FakeDNS');
+	rows[0].udp_interception='0';rows[0].ipv6_interception='1';saveRows();
 	config=run('config-state',stateFile(state));
 	assert.deepStrictEqual(config.fakedns.map(x=>x.ipPool),['198.18.0.0/15','2001:2::/48']);
 	assert.strictEqual(config.dns.queryStrategy,'UseIP');
+	// Repeat with AWG main and a VLESS backup. No real network is touched.
+	rows[4].primary=ta;rows[4].backup1='ibn';rows[4].backup2=tb;rows[0].switch_cooldown='60';saveRows();
+	state={proxies:{[ta]:{status:'up'},ibn:{status:'up'},[tb]:{status:'up'}},groups:{auto_proxy_group:{active_proxy:ta,last_switch_time:0}}};
+	assert.strictEqual(probe({[ta]:'down',ibn:'up',[tb]:'up'}),ta,'one AWG failure never switches');
+	assert.strictEqual(probe({[ta]:'down',ibn:'down',[tb]:'up'}),tb,'last failed backup probe cannot qualify despite threshold UP');
+	assert.strictEqual(probe({[ta]:'up',ibn:'up',[tb]:'up'}),tb,'first restore success never returns');
+	assert.strictEqual(probe({[ta]:'up',ibn:'up',[tb]:'up'}),tb,'cooldown keeps a healthy backup');
+	state.groups.auto_proxy_group.last_switch_time-=61;
+	assert.strictEqual(probe({[ta]:'up',ibn:'up',[tb]:'up'}),ta,'return after restore threshold and cooldown');
+	probe({[ta]:'down',ibn:'up',[tb]:'up'});
+	assert.strictEqual(probe({[ta]:'down',ibn:'up',[tb]:'up'}),'ibn','AWG main to checked VLESS backup');
+	probe({[ta]:'down',ibn:'down',[tb]:'down'});
+	assert.strictEqual(probe({[ta]:'down',ibn:'down',[tb]:'down'}),'blocked','cooldown never delays all-down blocking');
+	assert.strictEqual(probe({[ta]:'up',ibn:'down',[tb]:'down'}),'blocked');
+	assert.strictEqual(probe({[ta]:'unknown',ibn:'down',[tb]:'down'}),'blocked','unknown interrupts consecutive successes');
+	assert.strictEqual(probe({[ta]:'up',ibn:'down',[tb]:'down'}),'blocked');
+	assert.strictEqual(probe({[ta]:'up',ibn:'down',[tb]:'down'}),ta);
+	state.proxies[ta]={status:'down',fail_count:2};
+	state.proxies.ibn={status:'up',success_count:2};state.proxies[tb]={status:'up',success_count:2};
+	assert.strictEqual(probe({[ta]:'down',ibn:'up',[tb]:'up'},{ibn:301}),tb,'expired UP candidate is not a backup');
+	state.proxies.ibn={status:'up',success_count:2};
+	assert.strictEqual(probe({[ta]:'down',ibn:'up',[tb]:'up'},{ibn:-100}),tb,'future-dated candidate is not a backup');
 	rows.push({...rows[1],'.name':'legacy_awg_named_vless',tag:'awg_existing_vless',role:'rules_only'});saveRows();
 	config=run('config-state',stateFile(state));
 	assert.strictEqual(config.outbounds.find(x=>x.tag==='awg_existing_vless').protocol,'vless','legacy VLESS tags may use awg_ without a profile ID');

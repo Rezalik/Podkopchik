@@ -386,6 +386,8 @@ fakedns_hijack_dns="$(uci -q get "$APP.main.fakedns_hijack_dns" 2>/dev/null || e
 fakedns_port="$(uci -q get "$APP.main.fakedns_port" 2>/dev/null || echo 1053)"
 fakedns_pool_v4="$(uci -q get "$APP.main.fakedns_pool_v4" 2>/dev/null || echo 198.18.0.0/15)"
 extended_interception="$(uci -q get "$APP.main.extended_interception" 2>/dev/null || echo 0)"
+udp_interception="$(uci -q get "$APP.main.udp_interception" 2>/dev/null || echo "$extended_interception")"
+ipv6_interception="$(uci -q get "$APP.main.ipv6_interception" 2>/dev/null || echo "$extended_interception")"
 dns_redirect_port=""
 
 if [ "$fakedns_enabled" = "1" ] && [ "$fakedns_hijack_dns" = "1" ]; then
@@ -395,6 +397,15 @@ elif [ "$dns_redirect" = "1" ]; then
 fi
 
 require_ip_full
+for flag in "$udp_interception" "$ipv6_interception"; do
+	case "$flag" in 0|1) ;; *) fail_apply 'interception flags must be 0 or 1' ;; esac
+done
+if [ "$ipv6_interception" = 1 ]; then
+	# Read-only structural gate also protects manual UCI/CLI Apply. Real HTTPS
+	# capability checks run before the LuCI setting/role transaction commits.
+	"$UCODE" -L "$LIB" "$LIB/awg_cli.uc" interception-preflight ||
+		fail_apply 'IPv6 interception requires LAN IPv6 and supported AWG addresses/AllowedIPs ::/0'
+fi
 
 case "$lan" in ''|*[!A-Za-z0-9_.-]*) fail_apply "invalid LAN interface name" ;; esac
 for number in "$port" "${dns_redirect_port:-53}"; do
@@ -430,7 +441,7 @@ prepare_policy() {
 	printf '%s\n' "$expected" > "$marker" || fail_apply "could not record policy ownership"
 }
 prepare_policy '' "$ROUTE_STATE" podkopchik-routing-v1
-if [ "$extended_interception" = 1 ]; then
+if [ "$ipv6_interception" = 1 ]; then
 	prepare_policy -6 "$TMP_DIR/routing6.env" podkopchik-routing6-v1
 fi
 
@@ -445,9 +456,7 @@ run_rule "$NFT" add set inet podkopchik reserved4 '{ type ipv4_addr; flags inter
 run_rule "$NFT" add element inet podkopchik reserved4 "{ $(reserved4_elements) }"
 run_rule "$NFT" add set inet podkopchik reserved6 '{ type ipv6_addr; flags interval; }'
 run_rule "$NFT" add element inet podkopchik reserved6 '{ ::1/128, fc00::/7, fe80::/10 }'
-if [ "$extended_interception" = 1 ]; then
-	run_rule "$NFT" add element inet podkopchik reserved6 '{ ff00::/8 }'
-fi
+run_rule "$NFT" add element inet podkopchik reserved6 '{ ff00::/8 }'
 run_rule "$NFT" add set inet podkopchik proxy_bypass4 '{ type ipv4_addr; flags interval; }'
 run_rule "$NFT" add set inet podkopchik proxy_bypass6 '{ type ipv6_addr; flags interval; }'
 
@@ -463,10 +472,19 @@ run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" ip6 daddr @re
 run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" ip daddr @proxy_bypass4 return
 run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" ip6 daddr @proxy_bypass6 return
 
-run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" meta l4proto tcp meta mark set "$PODKOPCHIK_MARK" tproxy to :"$port" accept
-if [ "$extended_interception" = 1 ]; then
-	# DNS UDP/53 must reach the existing NAT DNS chain, not the TPROXY socket.
-	run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" meta l4proto udp udp dport != 53 meta mark set "$PODKOPCHIK_MARK" tproxy to :"$port" accept
+# Disabled IPv6 must not enter TPROXY without a local IPv6 policy route.
+if [ "$ipv6_interception" = 1 ]; then
+	family_match=""; tproxy_family=""
+else
+	family_match="meta nfproto ipv4"; tproxy_family="ip"
+fi
+# DNS must reach the existing NAT chain instead of the transparent socket.
+if [ -n "$dns_redirect_port" ]; then
+	run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" meta l4proto '{ tcp, udp }' th dport 53 return
+fi
+run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" $family_match meta l4proto tcp meta mark set "$PODKOPCHIK_MARK" tproxy $tproxy_family to :"$port" accept
+if [ "$udp_interception" = 1 ]; then
+	run_rule "$NFT" add rule inet podkopchik prerouting iifname "$lan" $family_match meta l4proto udp meta mark set "$PODKOPCHIK_MARK" tproxy $tproxy_family to :"$port" accept
 fi
 
 # Check and commit the complete replacement without an unprotected delete/add
@@ -475,7 +493,7 @@ err="$TMP_DIR/apply-rule.err"
 "$NFT" -c -f "$batch" >"$err" 2>&1 || fail_apply "nft validation failed: $(cat "$err")"
 "$NFT" -f "$batch" >"$err" 2>&1 || fail_apply "nft commit failed: $(cat "$err")"
 committed=1
-if [ "$extended_interception" != 1 ] && [ "$(cat "$TMP_DIR/routing6.env" 2>/dev/null || true)" = podkopchik-routing6-v1 ]; then
+if [ "$ipv6_interception" != 1 ] && [ "$(cat "$TMP_DIR/routing6.env" 2>/dev/null || true)" = podkopchik-routing6-v1 ]; then
 	if "$IP" -6 rule del fwmark "$PODKOPCHIK_MARK" table "$PODKOPCHIK_TABLE" priority "$PODKOPCHIK_PRIO" &&
 		"$IP" -6 route del local default dev lo table "$PODKOPCHIK_TABLE"; then
 		rm -f "$TMP_DIR/routing6.env"

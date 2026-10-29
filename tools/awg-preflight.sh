@@ -52,6 +52,10 @@ case "${1:---check}" in
 	for path in usr/share/ucode/luci/i18n/podkopchik.ru.lmo usr/lib/lua/luci/i18n/podkopchik.ru.lmo; do
 		[ ! -f "/$path" ] || set -- "$@" "$path"
 	done
+	# Add this as an explicit file, never repack a private staging directory:
+	# archiving "." would restore its mode onto / and its parents onto /tmp.
+	[ ! -f /tmp/podkopchik/state.json ] || set -- "$@" tmp/podkopchik/state.json
+	[ ! -d /usr/share/podkopchik/tools ] || set -- "$@" usr/share/podkopchik/tools
 	tar -czf "$archive" -C / "$@" || { rm -f "$archive"; fail 'backup failed'; }
 	chmod 600 "$archive"
 	sha256sum "$archive"

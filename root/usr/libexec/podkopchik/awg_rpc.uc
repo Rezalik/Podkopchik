@@ -14,7 +14,7 @@ const methods = {
 	restart: { id: '' },
 	check: { id: '' },
 	recover: {},
-	set_interception: { enabled: '' },
+	set_interception: { udp: '', ipv6: '' },
 	set_probe: { id: '', url: '', address: '', timeout: '' },
 	assign: { tag: '', role: '', priority: '' }
 };

@@ -324,7 +324,7 @@ function controller(options) {
 			value.handshake_age < 0) value.status = 'unknown';
 		return value;
 	}
-	function check(id, probe) {
+	function check(id, probe, persist) {
 		let r = resources(id), value = status(id);
 		if (!value.running || !value.guarded || !value.addresses_assigned) {
 			value.status = 'down'; value.reason = !value.running ? 'stopped' : (!value.guarded ? 'conflict' : 'address_missing');
@@ -355,7 +355,7 @@ function controller(options) {
 		value.status = ok ? 'up' : 'down'; value.reason = ok ? '' : 'https_or_handshake';
 		value.latency_ms = ok ? elapsed : null; value.external_ip = ok ? external : '';
 		if (ok) value.last_success_at = now();
-		save(id, value);
+		if (persist != false) save(id, value);
 		return value;
 	}
 	function locked(method, id, probe) {
@@ -385,6 +385,15 @@ function controller(options) {
 				f.write(sprintf('%J', result)); f.close();
 			}
 			else if (method == 'status') result = status(id);
+			else if (method == 'check_ipv6') {
+				if (!require('interception').profile_ipv6(store.run('profile', { id: id }).parsed)) awg.fail('ipv6_unsupported');
+				let live = status(id), route = false;
+				for (let item in json(run([ 'ip', '-6', '-j', 'route', 'show', 'table', 'all' ])))
+					if (+item.table == resources(id).table && item.dev == resources(id).interface &&
+						(item.dst == 'default' || item.dst == '::/0') && +item.protocol == 186 && +item.metric == 100 && !unreachable(item)) route = true;
+				if (!live.running || !live.addresses_assigned || !route) awg.fail('ipv6_route');
+				result = check(id, { address: '2606:4700:4700::1111' }, false);
+			}
 			else awg.fail('request');
 			lock.close(); return result;
 		} catch (e) { lock.close(); die(e.message); }

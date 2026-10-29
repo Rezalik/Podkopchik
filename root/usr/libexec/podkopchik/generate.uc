@@ -9,6 +9,7 @@ push(REQUIRE_SEARCH_PATH, './root/usr/libexec/podkopchik/*.uc');
 
 const vless = require('vless');
 const awg_net = require('awg_network');
+const interception = require('interception');
 const APP = 'podkopchik';
 const STATE_FILE = '/tmp/podkopchik/state.json';
 let state_file = STATE_FILE;
@@ -448,7 +449,7 @@ function build_config() {
 	let groups = collect_groups();
 	let state = read_state();
 	let fakedns_enabled = boolopt(main, 'fakedns_enabled', false);
-	let extended = boolopt(main, 'extended_interception', false);
+	let ipv6 = interception.settings(main).ipv6;
 	let inbounds = [ transparent_inbound(main, fakedns_enabled) ];
 	let rules = [];
 	let outbounds = [
@@ -553,14 +554,14 @@ function build_config() {
 
 	if (fakedns_enabled) {
 		config.dns = {
-			queryStrategy: extended ? 'UseIP' : 'UseIPv4',
+			queryStrategy: ipv6 ? 'UseIP' : 'UseIPv4',
 			servers: [ 'fakedns' ]
 		};
 		config.fakedns = {
 			ipPool: opt(main, 'fakedns_pool_v4', '198.18.0.0/15'),
 			poolSize: intopt(main, 'fakedns_pool_size', 65535)
 		};
-		if (extended) config.fakedns = [
+		if (ipv6) config.fakedns = [
 			config.fakedns, { ipPool: '2001:2::/48', poolSize: intopt(main, 'fakedns_pool_size', 65535) }
 		];
 	}
@@ -571,7 +572,7 @@ function build_config() {
 			die('port 10085 is reserved for local Podkopchik statistics');
 		if (!config.dns) config.dns = { queryStrategy: 'UseIP', servers: [] };
 		config.dns.tag = 'awg-resolver';
-		if (extended) config.dns.queryStrategy = 'UseIP';
+		if (ipv6) config.dns.queryStrategy = 'UseIP';
 		let dns_ref = real_dns_target(proxies, groups, state);
 		let dns_proxy = proxies.by_tag[dns_ref], ipv6_resolver = false;
 		if (dns_proxy?.protocol == 'amneziawg') {
@@ -652,12 +653,13 @@ function status_after_probe(tag, result, prev, fail_threshold, restore_threshold
 	let success_count = int(prev.success_count || 0);
 	let last_error = prev.last_error || '';
 
-	if (!result || result.status == 'unknown') {
+	if (!result || result.status == 'unknown' || !result.checked_at ||
+		time() - result.checked_at < 0 || time() - result.checked_at >= 300) {
 		return {
 			status: 'unknown',
-			fail_count: fail_count,
-			success_count: success_count,
-			last_error: result ? result.message : 'no probe result recorded'
+			fail_count: 0,
+			success_count: 0,
+			last_error: result ? (result.message || 'probe result unavailable or expired') : 'no probe result recorded'
 		};
 	}
 
@@ -686,19 +688,24 @@ function status_after_probe(tag, result, prev, fail_threshold, restore_threshold
 	};
 }
 
+function freshly_up(p) {
+	return p && p.status == 'up' && p.probe_status == 'up' && p.checked_at &&
+		time() - p.checked_at >= 0 && time() - p.checked_at < 300;
+}
+
 function choose_first_up(refs, proxies_state) {
 	for (let ref in refs) {
 		let tag = ref ? vless.clean_tag(ref, ref) : null;
 		if (!tag)
 			continue;
-		if (proxies_state[tag] && proxies_state[tag].status == 'up')
+		if (freshly_up(proxies_state[tag]))
 			return tag;
 	}
 
 	return null;
 }
 
-function choose_group(g, proxies_state, prev_state) {
+function choose_group(g, proxies_state, prev_state, cooldown) {
 	let previous = prev_state || {};
 	let active = previous.active_proxy || null;
 	let reason = 'configured_default';
@@ -730,7 +737,7 @@ function choose_group(g, proxies_state, prev_state) {
 			let primary = g.primary ? vless.clean_tag(g.primary, g.primary) : null;
 			let primary_status = proxies_state[primary] ? proxies_state[primary].status : 'unknown';
 
-			if (primary && primary_status == 'up' && (g.auto_return || !active || active == primary)) {
+			if (primary && freshly_up(proxies_state[primary]) && (g.auto_return || !active || active == primary)) {
 				active = primary;
 				reason = 'primary_healthy';
 			}
@@ -752,8 +759,24 @@ function choose_group(g, proxies_state, prev_state) {
 			else {
 				active = active || primary;
 				reason = 'primary_unknown_keep_current';
+				if (active && proxies_state[active]?.status == 'down') {
+					active = choose_first_up(g.backups, proxies_state) || 'blocked';
+					reason = active == 'blocked' ? 'no_healthy_connection' : 'current_down_switched_to_backup';
+				}
 			}
 		}
+	}
+	if (g.mode != 'fixed_proxy' && !g.manual_override_proxy && proxies_state[active]?.status == 'down') {
+		active = choose_first_up([ g.primary, ...g.backups ], proxies_state) || 'blocked';
+		reason = active == 'blocked' ? 'no_healthy_connection' : 'current_down_switched_to_backup';
+	}
+	// Only delay a preference change while the current path is freshly healthy.
+	// Never postpone escaping a failed path or blocking all-down traffic.
+	let elapsed = time() - (previous.last_switch_time || 0);
+	if (active != previous.active_proxy && freshly_up(proxies_state[previous.active_proxy]) &&
+		active != 'blocked' && elapsed >= 0 && elapsed < cooldown) {
+		active = previous.active_proxy;
+		reason = 'switch_cooldown_keep_healthy';
 	}
 
 	return {
@@ -772,8 +795,9 @@ function build_state(results_path) {
 	let proxy_state = {};
 	let group_state = {};
 	let events = [];
-	let fail_threshold = intopt(main, 'fail_threshold', 3);
-	let restore_threshold = intopt(main, 'restore_threshold', 2);
+	let fail_threshold = max(2, intopt(main, 'fail_threshold', 3));
+	let restore_threshold = max(2, intopt(main, 'restore_threshold', 2));
+	let cooldown = max(0, min(3600, intopt(main, 'switch_cooldown', 60)));
 
 	for (let p in proxies.list) {
 		proxy_state[p.tag] = status_after_probe(
@@ -785,6 +809,7 @@ function build_state(results_path) {
 		);
 		let result = results[p.tag];
 		proxy_state[p.tag].checked_at = result ? result.checked_at : null;
+		proxy_state[p.tag].probe_status = result ? result.status : 'unknown';
 		proxy_state[p.tag].valid_for = 300;
 		proxy_state[p.tag].latency_ms = result && result.status == 'up' ? result.latency_ms : null;
 		proxy_state[p.tag].external_ip = result && result.status == 'up' ? result.external_ip : '';
@@ -795,7 +820,7 @@ function build_state(results_path) {
 
 	for (let g in groups.list) {
 		let previous = old.groups ? old.groups[g.tag] : null;
-		group_state[g.tag] = choose_group(g, proxy_state, previous);
+		group_state[g.tag] = choose_group(g, proxy_state, previous, cooldown);
 
 		// After reboot state is empty, but startup config already uses the
 		// configured default. A first check selecting backup/blocked must apply

@@ -74,7 +74,7 @@ function mock(args) {
 		check(param(args, '--interface') == 'if!' + links[0].ifname, 'probe is device-bound');
 		check(param(args, '--noproxy') == '*' && param(args, '--resolve') != null, 'probe cannot use env proxy or WAN DNS');
 		if (!https_ok) die('synthetic HTTPS failure');
-		let path = param(args, '-o'); fs.writefile(path, 'ip=192.0.2.8\n'); return '0.085';
+		let path = param(args, '-o'); fs.writefile(path, index(args,'-6') >= 0 ? 'ip=2001:db8::8\n' : 'ip=192.0.2.8\n'); return '0.085';
 	}
 	die('unhandled mock command');
 }
@@ -93,6 +93,16 @@ check(length(filter(slice(calls, before), function(x) { return index([ 'add', 's
 let tested = ctl.run('check', a);
 check(tested.status == 'up' && tested.latency_ms == 85 && tested.handshake_at == handshake, 'measured HTTPS and handshake');
 check(tested.rx_bytes == 123 && tested.tx_bytes == 456, 'real tool counters parsed');
+let before_v6 = fs.readfile(root + '/network/' + a + '.json');
+check(ctl.run('check_ipv6', a).status == 'up', 'IPv6 probe requires assigned address, owned route and HTTPS');
+check(fs.readfile(root + '/network/' + a + '.json') == before_v6, 'IPv6 capability probe never overwrites primary health');
+let saved_routes = routes['-6'];
+routes['-6'] = filter(saved_routes,function(r){return r.type == 7;});
+let no_route = false;
+try { ctl.run('check_ipv6', a); } catch(e) { no_route = awg.error(e).code == 'ipv6_route'; }
+check(no_route, 'IPv6 address without an AllowedIPs route is insufficient');
+routes['-6'] = saved_routes;
+check(!require('interception').profile_ipv6(awg.parse(replace(fake.config, '0.0.0.0/0, ::/0', '0.0.0.0/0'))), 'IPv6 address alone is not tunnel IPv6 support');
 let actual_addresses = links[0].addr_info;
 links[0].addr_info = [];
 check(ctl.run('check', a).status == 'down', 'interface UP without configured addresses is not healthy');

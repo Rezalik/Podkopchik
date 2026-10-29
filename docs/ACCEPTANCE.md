@@ -281,6 +281,33 @@ See [the historical Stage 1 plan](AWG-STAGE1.md).
 
 ## AWG 3.1 Stages 2–3: Verification Gates
 
+Stage 4 supersedes the combined UDP/IPv6 control; see
+[independent controls, failover hardening and verification limits](AWG-STAGE4.md).
+
+- [x] Local LuCI mock uses actual boolean-attribute semantics: absent flags are
+  unchecked; independent UDP/IPv6 values survive reload/new page instances.
+- [x] Native ucode mocks require LAN IPv6, AWG IPv6 address/AllowedIPs/default
+  route and a real-check command path; failed gates do not commit UCI.
+- [x] Simulated AWG-main→VLESS-backup→AWG restore, consecutive thresholds,
+  fresh successful backup requirement, cooldown and all-down blocked.
+- [x] Local nft mock covers all four UDP/IPv6 combinations, DNS NAT precedence,
+  bypass before TPROXY, ICMPv6 untouched, repeated apply and failure retention.
+- [x] Protected deployment failure trap restores/reapplies through mocked calls;
+  public overlay excludes private/default config and includes real LMO.
+- [x] Stage4 native nft/Xray syntax, guarded r6 installation and canonical snapshot
+  restore on the approved AX6000; subsequent explicit operator authorization.
+- [x] Real LAN IPv4 HTTPS and STUN UDP through AWG and VLESS; real threshold
+  selection AWG→VLESS→AWG without role/state fabrication; scoped all-down counters.
+- [x] Independent procd watchdog survives SSH exit/worker restart, restores UCI
+  exactly and cleans only its audit table. Unsafe parent-metadata snapshot
+  regression found, repaired and prevented; see live report for full disclosure.
+- [ ] Actual UDP via AWG/VLESS, IPv6-capable AWG, all-down WAN packet capture,
+  and restart/reboot in an isolated network. Do not mark these PASS from mocks.
+
+The preceding broad gate is only partly closed: IPv4 UDP and scoped counter-based
+all-down tests passed live; IPv6, QUIC, exhaustive pcap, full restart/reboot and
+signed APK remain pending. See [the full PASS/FAIL/SKIPPED report](AWG-STAGE4-LIVE-20261029.md).
+
 Recovery regression: iproute2's trailing spaces/tabs are normalized before
 strict policy ownership checks, for IPv4 and IPv6. Different devices, extra
 routes and changed policy tokens remain rejected. Failed explicit recovery
@@ -316,12 +343,11 @@ use its file timestamp when diagnosing it. Treat this file as potentially confid
 - [ ] Native signed APK build/install on the target SDK/device. Public overlay
   built/tested separately; never describe it as an APK.
 
-Details, source bundle, preflight, recovery and remaining limitations:
-[AWG-STAGE23.md](AWG-STAGE23.md). No new Podkopchik was installed on the working
-AX6000 during development. GL-MT6000 was not accessed.
-No new version is installed on the working router by development tests.
-Physical import/ACL checks on 25.12.6 and handshake/HTTPS acceptance remain
-separate operator-approved steps. Do not test on or contact GL-MT6000.
+Details of initial isolated development: [AWG-STAGE23.md](AWG-STAGE23.md).
+That initial work did not deploy an application. Subsequent explicit operator
+authorization and the r6 live deployment are recorded in the Stage4 live report.
+Broader multi-profile/IPv6/reboot gates remain separate; do not infer them from
+the narrower live pass. GL-MT6000 was not accessed and must not be used.
 
 ## Required commands
 

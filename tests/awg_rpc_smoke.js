@@ -14,6 +14,8 @@ function run(args, input) {
 }
 const methods = run(['list'], '');
 assert.deepStrictEqual(Object.keys(methods).sort(), ['assign','check','delete','import','list','recover','rename','replace','restart','set_interception','set_probe','start','stop','validate']);
+assert.deepStrictEqual(Object.keys(methods.set_interception).sort(), ['ipv6','udp']);
+assert.strictEqual(run(['call','set_interception'], '{"enabled":"1"}').error, 'request', 'obsolete combined UI cannot accidentally enable both');
 assert.strictEqual(run(['call', 'execute'], '{}').error, 'request');
 assert.strictEqual(run(['call', 'import'], '{bad').error, 'request');
 assert.strictEqual(run(['call', 'list'], '{"path":"/etc/shadow"}').error, 'request');

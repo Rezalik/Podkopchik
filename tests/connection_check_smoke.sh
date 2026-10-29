@@ -29,7 +29,7 @@ cat > "$tmp/bin/ucode" <<'EOF'
 case "$*" in
  *probe_result.uc*)
   if [ "${BAD_IP:-0}" = 1 ]; then exit 1; fi
-  printf '198.51.100.1'
+  if [ "${IPV6_CHECK:-0}" = 1 ]; then printf '2001:db8::8'; else printf '198.51.100.1'; fi
   ;;
  *)
   if [ "${BAD_CONFIG:-0}" = 1 ]; then echo 'secret parse error must not escape' >&2; exit 1; fi
@@ -46,10 +46,13 @@ fi
 EOF
 cat > "$tmp/bin/curl" <<'EOF'
 #!/bin/sh
+printf '%s\n' "$*" >> "$TEST_ROOT/curl-arguments"
 if [ "${PROBE_TIMEOUT:-0}" = 1 ]; then exit 28; fi
 previous=''
 for arg in "$@"; do
- if [ "$previous" = '-o' ]; then echo 198.51.100.1 > "$arg"; fi
+ if [ "$previous" = '-o' ]; then
+  if [ "${IPV6_CHECK:-0}" = 1 ]; then echo 'ip=2001:db8::8' > "$arg"; else echo 198.51.100.1 > "$arg"; fi
+ fi
  previous="$arg"
 done
 printf '0.084'
@@ -81,4 +84,9 @@ sh "$script" uri > "$tmp/result"
 grep -q '"status":"up"' "$tmp/result"
 [ ! -d "$tmp/runtime/connection-check.lock" ]
 [ "$(wc -l < "$tmp/stopped" | tr -d ' ')" = 4 ]
+IPV6_CHECK=1 sh "$script" tag-ipv6 synthetic > "$tmp/result"
+grep -q '"status":"up"' "$tmp/result"
+grep -q '"external_ip":"2001:db8::8"' "$tmp/result"
+grep -q -- '--socks5 127.0.0.1:20999 --resolve one.one.one.one:443:\[2606:4700:4700::1111\]' "$tmp/curl-arguments"
+[ ! -d "$tmp/runtime/connection-check.lock" ]
 echo 'Connection check smoke OK (mocked HTTPS egress, secret-free results)'

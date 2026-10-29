@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { cursor as native_cursor } from 'uci';
 const awg = require('awg');
 const net = require('awg_network');
+const interception = require('interception');
 function create(options) {
 options = options || {};
 const ROOT = options.root || '/etc/podkopchik/awg';
@@ -119,6 +120,22 @@ function shell(args) {
 	if (rc != 0) awg.fail('apply_failed');
 	return output;
 }
+function validate_ipv6(ctx, probe, candidate) {
+	let links = options.links ? options.links() : json(shell([ 'ip', '-j', 'address', 'show' ]));
+	if (!interception.lan_ipv6(links, ctx.get('podkopchik', 'main', 'lan_ifname') || 'br-lan')) awg.fail('ipv6_lan');
+	for (let p in all(ctx)) {
+		if (p.enabled == '0' && p.tag != candidate?.tag) continue;
+		if (p.protocol == 'amneziawg') {
+			if (!interception.profile_ipv6(db.run('profile', { id: p.awg_id }).parsed)) awg.fail('ipv6_unsupported');
+			if (probe && network.run('check_ipv6', p.awg_id).status != 'up') awg.fail('ipv6_probe');
+		}
+		else if (probe) {
+			let r = json(shell([ '/usr/libexec/podkopchik/connection_check.sh', 'tag-ipv6', p.tag ]));
+			if (r.status != 'up') awg.fail('ipv6_probe');
+		}
+	}
+	return true;
+}
 function active_ref(tag) {
 	let raw = fs.readfile(ACTIVE);
 	if (!raw) return false;
@@ -190,7 +207,9 @@ function assign(tag, role, priority) {
 	if (selected.protocol == 'amneziawg' && role != 'disabled') {
 		let profile = db.run('profile', { id: selected.awg_id });
 		if (index(profile.parsed.interface.Address || '', '.') < 0 &&
-			ctx.get('podkopchik', 'main', 'extended_interception') != '1') awg.fail('ipv6_requires_extension');
+			!interception.settings(ctx.get_all('podkopchik', 'main')).ipv6) awg.fail('ipv6_requires_extension');
+		if (interception.settings(ctx.get_all('podkopchik', 'main')).ipv6 &&
+			!interception.profile_ipv6(profile.parsed)) awg.fail('ipv6_unsupported');
 	}
 	if (role == 'main' || role == 'backup') {
 		if (selected.protocol == 'amneziawg') {
@@ -211,6 +230,8 @@ function assign(tag, role, priority) {
 			measurement = result;
 		}
 	}
+	if (role != 'disabled' && interception.settings(ctx.get_all('podkopchik', 'main')).ipv6)
+		validate_ipv6(ctx, true, selected);
 	// Refresh after start/check, which may have committed autostart.
 	ctx = cursor();
 	if (match(tag, /^awg_[a-f0-9]{32}$/)) selected = awg_proxy(ctx, substr(tag, 4), true);
@@ -318,7 +339,9 @@ function list() {
 			role: p.role || (p.enabled == '0' ? 'disabled' : 'backup'), priority: p.backup_priority || '',
 			health: health.proxies?.[p.tag] || { status: 'unknown' }, traffic: traffic[p.tag] || null });
 	result.routing_connections = connections;
-	result.extended_interception = ctx.get('podkopchik', 'main', 'extended_interception') == '1';
+	let flags = interception.settings(ctx.get_all('podkopchik', 'main'));
+	result.udp_interception = flags.udp;
+	result.ipv6_interception = flags.ipv6;
 	return result;
 }
 function run(method, args) {
@@ -339,14 +362,19 @@ function run(method, args) {
 		}
 		else if (method == 'list') result = list();
 		else if (method == 'set_interception') {
-			if (args.enabled != '0' && args.enabled != '1') awg.fail('request');
+			if ((args.udp != '0' && args.udp != '1') || (args.ipv6 != '0' && args.ipv6 != '1')) awg.fail('request');
 			let ctx = cursor();
-			if (args.enabled == '0')
+			if (args.ipv6 == '0')
 				for (let p in all(ctx)) if (p.protocol == 'amneziawg' && p.enabled != '0') {
 					let profile = db.run('profile', { id: p.awg_id });
 					if (index(profile.parsed.interface.Address || '', '.') < 0) awg.fail('ipv6_requires_extension');
 				}
-			ctx.set('podkopchik', 'main', 'extended_interception', args.enabled);
+			if (args.ipv6 == '1') {
+				validate_ipv6(ctx, true);
+			}
+			ctx.set('podkopchik', 'main', 'udp_interception', args.udp);
+			ctx.set('podkopchik', 'main', 'ipv6_interception', args.ipv6);
+			ctx.delete('podkopchik', 'main', 'extended_interception');
 			result = apply_changes(ctx, null);
 		}
 		else if (method == 'assign') result = assign(args.tag, args.role, args.priority);
@@ -385,7 +413,7 @@ function run(method, args) {
 	} catch (e) { lock.close(); die(e.message); }
 }
 
-return { run: run, runtime: runtime, recover: recover };
+return { run: run, runtime: runtime, recover: recover, validate_ipv6: validate_ipv6 };
 }
 let instance = create();
 instance.create = create;

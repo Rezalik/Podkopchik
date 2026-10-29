@@ -1,0 +1,18 @@
+# Generated substitutions are test-only, never part of normal routing Apply.
+add table inet podkopchik_stage4_audit { comment "podkopchik-stage4-audit"; }
+add counter inet podkopchik_stage4_audit lan_fake_tcp
+add counter inet podkopchik_stage4_audit lan_stun
+add counter inet podkopchik_stage4_audit lan_https
+add counter inet podkopchik_stage4_audit wan_stun
+add counter inet podkopchik_stage4_audit wan_https
+add counter inet podkopchik_stage4_audit awg_stun
+add counter inet podkopchik_stage4_audit awg_https
+add chain inet podkopchik_stage4_audit before { type filter hook prerouting priority -151; policy accept; }
+add chain inet podkopchik_stage4_audit after { type filter hook postrouting priority 99; policy accept; }
+add rule inet podkopchik_stage4_audit before iifname "@LAN@" ip saddr @CLIENT@ ip daddr 198.18.0.0/15 tcp dport 443 counter name lan_fake_tcp
+add rule inet podkopchik_stage4_audit before iifname "@LAN@" ip saddr @CLIENT@ ip daddr @STUN@ udp dport 3478 counter name lan_stun
+add rule inet podkopchik_stage4_audit before iifname "@LAN@" ip saddr @CLIENT@ ip daddr { 1.1.1.1, 1.0.0.1 } tcp dport 443 counter name lan_https
+add rule inet podkopchik_stage4_audit after oifname "wan" ip daddr @STUN@ udp dport 3478 counter name wan_stun
+add rule inet podkopchik_stage4_audit after oifname "wan" ip daddr { 1.1.1.1, 1.0.0.1 } tcp dport 443 counter name wan_https
+add rule inet podkopchik_stage4_audit after oifname "@AWG@" ip daddr @STUN@ udp dport 3478 counter name awg_stun
+add rule inet podkopchik_stage4_audit after oifname "@AWG@" ip daddr { 1.1.1.1, 1.0.0.1 } tcp dport 443 counter name awg_https

@@ -52,9 +52,20 @@ else if (action == 'sync' || action == 'stop-all') {
 }
 else if (action == 'health') {
 	let value;
-	try { value = manager.runtime(ARGV[1], 'check'); }
-	catch (e) { value = { status: 'unknown', reason: awg.error(e).code }; }
+	try {
+		value = manager.runtime(ARGV[1], 'check');
+		if (value.status == 'up' && require('interception').settings(ctx.get_all('podkopchik', 'main')).ipv6 &&
+			manager.runtime(ARGV[1], 'check_ipv6').status != 'up') value = { status: 'down', reason: 'ipv6_probe' };
+	}
+	catch (e) {
+		let code = awg.error(e).code;
+		value = { status: index([ 'ipv6_route', 'ipv6_unsupported' ], code) >= 0 ? 'down' : 'unknown', reason: code };
+	}
 	printf('%J\n', value);
+}
+else if (action == 'interception-preflight') {
+	if (require('interception').settings(ctx.get_all('podkopchik', 'main')).ipv6)
+		manager.validate_ipv6(ctx, false);
 }
 else if (action == 'list') printf('%J\n', manager.run('list', {}));
 else if (action == 'endpoints') {

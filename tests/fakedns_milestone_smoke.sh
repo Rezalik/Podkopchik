@@ -20,6 +20,7 @@ if grep -R "udp dport 443" root/usr/libexec/podkopchik root/usr/bin root/etc/ini
 fi
 # AWG adds a separate opt-in; the default remains TCP-only. Executable on/off
 # checks are in awg_interception_smoke.sh, not a misleading source grep.
-grep -q "option extended_interception '0'" root/etc/config/podkopchik
+grep -q "option udp_interception '0'" root/etc/config/podkopchik
+grep -q "option ipv6_interception '0'" root/etc/config/podkopchik
 
 echo "FakeDNS milestone smoke OK"

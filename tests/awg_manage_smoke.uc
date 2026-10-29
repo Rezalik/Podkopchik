@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import { cursor } from 'uci';
 const awg = require('awg'), backend = require('awg_manage');
 const root = ARGV[0], owner = fs.stat(root).uid, cfg = root + '/uci.json', active = root + '/active.json';
-let assertions = 0, https_ok = true, failures = 0, calls = [], running = {};
+let assertions = 0, https_ok = true, failures = 0, calls = [], running = {}, lan6 = false;
 function check(value, label) { if (!value) die('FAIL: ' + label); assertions++; }
 function write(path, text) { let f = fs.open(path, 'w', 0o600); f.write(text); f.close(); }
 function rows() { return json(fs.readfile(cfg)); }
@@ -31,6 +31,7 @@ function net(action, id) {
 }
 let manager = backend.create({ root: root + '/profiles', tmp: root, owner: owner, uci_file: cfg, active: active,
 	cursor: cursor, store: db, network: { run: net }, pid: 123, process_alive: function() { return ''; }, traffic: function() { return {}; },
+	links: function() { return [{ifname:'br-lan',addr_info:lan6 ? [{family:'inet6',scope:'global',local:'fd00::1'}] : []}]; },
 	shell: function(args) {
 		push(calls, args);
 		if (index(join(' ', args), 'health_check.sh') >= 0) return '';
@@ -48,7 +49,7 @@ let manager = backend.create({ root: root + '/profiles', tmp: root, owner: owner
 function fails(method, args, code, label) {
 	let error = null;
 	try { manager.run(method, args); } catch (e) { error = awg.error(e); }
-	check(error && error.code == code, label);
+	check(error && error.code == code, label + ' (expected ' + code + ', got ' + (error?.code || 'success') + ')');
 }
 let before = fs.readfile(cfg);
 https_ok = false;
@@ -84,8 +85,15 @@ fs.mkdir(root + '/health-check.lock');
 fails('assign', { tag: tag_a, role: 'main', priority: '' }, 'busy', 'health/apply concurrency is refused');
 check(fs.readfile(cfg) == before, 'busy health operation does not commit roles');
 fs.rmdir(root + '/health-check.lock');
-manager.run('set_interception', { enabled: '1' });
-check(rows()[0].extended_interception == '1', 'explicit extended interception saved');
+check(!manager.run('list', {}).udp_interception && !manager.run('list', {}).ipv6_interception, 'missing flags default off');
+manager.run('set_interception', { udp: '1', ipv6: '0' });
+check(rows()[0].udp_interception == '1' && rows()[0].ipv6_interception == '0', 'independent interception saved');
+let flags_before = fs.readfile(cfg);
+fails('set_interception', { udp: '1', ipv6: '1' }, 'ipv6_lan', 'no LAN IPv6 is rejected before commit');
+lan6 = true;
+fails('set_interception', { udp: '1', ipv6: '1' }, 'ipv6_unsupported', 'IPv4-only AWG cannot enable IPv6');
+check(fs.readfile(cfg) == flags_before, 'failed IPv6 gates do not change any settings');
+fails('set_interception', { udp: 'yes', ipv6: '0' }, 'request', 'nonbinary flags rejected');
 let ctx = cursor();
 ctx.set('podkopchik', 'site', 'domain_rule');
 for (let key, value in { enabled: '1', target: tag_a, domain: [ 'example.com' ] }) ctx.set('podkopchik', 'site', key, value);
@@ -98,6 +106,11 @@ manager.run('delete', { id: a.id });
 check(length(db.run('list', {}).connections) == 1 && db.run('list', {}).connections[0].id == b.id, 'safe scoped profile deletion');
 check(by_tag('ibn').uri == 'SYNTHETIC_URI_UNCHANGED', 'VLESS preserved after deletion');
 check(length(filter(rows(), function(r) { return r.tag == 'legacy_manual'; })) == 1, 'manual legacy group preserved');
+manager.run('assign', { tag: tag_b, role: 'disabled', priority: '' });
+manager.run('set_interception', { udp: '0', ipv6: '1' });
+check(!manager.run('list', {}).udp_interception && manager.run('list', {}).ipv6_interception, 'IPv6-only toggle with tested VLESS is independent of UDP');
+check(length(filter(calls,function(args){return index(args,'tag-ipv6')>=0;}))>0, 'VLESS IPv6 uses an isolated real-check command');
+manager.run('set_interception', { udp: '0', ipv6: '0' });
 let original = fs.readfile(cfg), original_active = fs.readfile(active);
 fs.mkdir(root + '/config-apply.lock');
 write(root + '/config-apply.lock/connection-journal.json', sprintf('%J', {

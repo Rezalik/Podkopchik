@@ -1378,6 +1378,30 @@ msgstr "Экспериментальная интеграция AWG. По умо
 msgid "UDP and IPv6 LAN interception (experimental)"
 msgstr "Перехват UDP и IPv6 из LAN (экспериментально)"
 
+msgid "UDP LAN interception (experimental)"
+msgstr "Перехват UDP из LAN (экспериментально)"
+
+msgid "An IPv6-only AWG profile requires IPv6 LAN interception before assigning a role."
+msgstr "Перед назначением роли профилю AWG только с IPv6 включите перехват IPv6 из LAN."
+
+msgid "IPv6 LAN interception (experimental)"
+msgstr "Перехват IPv6 из LAN (экспериментально)"
+
+msgid "Experimental AWG integration. UDP and IPv6 interception are off by default and can be enabled independently. Disabled protocols are not protected by transparent routing."
+msgstr "Экспериментальная интеграция AWG. Перехват UDP и IPv6 по умолчанию выключен; их можно включить независимо. Выключенные протоколы не защищены прозрачной маршрутизацией."
+
+msgid "IPv6 interception requires a usable IPv6 address on the LAN interface."
+msgstr "Для перехвата IPv6 нужен рабочий IPv6-адрес на интерфейсе LAN."
+
+msgid "Every enabled AWG profile needs an IPv6 address and AllowedIPs ::/0 before enabling IPv6 interception."
+msgstr "Для включения перехвата IPv6 каждому используемому профилю AWG нужны IPv6-адрес и AllowedIPs ::/0."
+
+msgid "The AWG IPv6 interface address or isolated default route is missing."
+msgstr "Отсутствует IPv6-адрес интерфейса AWG или маршрут по умолчанию в его отдельной таблице."
+
+msgid "The IPv6 HTTPS check failed. IPv6 interception was not enabled."
+msgstr "Проверка HTTPS через IPv6 не прошла. Перехват IPv6 не включён."
+
 msgid "Connection change recovered."
 msgstr "Предыдущее состояние подключения восстановлено."
 

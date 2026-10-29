@@ -124,7 +124,7 @@ grep -q "nft add rule inet podkopchik prerouting iifname br-lan ip6 daddr @proxy
 grep -q "could not resolve proxy endpoint host.*unresolved.example.com" "$err"
 
 bypass_line="$(grep -n "ip daddr @proxy_bypass4 return" "$log" | head -n 1 | cut -d: -f1)"
-tproxy_line="$(grep -n "meta l4proto tcp meta mark set 0x100000 tproxy to :12345 accept" "$log" | head -n 1 | cut -d: -f1)"
+tproxy_line="$(grep -n "meta l4proto tcp meta mark set 0x100000 tproxy ip to :12345 accept" "$log" | head -n 1 | cut -d: -f1)"
 
 [ -n "$bypass_line" ] && [ -n "$tproxy_line" ] && [ "$bypass_line" -lt "$tproxy_line" ]
 

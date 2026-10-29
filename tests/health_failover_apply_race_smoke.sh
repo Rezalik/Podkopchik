@@ -36,7 +36,11 @@ case " $* " in
 		echo '{}'
 		;;
 	*" state "*)
-		echo '{"events":["group auto_proxy_group switched to gerwarp"],"proxies":{"gerwarp":{"status":"up"}}}'
+		if [ "${NO_SWITCH:-0}" = 1 ]; then
+			echo '{"events":[],"proxies":{"gerwarp":{"status":"up"}}}'
+		else
+			echo '{"events":["group auto_proxy_group switched to gerwarp"],"proxies":{"gerwarp":{"status":"up"}}}'
+		fi
 		;;
 	*probe_result.uc*) printf '198.51.100.1' ;;
 	*)
@@ -48,7 +52,7 @@ EOF
 cat > "$tmp/jsonfilter" <<'EOF'
 #!/bin/sh
 
-echo "group auto_proxy_group switched to gerwarp"
+[ "${NO_SWITCH:-0}" = 1 ] || echo "group auto_proxy_group switched to gerwarp"
 EOF
 
 cat > "$tmp/logger" <<'EOF'
@@ -123,5 +127,12 @@ grep -q 'apply-health-state' "$PODKOPCHIK_CTL_LOG"
 grep -q 'failover config apply failed' "$PODKOPCHIK_TEST_LOG"
 grep -q 'health state was not replaced because failover apply failed' "$PODKOPCHIK_TEST_LOG"
 awk -F '\t' '$1 == "gerwarp" && $2 == "up" && $4 == "84" && $5 == "198.51.100.1" && $6 > 0 { ok=1 } END { exit !ok }' "$runtime/health-results.tsv"
+
+: > "$PODKOPCHIK_CTL_LOG"
+NO_SWITCH=1 PODKOPCHIK_LIB="$tmp/lib" PODKOPCHIK_TMP_DIR="$runtime" \
+ PODKOPCHIK_STATE="$runtime/state.json" PODKOPCHIK_CTL="$tmp/podkopchikctl" \
+ sh root/usr/libexec/podkopchik/health_check.sh once
+[ ! -s "$PODKOPCHIK_CTL_LOG" ]
+grep -q '"events":\[\]' "$runtime/state.json"
 
 echo "health failover apply race smoke OK"

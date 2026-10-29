@@ -4,7 +4,7 @@
 
 Local implementation baseline: Git `5a7becc12697e04aacf4033b6deb0eb7ae89b3b6`.
 Only Xiaomi Redmi AX6000 stock was accessed through `ssh openwrt`.
-No new Podkopchik version was installed, no packages or firmware updated, and
+During the initial isolated work no new Podkopchik version was installed, no packages or firmware updated, and
 no WAN/LAN/Wi-Fi/SSH settings changed. No router reboot or GL-MT6000 access.
 Stage 1 storage/import validation remains the foundation; see [AWG-STAGE1.md](AWG-STAGE1.md).
 
@@ -118,9 +118,11 @@ TCP connections are not transparently migrated; clients must reconnect.
 
 ## UDP, IPv6 And Acceleration
 
-`main.extended_interception=0` remains the default. Opt-in enables UDP TPROXY
-except DNS/53 and IPv6 policy routing in the existing table10991; FakeDNS gains
-an IPv6 benchmark pool2001:2::/48 outside reserved6. No UDP/443 block is added.
+The original combined `extended_interception` setting is superseded by the
+independent, off-by-default `udp_interception` and `ipv6_interception` controls
+in [Stage 4](AWG-STAGE4.md). Old explicit settings remain readable. UDP does not
+enable IPv6 DNS or policy routing. IPv6 FakeDNS uses2001:2::/48 outside reserved6.
+No UDP/443 block is added.
 All selected transports must actually support these flows. The real available
 AWG profile has IPv4 only; real IPv6/UDP and dual-stack DNS acceptance is pending.
 No global flow-offload setting is changed. Kernel/proxy local traffic is not
@@ -232,11 +234,15 @@ do not prove live VPN traffic or full deployed service behavior.
   its empty delta, active config and routes were unchanged. This is not evidence
   of a full real service apply or failover.
 
-**Pending, not PASS**: deployment of the new app; live mixed role changes and
+**Pending at the initial checkpoint, not PASS**: deployment of the new app; live mixed role changes and
 failover/auto-return; all-down LAN packet leak testing; reboot restoration;
 real multiple peers with non-overlapping addresses; UDP, IPv6 and acceleration;
 native APK build/install and full live code rollback. A valid IPv6-capable AWG
 profile and separately approved deployment are needed for that part.
+
+The subsequent authorized [Stage4 live pass](AWG-STAGE4-LIVE-20261029.md)
+closes the narrower AX6000 deployment/IPv4 UDP/AWG→VLESS→AWG gates. It does not
+close the broader multi-profile, IPv6, reboot, acceleration or signed APK gates.
 
 ## Commands After Deployment Approval
 

@@ -138,10 +138,10 @@ grep -q "nft add element inet podkopchik proxy_bypass6 { .*2001:db8:abcd::/48" "
 ! grep -q "nft add element inet podkopchik reserved4 .*198.18.0.0/15" "$log"
 grep -q "nft add rule inet podkopchik prerouting iifname br-lan ip daddr @proxy_bypass4 return" "$log"
 grep -q "nft add rule inet podkopchik prerouting iifname br-lan ip6 daddr @proxy_bypass6 return" "$log"
-grep -q "nft add rule inet podkopchik prerouting iifname br-lan meta l4proto tcp meta mark set 0x100000 tproxy to :12345 accept" "$log"
+grep -q "nft add rule inet podkopchik prerouting iifname br-lan meta nfproto ipv4 meta l4proto tcp meta mark set 0x100000 tproxy ip to :12345 accept" "$log"
 
 bypass_line="$(grep -n "ip daddr @proxy_bypass4 return" "$log" | head -n 1 | cut -d: -f1)"
-tproxy_line="$(grep -n "meta l4proto tcp meta mark set 0x100000 tproxy to :12345 accept" "$log" | head -n 1 | cut -d: -f1)"
+tproxy_line="$(grep -n "meta l4proto tcp meta mark set 0x100000 tproxy ip to :12345 accept" "$log" | head -n 1 | cut -d: -f1)"
 
 [ -n "$bypass_line" ] && [ -n "$tproxy_line" ] && [ "$bypass_line" -lt "$tproxy_line" ]
 

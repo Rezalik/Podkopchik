@@ -14,7 +14,7 @@ mkdir "$sdk/package/podkopchik"
 cp "$base/Makefile" "$sdk/package/podkopchik/"
 cp -R "$base/root" "$base/po" "$sdk/package/podkopchik/"
 mkdir -p "$sdk/package/podkopchik/root/usr/share/podkopchik/tools"
-cp "$base/tools/awg-preflight.sh" "$base/tools/awg-rollback.sh" "$sdk/package/podkopchik/root/usr/share/podkopchik/tools/"
+cp "$base/tools/awg-preflight.sh" "$base/tools/awg-rollback.sh" "$base/tools/awg-stage4-install.sh" "$base/tools/awg-stage4-watchdog.sh" "$base/tools/awg-stage4-deploy-worker.sh" "$base/tools/awg-stage4-guard-lock.uc" "$sdk/package/podkopchik/root/usr/share/podkopchik/tools/"
 find "$sdk/package/podkopchik" -name .DS_Store -delete
 make -C "$sdk" package/podkopchik/compile V=s
 find "$sdk/bin/packages" -name '*podkopchik*.apk' -print

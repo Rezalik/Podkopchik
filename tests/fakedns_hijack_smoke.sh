@@ -106,7 +106,7 @@ grep -q "nft add rule inet podkopchik dns_prerouting iifname br-lan tcp dport 53
 ! grep -q "nft add element inet podkopchik reserved4 .*198.18.0.0/15" "$hijack_log"
 grep -q "nft add element inet podkopchik reserved4 .*10.0.0.0/8" "$hijack_log"
 grep -q "nft add chain inet podkopchik prerouting { type filter hook prerouting priority mangle; policy accept; }" "$hijack_log"
-grep -q "nft add rule inet podkopchik prerouting iifname br-lan meta l4proto tcp meta mark set 0x100000 tproxy to :12345 accept" "$hijack_log"
+grep -q "nft add rule inet podkopchik prerouting iifname br-lan meta nfproto ipv4 meta l4proto tcp meta mark set 0x100000 tproxy ip to :12345 accept" "$hijack_log"
 
 custom_pool_log="$(run_apply custom-pool 1 1 10.0.0.0/8)"
 ! grep -q "nft add element inet podkopchik reserved4 .*10.0.0.0/8" "$custom_pool_log"

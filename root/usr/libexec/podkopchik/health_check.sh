@@ -252,6 +252,15 @@ probe_proxy() {
 	fi
 
 	if elapsed="$(curl --noproxy '' -fsS -I --max-time "$timeout" --socks5-hostname "127.0.0.1:$port" -w '%{time_total}' -o /dev/null "$url" 2>"$log")"; then
+		legacy="$(uci -q get "$APP.main.extended_interception" 2>/dev/null || echo 0)"
+		ipv6="$(uci -q get "$APP.main.ipv6_interception" 2>/dev/null || echo "$legacy")"
+		if [ "$ipv6" = 1 ] && ! curl --noproxy '' --proto '=https' -fsS --max-time "$timeout" \
+			--socks5 "127.0.0.1:$port" --resolve 'one.one.one.one:443:[2606:4700:4700::1111]' \
+			https://one.one.one.one/cdn-cgi/trace -o /dev/null 2>"$log"; then
+			record_probe "$results" "$tag" down 'ipv6_probe'
+			cleanup_active_probe
+			return
+		fi
 		latency="$(printf '%s\n' "$elapsed" | awk '/^[0-9]+([.][0-9]+)?$/ { printf "%.0f", $1 * 1000 }')"
 		external_ip=""
 		ip_file="$TMP_DIR/health-$tag.ip"

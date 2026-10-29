@@ -95,6 +95,6 @@ PODKOPCHIK_TEST_LOG="$log" \
 
 grep -q "ip rule add fwmark 0x100000 table 10991 priority 10991" "$log"
 grep -q "ip route add local default dev lo table 10991" "$log"
-grep -q "nft add rule inet podkopchik prerouting iifname br-lan meta l4proto tcp meta mark set 0x100000 tproxy to :12345 accept" "$log"
+grep -q "nft add rule inet podkopchik prerouting iifname br-lan meta nfproto ipv4 meta l4proto tcp meta mark set 0x100000 tproxy ip to :12345 accept" "$log"
 
 echo "apply preflight smoke OK"
