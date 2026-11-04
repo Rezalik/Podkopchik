@@ -519,7 +519,10 @@ Before applying:
 ### Stage 4 r7: Apply And Startup Recovery
 
 See [the 2026-11-04 AX6000 diagnosis and release gates](AWG-STABILITY-FIXES-20261104.md).
-This is a locally tested candidate, not a completed live deployment.
+The candidate was subsequently installed on the approved AX6000. See
+[the scoped r7 live pass and remaining acceptance gates](AWG-STAGE4-R7-LIVE-20261104.md).
+Normal Apply/health/FakeDNS/LAN tests passed; destructive runtime faults and
+reboot were not exercised on the working router.
 
 - Missing enabled connections/rules or failed candidate validation must not
   change `routing_enabled`, stop Xray, sync AWG or remove current interception.

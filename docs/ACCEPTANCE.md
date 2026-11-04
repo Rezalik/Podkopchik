@@ -352,8 +352,10 @@ the narrower live pass. GL-MT6000 was not accessed and must not be used.
 
 ## Stage 4 r7 Stability Fix Gates (2026-11-04)
 
-Local regression acceptance only; no r7 code was installed on the AX6000 during
-this task. See [diagnosis, evidence and deployment/rollback](AWG-STABILITY-FIXES-20261104.md).
+Local regression acceptance was followed by a separately authorized r7 live
+installation. See [initial diagnosis and regression tests](AWG-STABILITY-FIXES-20261104.md)
+and [the r7 live report](AWG-STAGE4-R7-LIVE-20261104.md). The live pass does not
+close the isolated failure-injection/reboot gates below.
 
 - [x] Missing connection/rule and invalid candidate leave the old active JSON,
   nft table and persisted routing intention unchanged; no AWG sync/restart.
@@ -372,7 +374,17 @@ this task. See [diagnosis, evidence and deployment/rollback](AWG-STABILITY-FIXES
 - [x] Separate Xray/curl diagnostics preserve the safe original cause, redact
   credentials, bound retained logs and clean temporary files/processes/locks.
 - [x] Curl 28 without an Xray dial error is not labelled TCP connect failure.
-- [ ] r7 controlled live deployment, failed Apply/startup injection and restore.
+- [x] r7 controlled live deployment with canonical backups on router/Mac,
+  independent procd watchdog and46 installed file hashes verified.
+- [x] Existing OFF preserved byte-for-byte through installation, then explicitly
+  authorized recovery through a freshly measured-UP current main AWG. Roles,
+  private configurations and all network settings preserved; UDP1/IPv60 retained.
+- [x] Real LAN YouTube/X HTTPS200, UDP/TCP DNS hijack/FakeDNS, Telegram IP rules,
+  scoped AWG/WAN counters, unmatched direct and endpoint bypass observed.
+- [x] Two repeated normal Applies keep identical JSON/nft and one policy rule;
+  short observation retains routing1 and main PID; stale health resources are absent.
+- [x] Test counter table and deployment/watchdog services removed after commit.
+- [ ] Isolated failed Apply/startup injection and full r7-to-r6 runtime restore.
 - [ ] Physical reboot/manual-OFF persistence and exhaustive WAN-leak capture
   with accelerated forwarding tested in an isolated network. Mocked no-leak
   assertions and native nft syntax checks are not these acceptance gates.
@@ -390,8 +402,10 @@ nft list tables
 logread -e podkopchik | tail -60
 ```
 
-Only after separate deployment approval, and without treating an existing OFF
-state as an error, follow the full test/rollback procedure in the linked report.
+Future deployments/restores still require operator authorization; an existing
+OFF state is not itself permission to enable routing. The r7 pass clarified
+intent with the operator before restoration. See the linked live report for
+which backup restores original OFF versus known-working r7 ON.
 
 ## Required commands
 

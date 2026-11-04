@@ -1,5 +1,8 @@
 # AX6000 Stage 4 r7 Stability Candidate
 
+This preparation record is historical. The subsequently authorized installation
+and scoped live checks are recorded in [the r7 AX6000 deployment report](AWG-STAGE4-R7-LIVE-20261104.md).
+
 ## Scope And Outcome
 
 Prepared locally on 2026-11-04 against the installed Stage 4 r6 baseline.

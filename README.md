@@ -451,8 +451,10 @@ The uninstaller stops the service, removes only Podkopchik nftables rules, delet
 
 ## Recovery
 
-Stage 4 r7 stability fixes are prepared locally, not yet accepted on the live
-router. See [the AX6000 diagnosis, tests and guarded deployment/rollback plan](docs/AWG-STABILITY-FIXES-20261104.md).
+Stage 4 r7 was installed and non-destructively verified on the approved AX6000.
+See [the deployment, current roles, evidence and recovery snapshots](docs/AWG-STAGE4-R7-LIVE-20261104.md)
+and [the earlier diagnosis and local regression tests](docs/AWG-STABILITY-FIXES-20261104.md).
+Full failure-injection/reboot/leak-capture acceptance remains separate.
 
 An invalid Apply leaves existing interception and the saved routing intention
 unchanged. Runtime failures attempt recovery from a private last-working
