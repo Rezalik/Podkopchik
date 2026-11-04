@@ -13,6 +13,7 @@ HEALTH_LOCK="$TMP_DIR/health-check.lock"
 HEALTH_LOCK_HELD="0"
 ACTIVE_PROBE_PID=""
 ACTIVE_PROBE_LOCK=""
+ACTIVE_PROBE_BASE=""
 
 xray_bin() {
 	. "${PODKOPCHIK_XRAY_SELECTOR:-$LIB/xray.sh}"
@@ -55,16 +56,54 @@ terminate_pid() {
 	fi
 }
 
-cleanup_active_probe() {
+stop_probe_process() {
 	if [ -n "$ACTIVE_PROBE_PID" ]; then
 		terminate_pid "$ACTIVE_PROBE_PID"
 		wait "$ACTIVE_PROBE_PID" >/dev/null 2>&1 || true
 		ACTIVE_PROBE_PID=""
 	fi
+}
+
+cleanup_active_probe() {
+	stop_probe_process
 
 	if [ -n "$ACTIVE_PROBE_LOCK" ]; then
 		rmdir "$ACTIVE_PROBE_LOCK" >/dev/null 2>&1 || true
 		ACTIVE_PROBE_LOCK=""
+	fi
+	if [ -n "$ACTIVE_PROBE_BASE" ]; then
+		rm -f "$ACTIVE_PROBE_BASE.json" "$ACTIVE_PROBE_BASE.ip" "$ACTIVE_PROBE_BASE.xray.err" \
+			"$ACTIVE_PROBE_BASE.curl.err" "$ACTIVE_PROBE_BASE.generate.err" "$ACTIVE_PROBE_BASE.validate.err"
+		ACTIVE_PROBE_BASE=""
+	fi
+}
+
+retain_probe_error() {
+	# Diagnostic text is root-only and bounded. Never expose credentials from a
+	# core error, an invalid uploaded link, headers or a probe URL query.
+	local src="$1" dest="$2"
+	head -c 4096 "$src" | awk '
+		{ line=tolower($0); if (line ~ /uuid|privatekey|presharedkey|publickey|password|token|authorization|secret|"id"|vless:\/\//) print "[sensitive diagnostic line redacted]"; else print }
+	' | sed -E 's@https?://[^ \t]+@[URL redacted]@g; s/[A-Za-z0-9+_\/=\-]{32,}/[opaque value redacted]/g' | head -c 4096 > "$dest"
+	chmod 600 "$dest"
+}
+
+probe_failure_reason() {
+	local rc="$1" xerr="$2"
+	if grep -Eiq 'dial tcp.*(timeout|timed out)|connect: connection timed out' "$xerr"; then
+		echo 'tcp_connect_timeout (Xray dial error)'
+	elif grep -Eiq 'connection refused' "$xerr"; then
+		echo 'connection_refused (Xray dial error)'
+	elif grep -Eiq 'no such host|failed to lookup|dns.*(failed|error)' "$xerr"; then
+		echo 'dns_error (Xray resolver error)'
+	elif grep -Eiq 'tls|reality|handshake' "$xerr"; then
+		echo 'tls_or_reality_error (see root-only Xray diagnostic)'
+	else
+		case "$rc" in
+			28) echo 'proxy_probe_timeout (curl 28; TCP stage unconfirmed)' ;;
+			5|6) echo 'dns_error (curl resolver error)' ;;
+			*) echo "proxy_probe_failed (curl $rc; see root-only diagnostics)" ;;
+		esac
 	fi
 }
 
@@ -194,7 +233,10 @@ probe_proxy() {
 	bin="$4"
 
 	cfg="$TMP_DIR/health-$tag.json"
-	log="$TMP_DIR/health-$tag.log"
+	xray_err="$TMP_DIR/health-$tag.xray.err"
+	curl_err="$TMP_DIR/health-$tag.curl.err"
+	generate_err="$TMP_DIR/health-$tag.generate.err"
+	validate_err="$TMP_DIR/health-$tag.validate.err"
 	lock="$TMP_DIR/health-port-$port.lock"
 	url="$(uci -q get "$APP.main.probe_url" 2>/dev/null || echo https://www.gstatic.com/generate_204)"
 	timeout="$(uci -q get "$APP.main.timeout" 2>/dev/null || echo 5)"
@@ -204,6 +246,7 @@ probe_proxy() {
 		return
 	fi
 	ACTIVE_PROBE_LOCK="$lock"
+	ACTIVE_PROBE_BASE="$TMP_DIR/health-$tag"
 
 	probe_port_state "$port"
 	port_state="$?"
@@ -217,46 +260,48 @@ probe_proxy() {
 		return
 	fi
 
-	touch "$cfg" "$log"
-	if ! chmod 600 "$cfg" "$log"; then
+	touch "$cfg" "$xray_err" "$curl_err" "$generate_err" "$validate_err"
+	if ! chmod 600 "$cfg" "$xray_err" "$curl_err" "$generate_err" "$validate_err"; then
 		cleanup_active_probe
 		record_probe "$results" "$tag" "unknown" "could not protect temporary probe files"
 		return
 	fi
-	if ! ucode -L "$LIB" "$LIB/generate.uc" health "$tag" "$port" > "$cfg" 2>"$log"; then
-		msg="$(tr '\n\t' '  ' < "$log")"
+	if ! ucode -L "$LIB" "$LIB/generate.uc" health "$tag" "$port" > "$cfg" 2>"$generate_err"; then
+		retain_probe_error "$generate_err" "$TMP_DIR/health-$tag.xray.log"
 		cleanup_active_probe
-		record_probe "$results" "$tag" "unknown" "could not generate health config: $msg"
+		record_probe "$results" "$tag" "unknown" "could not generate health config; see root-only diagnostic"
 		return
 	fi
 
-	if ! "$bin" run -test -config "$cfg" >/dev/null 2>"$log"; then
-		msg="$(tr '\n\t' '  ' < "$log")"
+	if ! (ulimit -f 16; exec "$bin" run -test -config "$cfg") >/dev/null 2>"$validate_err"; then
+		retain_probe_error "$validate_err" "$TMP_DIR/health-$tag.xray.log"
 		cleanup_active_probe
-		record_probe "$results" "$tag" "unknown" "health config validation failed: $msg"
+		record_probe "$results" "$tag" "unknown" "health config validation failed; see root-only diagnostic"
 		return
 	fi
 
-	"$bin" run -config "$cfg" >/dev/null 2>"$log" &
+	(ulimit -f 16; exec "$bin" run -config "$cfg") >/dev/null 2>"$xray_err" &
 	pid="$!"
 	ACTIVE_PROBE_PID="$pid"
 	sleep 1
 
 	if ! kill -0 "$pid" >/dev/null 2>&1; then
-		msg="$(tr '\n\t' '  ' < "$log")"
+		retain_probe_error "$xray_err" "$TMP_DIR/health-$tag.xray.log"
 		wait "$pid" >/dev/null 2>&1 || true
 		ACTIVE_PROBE_PID=""
 		cleanup_active_probe
-		record_probe "$results" "$tag" "unknown" "temporary xray probe process exited before curl: ${msg:-no listener}"
+		record_probe "$results" "$tag" "unknown" "temporary xray probe process exited before curl; see root-only diagnostic"
 		return
 	fi
 
-	if elapsed="$(curl --noproxy '' -fsS -I --max-time "$timeout" --socks5-hostname "127.0.0.1:$port" -w '%{time_total}' -o /dev/null "$url" 2>"$log")"; then
+	if elapsed="$( (ulimit -f 16; exec curl --noproxy '' -fsS -I --max-time "$timeout" --socks5-hostname "127.0.0.1:$port" -w '%{time_total}' -o /dev/null "$url") 2>"$curl_err")"; then
 		legacy="$(uci -q get "$APP.main.extended_interception" 2>/dev/null || echo 0)"
 		ipv6="$(uci -q get "$APP.main.ipv6_interception" 2>/dev/null || echo "$legacy")"
-		if [ "$ipv6" = 1 ] && ! curl --noproxy '' --proto '=https' -fsS --max-time "$timeout" \
+		if [ "$ipv6" = 1 ] && ! (ulimit -f 16; exec curl --noproxy '' --proto '=https' -fsS --max-time "$timeout" \
 			--socks5 "127.0.0.1:$port" --resolve 'one.one.one.one:443:[2606:4700:4700::1111]' \
-			https://one.one.one.one/cdn-cgi/trace -o /dev/null 2>"$log"; then
+			https://one.one.one.one/cdn-cgi/trace -o /dev/null) 2>"$curl_err"; then
+			retain_probe_error "$xray_err" "$TMP_DIR/health-$tag.xray.log"
+			retain_probe_error "$curl_err" "$TMP_DIR/health-$tag.curl.log"
 			record_probe "$results" "$tag" down 'ipv6_probe'
 			cleanup_active_probe
 			return
@@ -274,10 +319,15 @@ probe_proxy() {
 			record_probe "$results" "$tag" "unknown" "temporary xray probe process exited during curl"
 		fi
 	else
-		msg="$(tr '\n\t' '  ' < "$log")"
-		record_probe "$results" "$tag" "down" "${msg:-probe failed}"
+		curl_rc=$?
+		stop_probe_process
+		msg="$(probe_failure_reason "$curl_rc" "$xray_err")"
+		record_probe "$results" "$tag" "down" "$msg"
 	fi
 
+	stop_probe_process
+	retain_probe_error "$xray_err" "$TMP_DIR/health-$tag.xray.log"
+	retain_probe_error "$curl_err" "$TMP_DIR/health-$tag.curl.log"
 	cleanup_active_probe
 }
 
@@ -362,8 +412,7 @@ run_once_locked() {
 		chmod 600 "$STATE"
 		logger -t podkopchik "health check completed"
 		if [ "$applied" = "1" ]; then
-			logger -t podkopchik "failover config applied; restarting Xray"
-			( sleep 1; /etc/init.d/podkopchik core_restart >/dev/null 2>&1 ) &
+			logger -t podkopchik "failover config applied; Xray restart was verified before state publication"
 		fi
 		rm -f "$events"
 	else

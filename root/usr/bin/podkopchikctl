@@ -14,6 +14,16 @@ BYPASS_STATE="$TMP_DIR/proxy_bypass.env"
 ROLLBACK="$TMP_DIR/rollback.tar.gz"
 VERSION="0.1.0-beta"
 PROC_DIR="${PODKOPCHIK_PROC_DIR:-/proc}"
+SAFETY="${PODKOPCHIK_SAFETY:-$LIB/routing_safety.sh}"
+INIT="${PODKOPCHIK_INIT:-/etc/init.d/podkopchik}"
+
+safety() { sh "$SAFETY" "$@"; }
+
+recover_working_runtime() {
+	safety guard && safety restore &&
+		ucode_run "$LIB/awg_cli.uc" restore-active && "$INIT" core_restart &&
+		safety ready && safety unguard
+}
 
 die() {
 	echo "podkopchikctl: $*" >&2
@@ -349,7 +359,15 @@ restore_previous_config() {
 cmd_status() {
 	echo "Podkopchik $VERSION"
 	echo "Service enabled: $(uci -q get "$APP.main.enabled" 2>/dev/null || echo 1)"
-	echo "Routing applied: $(uci -q get "$APP.main.routing_enabled" 2>/dev/null || echo 0)"
+	requested="$(uci -q get "$APP.main.routing_enabled" 2>/dev/null || echo 0)"
+	guard_status="$(safety status 2>/dev/null || true)"
+	[ -n "$guard_status" ] || guard_status=unknown
+	live=0
+	if [ "$requested" = 1 ] && [ "$guard_status" = inactive ] && main_xray_running && safety ready &&
+		nft list table inet podkopchik >/dev/null 2>&1; then live=1; fi
+	echo "Routing requested: $requested"
+	echo "Routing applied: $live"
+	echo "Routing safety guard: $guard_status"
 	echo "Configured proxies: $(section_count proxy)"
 	echo "Proxy groups: $(section_count proxy_group)"
 	echo "Domain rules: $(section_count domain_rule)"
@@ -400,6 +418,11 @@ cmd_prepare_connections() {
 	prepare="$CONFIG_DIR/config.connections.$$.json"
 	umask 077
 	if ! ucode_run "$LIB/generate.uc" >"$prepare" || ! validate_file "$prepare"; then
+		if safety restore && ucode_run "$LIB/awg_cli.uc" restore-active; then
+			rm -f "$prepare"
+			log "connection preparation recovered the last working runtime"
+			return 0
+		fi
 		log "connection preparation failed; blocking stale AWG outbounds"
 		ucode_run "$LIB/awg_cli.uc" block-active >"$prepare" || { rm -f "$prepare"; return 1; }
 		validate_file "$prepare" || { rm -f "$prepare"; return 1; }
@@ -413,10 +436,33 @@ cmd_apply() {
 	lock_dir="$TMP_DIR/config-apply.lock"
 	tmp="$TMP_DIR/config.apply.$$.json"
 	apply_err="$TMP_DIR/apply-rules.$$.err"
+	apply_backup="$TMP_DIR/config.before.$$.json"
 	owns_apply_lock=1
+	apply_mutated=0
+	apply_succeeded=0
+	can_restore=0
 	cleanup_apply() {
+		if [ "$apply_mutated" = 1 ] && [ "$apply_succeeded" = 0 ]; then
+			log "apply failed; restoring last working runtime without changing routing intention"
+			if safety guard; then
+				if [ "$can_restore" = 1 ] && recover_working_runtime; then
+					log "previous working routing restored"
+				else
+					if [ "$can_restore" = 0 ]; then
+						if [ -f "$apply_backup" ]; then
+							cp "$apply_backup" "$CONFIG_DIR/config.recover.$$.json" &&
+								mv "$CONFIG_DIR/config.recover.$$.json" "$CONFIG" || log "could not restore inactive previous config"
+						else rm -f "$CONFIG"; fi
+					fi
+					log "routing recovery incomplete; LAN forward guard retained; explicit Apply or Cleanup required"
+				fi
+			else
+				log "CRITICAL: could not establish routing failure guard; fail-closed cannot be guaranteed"
+			fi
+		fi
 		[ -n "$tmp" ] && rm -f "$tmp"
 		rm -f "$apply_err"
+		rm -f "$apply_backup"
 		[ "$owns_apply_lock" = 0 ] || rmdir "$lock_dir" >/dev/null 2>&1 || true
 	}
 
@@ -429,17 +475,28 @@ cmd_apply() {
 		fi
 	fi
 
-	trap 'cleanup_apply' HUP INT TERM EXIT
+	trap cleanup_apply EXIT
+	trap 'exit 130' INT
+	trap 'exit 143' HUP TERM
 
 	if ! has_enabled_proxy || ! has_enabled_route; then
-		uci -q set "$APP.main.routing_enabled=0"
-		uci -q commit "$APP"
-		"$LIB/cleanup_rules.sh" >/dev/null 2>&1 || true
 		die "configure at least one enabled connection and one routing rule before applying interception"
 	fi
 
 	require_ip_full
 	require_stats_port
+	# Reject malformed settings before touching AWG, active JSON or interception.
+	generate_to "$tmp"
+	validate_file "$tmp"
+	if main_xray_running && nft list table inet podkopchik >/dev/null 2>&1; then
+		safety save || die "could not preserve the current working runtime"
+		can_restore=1
+	elif [ -s "$CONFIG_DIR/working-state.name" ]; then
+		can_restore=1
+	fi
+	if [ -f "$CONFIG" ]; then cp "$CONFIG" "$apply_backup" || die "could not preserve previous config"; fi
+	safety guard || die "could not arm the routing safety guard; active runtime was not changed"
+	apply_mutated=1
 	if [ -f "$LIB/awg_cli.uc" ]; then
 		ucode_run "$LIB/awg_cli.uc" sync
 	fi
@@ -453,33 +510,25 @@ cmd_apply() {
 	replace_active_config "$tmp"
 	tmp=""
 
-	previous_routing="$(uci -q get "$APP.main.routing_enabled" 2>/dev/null || echo 0)"
 	if ! "$LIB/apply_rules.sh" apply >"$apply_err" 2>&1; then
 		apply_reason="$(sed -n '1,8p' "$apply_err" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//' || true)"
-		restore_previous_config
-		uci -q set "$APP.main.routing_enabled=$previous_routing"
-		uci -q commit "$APP"
 		if [ -n "$apply_reason" ]; then
-			log "routing rule application failed: $apply_reason; retained previous routing transaction and restored Xray config"
-			die "failed to apply routing rules; previous config restored: $apply_reason"
+			log "routing rule application failed: $apply_reason; recovering the previous runtime"
+			die "failed to apply routing rules; runtime recovery requested: $apply_reason"
 		fi
-		log "routing rule application failed; retained previous routing transaction and restored Xray config"
-		die "failed to apply routing rules; previous config restored"
+		log "routing rule application failed; recovering previous runtime"
+		die "failed to apply routing rules; runtime recovery requested"
 	fi
 	[ -s "$apply_err" ] && cat "$apply_err" >&2
 	rm -f "$apply_err"
 
 	uci -q set "$APP.main.routing_enabled=1"
 	uci -q commit "$APP"
-	if has_enabled_awg || grep -q 'amneziawg' /etc/config/podkopchik; then
-		/etc/init.d/podkopchik core_restart || die "could not restart Xray after AWG config apply"
-	else
-		/etc/init.d/podkopchik restart
-	fi
-	if [ "$owns_apply_lock" = 0 ]; then
-		sleep 2
-		main_xray_running || die "Xray did not start after connection selection"
-	fi
+	"$INIT" core_restart || die "could not start Xray after config apply"
+	safety ready || die "Xray transparent listener did not become ready"
+	safety save || die "could not checkpoint the applied runtime"
+	safety unguard || die "could not release routing safety guard"
+	apply_succeeded=1
 	log "routing configuration applied"
 	trap - HUP INT TERM EXIT
 	cleanup_apply
@@ -494,7 +543,12 @@ cmd_apply_health_state() {
 
 	lock_dir="$TMP_DIR/config-apply.lock"
 	tmp="$TMP_DIR/config.failover.$$.json"
+	failover_mutated=0
+	failover_succeeded=0
 	cleanup_failover_apply() {
+		if [ "$failover_mutated" = 1 ] && [ "$failover_succeeded" = 0 ]; then
+			recover_working_runtime || log "failover recovery incomplete; routing guard retained"
+		fi
 		rm -f "$tmp"
 		rmdir "$lock_dir" >/dev/null 2>&1 || true
 	}
@@ -503,7 +557,10 @@ cmd_apply_health_state() {
 		die "another config apply is in progress"
 	fi
 
-	trap 'cleanup_failover_apply' HUP INT TERM EXIT
+	trap cleanup_failover_apply EXIT
+	trap 'exit 130' INT
+	trap 'exit 143' HUP TERM
+	[ "$(uci -q get "$APP.main.routing_enabled" 2>/dev/null || echo 0)" = 1 ] || die "routing was explicitly disabled"
 
 	if ! ucode_run "$LIB/generate.uc" config-state "$state_file" > "$tmp"; then
 		log "failover config generation failed; keeping previous active config"
@@ -515,18 +572,30 @@ cmd_apply_health_state() {
 		die "failover config validation failed"
 	fi
 
+	safety save || die "could not preserve working failover runtime"
+	safety guard || die "could not arm failover guard"
+	failover_mutated=1
 	replace_active_config "$tmp"
 	tmp=""
+	"$INIT" core_restart && safety ready || die "failover Xray startup failed"
+	safety save && safety unguard || die "failover runtime checkpoint failed"
+	failover_succeeded=1
 	trap - HUP INT TERM EXIT
 	rmdir "$lock_dir" >/dev/null 2>&1 || true
-	log "failover config replaced after group active proxy change"
+	log "failover config replaced and Xray restarted after group active proxy change"
 }
 
 cmd_cleanup() {
-	"$LIB/cleanup_rules.sh"
+	lock_dir="$TMP_DIR/config-apply.lock"
+	mkdir -p "$TMP_DIR"
+	mkdir "$lock_dir" || die "another config apply is in progress"
+	trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT
+	# Only this explicit action clears persisted user intent, before restart.
 	uci -q set "$APP.main.routing_enabled=0"
 	uci -q commit "$APP"
-	/etc/init.d/podkopchik restart
+	"$LIB/cleanup_rules.sh"
+	safety unguard || die "could not remove routing safety guard"
+	"$INIT" restart
 	echo "Podkopchik routing disabled and owned nftables rules removed."
 }
 

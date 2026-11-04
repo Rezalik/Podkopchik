@@ -5,14 +5,49 @@ STOP=10
 USE_PROCD=1
 
 APP="podkopchik"
-CTL="/usr/bin/podkopchikctl"
-HEALTH="/usr/libexec/podkopchik/health_check.sh"
-RULES="/usr/libexec/podkopchik/apply_rules.sh"
-CLEANUP="/usr/libexec/podkopchik/cleanup_rules.sh"
-CONFIG="/etc/podkopchik/config.json"
+LIB="${PODKOPCHIK_LIB:-/usr/libexec/podkopchik}"
+TMP_DIR="${PODKOPCHIK_TMP_DIR:-/tmp/podkopchik}"
+CONFIG_DIR="${PODKOPCHIK_CONFIG_DIR:-/etc/podkopchik}"
+CTL="${PODKOPCHIK_CTL:-/usr/bin/podkopchikctl}"
+HEALTH="$LIB/health_check.sh"
+RULES="$LIB/apply_rules.sh"
+CLEANUP="$LIB/cleanup_rules.sh"
+CONFIG="$CONFIG_DIR/config.json"
+SAFETY="${PODKOPCHIK_SAFETY:-$LIB/routing_safety.sh}"
+STARTUP_FAILED=0
+STARTUP_OLD_PIDS=""
+
+safety() { sh "$SAFETY" "$@"; }
+
+startup_error() {
+	STARTUP_FAILED=1
+	logger -t podkopchik "$1; saved routing intention unchanged"
+	if ! safety guard; then
+		logger -t podkopchik 'CRITICAL: routing guard unavailable; fail-closed cannot be guaranteed'
+	fi
+	return 1
+}
+
+wait_ready() {
+	local attempt=0
+	while [ "$attempt" -lt 10 ]; do
+		safety ready "${1:-}" && return 0
+		sleep 1
+		attempt=$((attempt + 1))
+	done
+	return 1
+}
+
+restore_startup() {
+	safety restore &&
+		ucode -L "$LIB" "$LIB/awg_cli.uc" restore-active &&
+		"$CTL" validate-active >/dev/null 2>&1 || return 1
+	xray_instance || return 1
+	logger -t podkopchik 'startup recovered the last working Xray/nft snapshot; pending settings were not applied'
+}
 
 xray_bin() {
-	. /usr/libexec/podkopchik/xray.sh
+	. "$LIB/xray.sh"
 	xray_bin
 }
 
@@ -30,8 +65,10 @@ xray_instance() {
 }
 
 core_restart() {
+	local old_pids
 	uci_bool "$APP.main.enabled" && uci_bool "$APP.main.routing_enabled" || return 1
 	"$CTL" validate-active >/dev/null 2>&1 || return 1
+	old_pids="$(safety pids)" || return 1
 	procd_kill "$APP" xray
 	procd_open_service "$APP" /etc/init.d/podkopchik
 	xray_instance || return 1
@@ -39,6 +76,7 @@ core_restart() {
 		health_instance
 	fi
 	procd_close_service add
+	wait_ready "$old_pids"
 }
 
 health_instance() {
@@ -55,42 +93,78 @@ uci_bool() {
 }
 
 start_service() {
+	STARTUP_FAILED=0
 	uci_bool "$APP.main.enabled" || return 0
 
-	mkdir -p /tmp/podkopchik /etc/podkopchik
-	ucode -L /usr/libexec/podkopchik /usr/libexec/podkopchik/awg_cli.uc recover ||
+	mkdir -p "$TMP_DIR" "$CONFIG_DIR"
+	if uci_bool "$APP.main.routing_enabled"; then
+		safety guard || { startup_error 'could not arm startup routing guard'; return 1; }
+		STARTUP_OLD_PIDS="$(safety pids)" || return 1
+		[ -z "$STARTUP_OLD_PIDS" ] || procd_kill "$APP" xray
+	fi
+	ucode -L "$LIB" "$LIB/awg_cli.uc" recover ||
 		logger -t podkopchik "AWG transaction recovery requires attention"
 	# Kernel interfaces have no per-connection daemon. Restore desired state
 	# before starting Xray, without changing main/default routing.
-	ucode -L /usr/libexec/podkopchik /usr/libexec/podkopchik/awg_cli.uc sync ||
+	ucode -L "$LIB" "$LIB/awg_cli.uc" sync ||
 		logger -t podkopchik "AWG restore failed; unavailable AWG targets must remain blocked"
+	health_instance
+	# A deliberate routing disable must survive boot; health remains available.
+	uci_bool "$APP.main.routing_enabled" || return 0
 	"$CTL" prepare-connections || {
-		logger -t podkopchik "could not prepare safe connection config; Xray startup refused"
+		restore_startup && return 0
+		startup_error 'could not prepare safe connection config; Xray startup refused'
 		return 1
 	}
 
-	health_instance
-
-	if uci_bool "$APP.main.routing_enabled" && [ -s "$CONFIG" ]; then
+	if [ -s "$CONFIG" ]; then
 		if "$CTL" validate-active >/dev/null 2>&1; then
-			"$RULES" >/dev/null 2>&1 || logger -t podkopchik "failed to apply Podkopchik nftables rules"
+			startup_log="$TMP_DIR/startup-rules.err"
+			umask 077
+			if ! "$RULES" >"$startup_log" 2>&1; then
+				# nft errors contain no links/keys. Keep only a bounded root-only tail.
+				head -c 4096 "$startup_log" > "$startup_log.bounded"
+				mv "$startup_log.bounded" "$startup_log"
+				restore_startup && return 0
+				startup_error 'failed to apply Podkopchik nftables rules; Xray startup refused; see startup-rules.err'
+				return 1
+			fi
+			rm -f "$startup_log"
 			bin="$(xray_bin)"
 			if [ -n "$bin" ]; then
 				xray_instance
 			else
-				logger -t podkopchik "xray binary not found; routing remains inactive"
-				"$CLEANUP" >/dev/null 2>&1 || true
+				startup_error 'xray binary not found; routing remains blocked'
+				return 1
 			fi
 		else
-			logger -t podkopchik "active Xray config failed validation; keeping routing inactive"
-			"$CLEANUP" >/dev/null 2>&1 || true
+			restore_startup && return 0
+			startup_error 'active Xray config failed validation; keeping routing blocked'
+			return 1
 		fi
+	else
+		restore_startup && return 0
+		startup_error 'active Xray config missing; keeping routing blocked'
+		return 1
 	fi
 }
 
+service_started() {
+	[ "$STARTUP_FAILED" = 0 ] || return 1
+	uci_bool "$APP.main.routing_enabled" || return 0
+	if wait_ready "$STARTUP_OLD_PIDS" && safety save && safety unguard; then return 0; fi
+	startup_error 'Xray listener or working-state checkpoint failed; routing guard retained'
+}
+
 stop_service() {
-	"$CLEANUP" >/dev/null 2>&1 || true
-	ucode -L /usr/libexec/podkopchik /usr/libexec/podkopchik/awg_cli.uc stop-all >/dev/null 2>&1 || true
+	if uci_bool "$APP.main.routing_enabled"; then
+		# A service failure/restart is not an instruction to expose traffic.
+		safety guard || logger -t podkopchik 'CRITICAL: could not guard traffic while stopping Xray'
+	else
+		"$CLEANUP" >/dev/null 2>&1 || true
+		safety unguard || logger -t podkopchik 'could not remove routing guard after explicit disable'
+	fi
+	ucode -L "$LIB" "$LIB/awg_cli.uc" stop-all >/dev/null 2>&1 || true
 }
 
 reload_service() {

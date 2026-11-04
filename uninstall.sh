@@ -57,6 +57,12 @@ trap 'exit 1' HUP INT TERM
 "$(path /etc/init.d/podkopchik)" disable >/dev/null 2>&1 || true
 # A test root must never execute routing helpers against the host network.
 if [ -z "$DESTDIR" ]; then /usr/libexec/podkopchik/cleanup_rules.sh >/dev/null 2>&1 || true; fi
+if [ -z "$DESTDIR" ] && [ -f /usr/libexec/podkopchik/routing_safety.sh ]; then
+	sh /usr/libexec/podkopchik/routing_safety.sh unguard || {
+		echo 'podkopchik uninstall: could not remove owned routing guard; files retained' >&2
+		exit 1
+	}
+fi
 if [ -z "$DESTDIR" ] && [ -f /usr/libexec/podkopchik/awg_cli.uc ]; then
 	ucode -L /usr/libexec/podkopchik /usr/libexec/podkopchik/awg_cli.uc dispose-all || {
 		echo 'podkopchik uninstall: could not safely remove owned AWG resources; files retained' >&2

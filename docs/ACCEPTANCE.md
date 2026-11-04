@@ -350,6 +350,49 @@ authorization and the r6 live deployment are recorded in the Stage4 live report.
 Broader multi-profile/IPv6/reboot gates remain separate; do not infer them from
 the narrower live pass. GL-MT6000 was not accessed and must not be used.
 
+## Stage 4 r7 Stability Fix Gates (2026-11-04)
+
+Local regression acceptance only; no r7 code was installed on the AX6000 during
+this task. See [diagnosis, evidence and deployment/rollback](AWG-STABILITY-FIXES-20261104.md).
+
+- [x] Missing connection/rule and invalid candidate leave the old active JSON,
+  nft table and persisted routing intention unchanged; no AWG sync/restart.
+- [x] Mocked nft commit and core startup failures restore the last-working pair;
+  failed first activation retains the LAN forward guard rather than claiming UP.
+- [x] Init nft failure refuses the candidate Xray, retains bounded diagnostics,
+  and recovers a last-working snapshot when available.
+- [x] Guard is forward-only and owned; a foreign same-name table is refused.
+  It conservatively blocks all affected LAN forwarding, not just domain rules.
+- [x] Old core PIDs/health probes cannot satisfy new core listener readiness.
+- [x] Mocked explicit Cleanup persists OFF; a fresh boot invocation starts health
+  only, with no Xray/interception. Deployment also preserves OFF.
+- [x] Recovery after simulated `/tmp` loss uses the private persistent checkpoint.
+- [x] Native ucode simulated AWG/VLESS UP, AWG DOWN/VLESS UP, all-down blocked,
+  AWG restore, fresh backup/threshold/cooldown checks continue to pass.
+- [x] Separate Xray/curl diagnostics preserve the safe original cause, redact
+  credentials, bound retained logs and clean temporary files/processes/locks.
+- [x] Curl 28 without an Xray dial error is not labelled TCP connect failure.
+- [ ] r7 controlled live deployment, failed Apply/startup injection and restore.
+- [ ] Physical reboot/manual-OFF persistence and exhaustive WAN-leak capture
+  with accelerated forwarding tested in an isolated network. Mocked no-leak
+  assertions and native nft syntax checks are not these acceptance gates.
+
+Read-only router check (do not enable routing or run destructive tests):
+
+```sh
+ubus call system board
+uci -q get podkopchik.main.routing_enabled
+podkopchikctl status
+pgrep -a xray || true
+ip route
+ip rule
+nft list tables
+logread -e podkopchik | tail -60
+```
+
+Only after separate deployment approval, and without treating an existing OFF
+state as an error, follow the full test/rollback procedure in the linked report.
+
 ## Required commands
 
 These commands must exist:

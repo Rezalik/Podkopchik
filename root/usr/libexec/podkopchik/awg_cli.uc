@@ -3,7 +3,14 @@ import { cursor } from 'uci';
 const awg = require('awg');
 const manager = require('awg_manage');
 let action = ARGV[0], ctx = cursor();
-if (action == 'block-active') {
+if (action == 'restore-active') {
+	// A failed Apply restores the last applied runtime, not pending UCI roles.
+	let cfg = json(require('fs').readfile('/etc/podkopchik/config.json'));
+	for (let out in cfg.outbounds || [])
+		if (out.protocol == 'freedom' && match(out.tag || '', /^awg_[a-f0-9]{32}$/))
+			manager.runtime(substr(out.tag, 4), 'start', false);
+}
+else if (action == 'block-active') {
 	// Startup fallback only: never permit a stale interface-bound freedom
 	// outbound to fall through to WAN after /tmp policy ownership was lost.
 	let cfg = json(require('fs').readfile('/etc/podkopchik/config.json'));

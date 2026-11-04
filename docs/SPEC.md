@@ -516,6 +516,46 @@ Before applying:
 * only replace active config if validation succeeds
 * keep previous working config if validation fails
 
+### Stage 4 r7: Apply And Startup Recovery
+
+See [the 2026-11-04 AX6000 diagnosis and release gates](AWG-STABILITY-FIXES-20261104.md).
+This is a locally tested candidate, not a completed live deployment.
+
+- Missing enabled connections/rules or failed candidate validation must not
+  change `routing_enabled`, stop Xray, sync AWG or remove current interception.
+- Runtime Apply and failover changes serialize, validate, preserve an owned
+  last-working Xray/nft pair, arm an independent LAN forward guard, replace
+  state and verify the new main Xray PID owns the transparent TCP listener.
+- Checkpoints are private immutable `.working-*` directories under
+  `/etc/podkopchik`, selected by an atomic `working-state.name` pointer. Keep
+  current and one preceding generation. They contain secrets, not public data.
+- A runtime failure restores the validated checkpoint, owned policy routes and
+  AWG interfaces referenced by that config, without rewriting pending UCI
+  roles. Failed recovery retains the guard and records an explicit error.
+- The guard is only `inet podkopchik_guard`, forward priority `-10`, dropping
+  forwarding from last-applied/pending LAN interfaces. It does not alter
+  INPUT/OUTPUT, default routes or unrelated firewall tables. This fallback
+  deliberately blocks otherwise-direct LAN forwarding too. If nft itself is
+  unavailable, report that fail-closed cannot be guaranteed, never claim success.
+- Startup nft failure must not start the candidate Xray or report routing
+  active. It may start a validated last-working pair under the guard. Service
+  stop/restart with routing requested retains protection; explicit Cleanup is
+  the separate action that persists OFF and removes the owned guard.
+- Routing requested and routing applied are distinct status fields. Readiness
+  requires an actual main Xray listener, not a health probe or an old PID.
+- Failover publishes new selected state only after the synchronous core restart
+  succeeds. No restart is requested when selection did not change.
+- Xray/curl stderr must be separate. Retained root-only redacted diagnostics
+  are bounded to 4096 bytes per file; private raw files/configs are cleaned.
+  Curl 28 alone means probe timeout with an unconfirmed TCP stage; only a
+  corresponding Xray dial error identifies a TCP connect timeout.
+- Guarded deployment/rollback must preserve explicit routing OFF. Restoring r6
+  requires the new helper to release any owned guard only after listener
+  confirmation (or explicit OFF). Uninstall removes the guard before its helper.
+
+This is controlled recovery, not power-loss atomicity. Flow-offload/exhaustive
+WAN-leak capture, real boot and failure-injection acceptance remain separate.
+
 nftables / TPROXY
 
 Podkopchik must use nftables/firewall4 style rules.

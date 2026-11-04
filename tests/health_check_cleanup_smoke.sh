@@ -93,6 +93,14 @@ fi
 
 if [ "${1:-}" = "run" ] && [ "${2:-}" = "-config" ]; then
 	cfg="${3:-}"
+	case "$cfg" in
+		*health-*)
+			echo 'Xray: failed to dial tcp 203.0.113.8:443: i/o timeout' >&2
+			echo 'uuid=11111111-2222-3333-4444-555555555555' >&2
+			echo 'invalid link vless://SENSITIVE_TEST_VALUE@example.invalid:443' >&2
+			[ "${TEST_PROBE_EARLY_EXIT:-0}" = 0 ] || exit 1
+			;;
+	esac
 	echo "$$ $cfg" >> "$XRAY_PID_LOG"
 	trap '' HUP
 	trap 'echo "term $$ '"$cfg"'" >> "$XRAY_TERM_LOG"; exit 0' INT TERM
@@ -118,7 +126,7 @@ export PATH="$tmp:$PATH"
 "$tmp/xray" run -config /etc/podkopchik/config.json &
 main_pid="$!"
 (
-	"$tmp/xray" run -config "$runtime/health-gerwarp.json" &
+	"$tmp/xray" run -config "$runtime/health-gerwarp.json" 2> "$tmp/stale-diagnostic" &
 	echo "$!" > "$tmp/stale.pid"
 )
 stale_pid="$(cat "$tmp/stale.pid")"
@@ -150,9 +158,15 @@ kill -0 "$main_pid" >/dev/null 2>&1
 ! grep -q '/etc/podkopchik/config.json' "$XRAY_TERM_LOG"
 grep -q "$runtime/health-gerwarp.json" "$XRAY_TERM_LOG"
 grep -q "cleaning up stale health probe Xray process" "$PODKOPCHIK_TEST_LOG"
-grep -q "gerwarp.*down.*Operation timed out" "$runtime/health-results.tsv"
-[ "$(ls -ld "$runtime/health-gerwarp.json" | cut -c1-10)" = '-rw-------' ]
-[ "$(ls -ld "$runtime/health-gerwarp.log" | cut -c1-10)" = '-rw-------' ]
+grep -q "gerwarp.*down.*tcp_connect_timeout" "$runtime/health-results.tsv"
+grep -q 'failed to dial tcp' "$runtime/health-gerwarp.xray.log"
+grep -q 'Operation timed out' "$runtime/health-gerwarp.curl.log"
+! grep -E '11111111-2222|SENSITIVE_TEST_VALUE|vless://' "$runtime/health-gerwarp.xray.log"
+[ ! -f "$runtime/health-gerwarp.json" ]
+[ ! -f "$runtime/health-gerwarp.xray.err" ]
+[ ! -f "$runtime/health-gerwarp.curl.err" ]
+[ "$(ls -ld "$runtime/health-gerwarp.xray.log" | cut -c1-10)" = '-rw-------' ]
+[ "$(ls -ld "$runtime/health-gerwarp.curl.log" | cut -c1-10)" = '-rw-------' ]
 [ ! -d "$runtime/health-port-20800.lock" ]
 [ ! -d "$runtime/health-check.lock" ]
 
@@ -168,6 +182,14 @@ PODKOPCHIK_LIB="$tmp/lib" \
 health_runs="$(grep -c "$runtime/health-gerwarp.json" "$XRAY_PID_LOG")"
 health_terms="$(grep -c "$runtime/health-gerwarp.json" "$XRAY_TERM_LOG")"
 [ "$health_runs" -eq "$health_terms" ]
+
+TEST_PROBE_EARLY_EXIT=1 PODKOPCHIK_LIB="$tmp/lib" PODKOPCHIK_TMP_DIR="$runtime" \
+	PODKOPCHIK_PROC_DIR="$fake_proc" PODKOPCHIK_STATE="$runtime/state.json" \
+	sh root/usr/libexec/podkopchik/health_check.sh once
+grep -q 'unknown.*process exited before curl' "$runtime/health-results.tsv"
+[ ! -e "$runtime/health-gerwarp.json" ]
+[ ! -d "$runtime/health-check.lock" ]
+kill -0 "$main_pid"
 
 kill "$main_pid" >/dev/null 2>&1 || true
 wait "$main_pid" >/dev/null 2>&1 || true

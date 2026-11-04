@@ -451,18 +451,30 @@ The uninstaller stops the service, removes only Podkopchik nftables rules, delet
 
 ## Recovery
 
+Stage 4 r7 stability fixes are prepared locally, not yet accepted on the live
+router. See [the AX6000 diagnosis, tests and guarded deployment/rollback plan](docs/AWG-STABILITY-FIXES-20261104.md).
+
+An invalid Apply leaves existing interception and the saved routing intention
+unchanged. Runtime failures attempt recovery from a private last-working
+Xray/nft snapshot. If recovery fails, an owned forward guard blocks LAN
+forwarding rather than silently exposing protected traffic. This conservative
+fallback also blocks normally direct LAN traffic; router INPUT/OUTPUT and SSH
+are not changed. `status` distinguishes requested routing from verified runtime.
+
 Disable interception:
 
 ```sh
 podkopchikctl cleanup
 ```
 
-Restore the previous Xray config if needed:
+This is an explicit request to allow normal direct forwarding: it persists
+`routing_enabled=0`, removes owned interception/guard state and survives restart
+and boot. An ordinary Apply failure does not perform this action.
 
-```sh
-cp /etc/podkopchik/config.json.prev /etc/podkopchik/config.json
-/etc/init.d/podkopchik restart
-```
+Runtime failures attempt recovery of the matching last-working Xray/nft pair.
+Do not restore JSON alone while leaving a different nft configuration active.
+For a full code/config rollback, use the private canonical snapshot and
+independent watchdog described in the linked Stage 4 report.
 
 Inspect state and logs:
 
@@ -474,6 +486,8 @@ logread -e podkopchik
 ## Troubleshooting
 
 - If **Apply** fails, run `podkopchikctl validate` and inspect the error.
+- If the routing safety guard is active, keep SSH open and inspect `logread -e podkopchik` and `/tmp/podkopchik/startup-rules.err`. Fix the rejected settings before retrying Apply. Use Cleanup only when direct traffic is explicitly acceptable.
+- Health diagnostics keep separate, sanitized root-only `health-TAG.xray.log` and `health-TAG.curl.log` (up to 4096 bytes each) under `/tmp/podkopchik`. A curl timeout alone does not prove a TCP connect timeout; raw temporary stderr/configs are removed after the check.
 - If reinstalling did not help, remember that `/etc/config/podkopchik` is intentionally preserved. Run `podkopchikctl generate` or `podkopchikctl apply`; stale rule targets are repaired to `auto_proxy_group` when the automatic proxy group is valid, or reported with the exact broken rule.
 - If install fails while installing a dependency, check OpenWrt repositories, WAN/DNS, free `/overlay` space, and kernel kmod compatibility.
 - If Apply reports `Missing required dependency: ip-full`, rerun the installer or install `ip-full`; BusyBox `ip` cannot add Podkopchik fwmark policy rules.

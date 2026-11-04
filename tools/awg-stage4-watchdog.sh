@@ -61,7 +61,28 @@ recover_snapshot() {
 	printf '%s\n' "$PODKOPCHIK_CONNECTION_APPLY" > "$lock/connection-token"
 	# The snapshot is locally prepared and checksum-verified, never user input.
 	# Keep current interception/guards until the old controller replaces it.
-	if ! tar -xzf "$backup" -C / || ! podkopchikctl apply; then return 1; fi
+	old_pids=""
+	if [ -f /usr/libexec/podkopchik/routing_safety.sh ]; then
+		old_pids="$(sh /usr/libexec/podkopchik/routing_safety.sh pids)"
+	fi
+	tar -xzf "$backup" -C / || return 1
+	if [ "$(uci -q get podkopchik.main.routing_enabled 2>/dev/null || echo 0)" = 1 ]; then
+		podkopchikctl apply || return 1
+		# A downgrade to r6 does not know the new isolated safety table.
+		if [ -f /usr/libexec/podkopchik/routing_safety.sh ]; then
+			i=0
+			until sh /usr/libexec/podkopchik/routing_safety.sh ready "$old_pids"; do
+				[ "$i" -lt 10 ] || return 1
+				sleep 1; i=$((i + 1))
+			done
+			sh /usr/libexec/podkopchik/routing_safety.sh unguard || return 1
+		fi
+	else
+		/etc/init.d/podkopchik restart || return 1
+		if [ -f /usr/libexec/podkopchik/routing_safety.sh ]; then
+			sh /usr/libexec/podkopchik/routing_safety.sh unguard || return 1
+		fi
+	fi
 	if [ -f "$dir/audit-owned" ] && nft -j list table inet podkopchik_stage4_audit 2>/dev/null |
 		grep -q 'podkopchik-stage4-audit'; then
 		nft delete table inet podkopchik_stage4_audit || return 1

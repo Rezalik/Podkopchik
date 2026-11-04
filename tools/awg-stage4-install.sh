@@ -30,6 +30,9 @@ if [ -n "$guard" ]; then
 	[ "$(cat "$guard/deadline")" -gt "$(($(cut -d. -f1 /proc/uptime) + 30))" ] || fail 'independent recovery deadline is too close'
 fi
 activate() {
+	old_pids=""
+	safety=/usr/libexec/podkopchik/routing_safety.sh
+	[ ! -f "$safety" ] || old_pids="$(sh "$safety" pids)"
 	# Replace only the health worker, so it loads the new script; keep the
 	# transparent rules and AWG interfaces live throughout the code update.
 	ubus call service delete '{"name":"podkopchik","instance":"health"}' >/dev/null 2>&1 || true
@@ -38,7 +41,20 @@ activate() {
 		[ "$i" -lt 12 ] || return 1
 		sleep 1; i=$((i + 1))
 	done
-	podkopchikctl apply
+	if [ "$(uci -q get podkopchik.main.routing_enabled 2>/dev/null || echo 0)" = 1 ]; then
+		podkopchikctl apply || return 1
+		if [ -f "$safety" ]; then
+			i=0
+			until sh "$safety" ready "$old_pids"; do
+				[ "$i" -lt 10 ] || return 1
+				sleep 1; i=$((i + 1))
+			done
+			sh "$safety" unguard
+		fi
+	else
+		/etc/init.d/podkopchik restart || return 1
+		[ ! -f "$safety" ] || sh "$safety" unguard
+	fi
 }
 restart_ui() {
 	/etc/init.d/rpcd restart
@@ -121,7 +137,10 @@ backup="/root/podkopchik-before-stage4-$stamp.tar.gz"
 sh "$base/awg-preflight.sh" --backup "$backup"
 diag="/root/podkopchik-before-stage4-$stamp"
 mkdir -m 700 "$diag"
-nft -s list table inet podkopchik > "$diag/nft.txt"
+if ! nft -s list table inet podkopchik > "$diag/nft.txt" 2>"$diag/nft.err"; then
+	[ "$(uci -q get podkopchik.main.routing_enabled 2>/dev/null || echo 0)" = 0 ] || fail 'requested routing table cannot be captured'
+	printf '%s\n' '# Routing explicitly OFF; no active Podkopchik table captured.' > "$diag/nft.txt"
+fi
 ip -N -4 rule show > "$diag/rules4.txt"
 ip -N -6 rule show > "$diag/rules6.txt"
 ip -N -4 route show table all > "$diag/routes4.txt"
@@ -132,8 +151,13 @@ podkopchikctl validate
 activate
 sleep 2
 podkopchikctl status > "$work/status.txt"
-grep -qx 'Xray: running' "$work/status.txt" || fail 'main Xray is not running after apply'
-podkopchikctl validate-active >/dev/null || fail 'active Xray config is invalid'
+if [ "$(uci -q get podkopchik.main.routing_enabled 2>/dev/null || echo 0)" = 1 ]; then
+	grep -qx 'Xray: running' "$work/status.txt" || fail 'main Xray is not running after apply'
+	grep -qx 'Routing applied: 1' "$work/status.txt" || fail 'runtime routing is not active after apply'
+	podkopchikctl validate-active >/dev/null || fail 'active Xray config is invalid'
+else
+	grep -qx 'Xray: not running' "$work/status.txt" || fail 'explicit routing disable was not preserved'
+fi
 # Forwarding and DNS remain owned by Podkopchik; no network service restart.
 restart_ui
 changing=0
