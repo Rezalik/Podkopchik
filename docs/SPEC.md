@@ -571,6 +571,7 @@ install.sh must:
 * report dependencies that are already installed
 * validate after dependency installation that `ip-full`/`iproute2`, `nft`, `ucode`, `xray`, a download tool, LuCI, `rpcd`, and `uhttpd` are available
 * install files into the correct OpenWrt paths
+* normalize static payload directories to `0755` before tar installation so source archive root/parent metadata cannot propagate `0700` or group-writable `0775` modes; preserve file permissions and unrelated private directories
 * create /etc/config/podkopchik if missing
 * preserve existing /etc/config/podkopchik
 * support running from a checked-out repository or from the raw GitHub `install.sh` by downloading the `main` branch payload when needed

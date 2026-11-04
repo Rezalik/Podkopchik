@@ -388,6 +388,9 @@ ensure_payload() {
 install_payload_dir() {
 	payload="$1"
 	dest_root="${DESTDIR:-/}"
+	# tar also restores directory metadata, including the archive root.
+	# Only static payload directories belong here, never runtime secrets.
+	find "$payload" -type d -exec chmod 755 {} \; || die "could not normalize payload directory permissions"
 	( cd "$payload" && tar -cf - . ) | ( cd "$dest_root" && tar -xf - ) || die "could not install files"
 }
 

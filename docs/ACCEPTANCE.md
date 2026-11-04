@@ -57,6 +57,7 @@
 - `install.sh` stops before package installation when `/overlay` has less than 15 MB free, and warns when less than 25 MB is free.
 - `install.sh` stops by default when conflicting proxy applications are installed or active, including Podkop, sing-box, Passwall, OpenClash, Mihomo/Clash, v2rayA, or standalone Xray service/config.
 - `install.sh` treats existing `/etc/config/podkopchik` as update mode and preserves it.
+- Installer payload-directory normalization is tested with `0700` and `0775` source directories: installed parents are `0755`, private files retain `0600`, and unrelated private directories retain `0700` (`tests/install_payload_permissions_smoke.sh`).
 - Health checks record real probe results when Xray plus curl probing is available; otherwise they report unknown with the reason and do not mark proxies up.
 - Health-check cleanup removes stale temporary Xray processes using `/tmp/podkopchik/health-*.json` and never targets the main `/etc/podkopchik/config.json` Xray process.
 - `podkopchikctl status` reports Xray as running only when the main process uses `/etc/podkopchik/config.json`; stale health probe processes must not be counted as the main service.
