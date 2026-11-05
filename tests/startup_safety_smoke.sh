@@ -28,7 +28,7 @@ ucode() { echo "ucode $*" >> "$tmp/log"; }
 xray_bin() { echo /usr/bin/xray; }
 logger() { echo "$*" >> "$tmp/log"; }
 procd_open_instance() { echo "instance $*" >> "$tmp/log"; }
-procd_set_param() { :; }
+procd_set_param() { echo "param $*" >> "$tmp/log"; }
 procd_close_instance() { :; }
 safety() {
 	echo "safety $*" >> "$tmp/log"
@@ -41,6 +41,8 @@ touch "$tmp/fail-nft"
 if start_service; then echo 'Expected startup nft failure'; exit 1; fi
 if service_started; then echo 'Failed startup must not report readiness'; exit 1; fi
 ! grep -q 'instance xray' "$tmp/log"
+! grep -q 'param env' "$tmp/log"
+! grep -q 'param limits' "$tmp/log"
 grep -q 'safety guard' "$tmp/log"
 ! grep -q cleanup "$tmp/log"
 grep -q 'syntax error' "$tmp/run/startup-rules.err"
@@ -52,6 +54,8 @@ touch "$tmp/recoverable"
 start_service
 service_started
 grep -q 'instance xray' "$tmp/log"
+! grep -q 'cone.disabled=true\|XRAY_CONE_DISABLED=true' "$tmp/log"
+grep -qx 'param limits nofile=16384 16384' "$tmp/log"
 grep -q 'startup recovered the last working' "$tmp/log"
 grep -q 'safety unguard' "$tmp/log"
 
@@ -65,6 +69,8 @@ start_service
 service_started
 grep -q 'instance health' "$tmp/log"
 ! grep -Eq 'instance xray|^rules$|safety guard|safety restore' "$tmp/log"
+! grep -q 'param env' "$tmp/log"
+! grep -q 'param limits' "$tmp/log"
 [ "$(cat "$tmp/requested")" = 0 ]
 stop_service
 grep -q cleanup "$tmp/log"

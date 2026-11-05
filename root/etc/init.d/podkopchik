@@ -58,6 +58,8 @@ xray_instance() {
 	[ -n "$bin" ] || return 1
 	procd_open_instance xray
 	procd_set_param command "$bin" run -config "$CONFIG"
+	# Transparent UDP and DNS share this process, including AWG-only setups.
+	procd_set_param limits nofile="16384 16384"
 	procd_set_param respawn 3600 5 5
 	procd_set_param stdout 1
 	procd_set_param stderr 1

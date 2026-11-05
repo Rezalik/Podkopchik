@@ -29,5 +29,11 @@ grep -qx 'kill podkopchik xray' "$tmp/log"
 grep -qx 'instance xray' "$tmp/log"
 grep -qx 'close add' "$tmp/log"
 grep -qx 'param command /usr/libexec/podkopchik-core/xray run -config /etc/podkopchik/config.json' "$tmp/log"
+! grep -q 'cone.disabled=true\|XRAY_CONE_DISABLED=true' "$tmp/log"
+grep -qx 'param limits nofile=16384 16384' "$tmp/log"
 ! grep -Eq 'cleanup|apply_rules|health|nft' "$tmp/log"
+: > "$tmp/log"
+health_instance
+! grep -q 'param env' "$tmp/log"
+! grep -q 'param limits' "$tmp/log"
 echo 'Xray-only procd restart smoke OK'

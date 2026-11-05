@@ -56,6 +56,7 @@ function renderCore(info) {
 		package: _('OpenWrt package (opkg/apk)'),
 		system: _('System Xray (package ownership unverified)'),
 		official: _('Official Xray release'),
+		local: _('Locally built Xray'),
 		rollback: _('Restored executable')
 	};
 	var statuses = {
@@ -72,7 +73,9 @@ function renderCore(info) {
 	]);
 	var details = E('dl', { 'style': 'display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px 16px;overflow-wrap:anywhere' });
 	var output = E('pre', { 'style': 'white-space:pre-wrap;overflow-wrap:anywhere' });
+	var patchWarning = E('p', { 'class': 'alert-message warning' }, _('Installing a stock core removes the local UDP reply-cache patch.'));
 	function refresh() {
+		patchWarning.hidden = data.udp_reply_cache != 'bounded-v1';
 		while (details.firstChild)
 			details.removeChild(details.firstChild);
 		var checked = Number(data[source.value + '_checked_at'] || 0);
@@ -80,6 +83,7 @@ function renderCore(info) {
 			[ _('Installed Xray version'), data.installed || _('Not available') ],
 			[ _('Latest version'), data[source.value + '_latest'] || _('Not checked yet') ],
 			[ _('Installed source'), labels[data.source] || data.source || _('Not available') ],
+			[ _('UDP reply cache'), data.udp_reply_cache == 'bounded-v1' ? _('Bounded reply cache (local build)') : _('Stock Xray reply cache') ],
 			[ _('Architecture'), data.architecture || _('Not available') ],
 			[ _('Last update check'), checked ? new Date(checked * 1000).toLocaleString() : _('Not checked yet') ],
 			[ _('Update status'), statuses[data.status] || _('Not checked yet') ]
@@ -133,6 +137,7 @@ function renderCore(info) {
 	return E('section', { 'class': 'cbi-section' }, [
 		E('h3', _('Xray Core')),
 		details,
+		patchWarning,
 		E('label', [ _('Update source'), ' ', source ]),
 		E('p', _('Xray and Podkopchik updates are independent. An Xray update briefly restarts the proxy; failed verification restores the previous executable.')),
 		E('div', { 'style': 'display:flex;gap:8px;flex-wrap:wrap' }, [

@@ -488,6 +488,7 @@ logread -e podkopchik
 ## Troubleshooting
 
 - If **Apply** fails, run `podkopchikctl validate` and inspect the error.
+- If AWG health is UP but sites stall, inspect main Xray logs for `too many open files` and its `/proc/PID/limits`/`fd` usage. Xray still handles transparent traffic and FakeDNS with only AWG profiles. The [bounded UDP reply-cache source fix](docs/XRAY-UDP-CACHE-FIX-20261105.md) preserves full-cone; it is a separately reviewed local-core candidate, not an automatic application update. See also [the FD incident](docs/XRAY-FD-20261105.md) and [the coreless architecture assessment](docs/AWG-ONLY-WITHOUT-XRAY.md).
 - If the routing safety guard is active, keep SSH open and inspect `logread -e podkopchik` and `/tmp/podkopchik/startup-rules.err`. Fix the rejected settings before retrying Apply. Use Cleanup only when direct traffic is explicitly acceptable.
 - Health diagnostics keep separate, sanitized root-only `health-TAG.xray.log` and `health-TAG.curl.log` (up to 4096 bytes each) under `/tmp/podkopchik`. A curl timeout alone does not prove a TCP connect timeout; raw temporary stderr/configs are removed after the check.
 - If reinstalling did not help, remember that `/etc/config/podkopchik` is intentionally preserved. Run `podkopchikctl generate` or `podkopchikctl apply`; stale rule targets are repaired to `auto_proxy_group` when the automatic proxy group is valid, or reported with the exact broken rule.

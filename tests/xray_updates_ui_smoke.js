@@ -24,6 +24,11 @@ const api = new Function('fs', 'ui', 'E', '_', source.slice(0, source.indexOf('r
 	assert(text(card).includes('Installed Xray version'));
 	assert(text(card).includes('25.1.30'));
 	assert(text(card).includes('Not checked yet'));
+	assert(text(card).includes('Stock Xray reply cache'));
+	const patched = api.renderCore('installed=26.10.31\nsource=local\nudp_reply_cache=bounded-v1\nstatus=verified\n');
+	assert(text(patched).includes('Locally built Xray'));
+	assert(text(patched).includes('Bounded reply cache (local build)'));
+	assert(!all(patched, 'option').some(option => option.attrs.value === 'local'), 'local builds require root/SSH hash approval, not an unauthenticated upload option');
 	const select = all(card, 'select')[0];
 	select.value = 'official';
 	select.attrs.change();

@@ -1434,3 +1434,18 @@ msgstr "Проверка HTTPS или handshake не пройдена."
 
 msgid "A configured AWG address is missing from the interface. Restart the connection and check the profile."
 msgstr "На интерфейсе отсутствует настроенный адрес AWG. Перезапустите подключение и проверьте профиль."
+
+msgid "Locally built Xray"
+msgstr "Локальная сборка Xray"
+
+msgid "UDP reply cache"
+msgstr "Кэш ответных UDP-сокетов"
+
+msgid "Bounded reply cache (local build)"
+msgstr "Ограниченный кэш (локальная сборка)"
+
+msgid "Stock Xray reply cache"
+msgstr "Стандартный кэш Xray"
+
+msgid "Installing a stock core removes the local UDP reply-cache patch."
+msgstr "Установка стандартного ядра удалит локальное исправление кэша UDP-сокетов."

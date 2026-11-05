@@ -14,7 +14,7 @@ xray_source() {
 xray_bin() {
 	case "$(xray_source)" in
 		package) command -v xray 2>/dev/null || command -v xray-core 2>/dev/null ;;
-		official|rollback) [ -x "$CORE_DIR/xray" ] && printf '%s\n' "$CORE_DIR/xray" ;;
+		official|local|rollback) [ -x "$CORE_DIR/xray" ] && printf '%s\n' "$CORE_DIR/xray" ;;
 		*) return 1 ;;
 	esac
 }

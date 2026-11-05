@@ -945,7 +945,7 @@ case "${1:-}" in
 		exec sh "$LIB/xray_jobs.sh" start "xray-$job" "${1:-package}"
 		;;
 	*)
-		echo "Usage: podkopchikctl {status|generate|validate|apply|restart|cleanup|health|shaping-status|awg-list|awg-start ID|awg-stop ID|awg-restart ID|awg-check ID|awg-recover|update-check|update-install|rollback|xray-status|xray-check [package|official]|xray-install [package|official]|xray-rollback}" >&2
+		echo "Usage: podkopchikctl {status|generate|validate|apply|restart|cleanup|health|shaping-status|awg-list|awg-start ID|awg-stop ID|awg-restart ID|awg-check ID|awg-recover|update-check|update-install|rollback|xray-status|xray-check [package|official]|xray-install [package|official]|xray-install local SHA256|xray-rollback}" >&2
 		exit 2
 		;;
 esac

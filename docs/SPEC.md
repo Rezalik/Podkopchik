@@ -519,10 +519,35 @@ Before applying:
 ### Stage 4 r7: Apply And Startup Recovery
 
 See [the 2026-11-04 AX6000 diagnosis and release gates](AWG-STABILITY-FIXES-20261104.md).
-The candidate was subsequently installed on the approved AX6000. See
+The main Xray procd instance has explicit soft/hard `nofile=16384 16384` limits,
+including in AWG-only configurations where it remains the TPROXY/FakeDNS/routing
+engine. Health workers and global limits are unchanged. This is capacity
+headroom, not a guarantee against socket accumulation; see
+[the FD incident and verification](XRAY-FD-20261105.md).
+The r7 recovery candidate was subsequently installed on the approved AX6000. See
 [the scoped r7 live pass and remaining acceptance gates](AWG-STAGE4-R7-LIVE-20261104.md).
 Normal Apply/health/FakeDNS/LAN tests passed; destructive runtime faults and
 reboot were not exercised on the working router.
+
+The earlier cone-disabling mitigation was withdrawn before deployment. The
+main process must preserve full-cone behavior. The reviewed source-core
+candidate instead limits each dokodemo transparent reply cache to 128 sockets,
+expires entries after 120s idle with a 30s sweep, and recreates source sockets
+on demand. The outbound full-cone socket, association key, routing, DNS/FakeDNS,
+AWG roles and existing FD limit are unchanged. This is not a global FD budget.
+The cache patch is built on a workstation, not on OpenWrt; both v26.3.27 and
+v26.10.31 are source-hash-pinned. No cache timeout UCI option is invented.
+
+A reviewed local core can be staged by root in private
+`/tmp/podkopchik/xray-local/xray` and installed explicitly with
+`podkopchikctl xray-install local SHA256`. Expected hash, owned private staging,
+regular single-link file, matching ELF/config and build marker are required.
+The existing managed binary/rollback path is reused; package-owned Xray is not
+overwritten. This path is not offered through a new LuCI upload/ACL or background
+job. LuCI displays the installed source and reported reply-cache build, and
+warns that stock-core updates remove the local patch. Local build metadata is
+not an official signature. No installation or core switch is automatic.
+See [cache fix, evidence and remaining gates](XRAY-UDP-CACHE-FIX-20261105.md).
 
 - Missing enabled connections/rules or failed candidate validation must not
   change `routing_enabled`, stop Xray, sync AWG or remove current interception.

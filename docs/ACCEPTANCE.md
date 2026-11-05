@@ -407,7 +407,43 @@ OFF state is not itself permission to enable routing. The r7 pass clarified
 intent with the operator before restoration. See the linked live report for
 which backup restores original OFF versus known-working r7 ON.
 
+## Full-Cone UDP Reply-Cache Candidate (2026-11-05)
+
+See [the initial diagnosis](XRAY-UDP-RETENTION-20261105.md) and
+[the root-cause reproduction and source fix](XRAY-UDP-CACHE-FIX-20261105.md).
+The earlier cone-disabling candidate was withdrawn. The main router has not
+been switched to the patched core; isolated acceptance is not production PASS.
+
+- [x] Main startup/recovery must not disable full-cone. No periodic restart,
+  threshold-triggered kill, UDP443 block or further FD-limit increase is added.
+- [x] Original PacketWriter kernel reproduction retains 199/391/583 FD under
+  three rounds of new loopback directions; the patch stays at135/135/135 and
+  preserves all576 source-address-correct replies, then returns to7FD on close.
+- [x] Real 120s idle retirement occurs while the full-cone parent stays active;
+  default-source replies can be recreated after expiry/eviction.
+- [x] Cache budget/error/idle/timer/race/blocked-write close tests pass; source
+  patch applies to both pinned cores and latest core builds reproducibly.
+- [x] Owned/hash-approved local-core install and rollback are mocked for opkg
+  and apk; package-owned executable/config are preserved. No new write ACL.
+- [x] LuCI source/cache diagnostics and stock-update warning are translated.
+- [x] Native mixed generator/failover, FakeDNS/nft mocks, safe Apply and recovery
+  regressions pass without modifying routing/generator/health code.
+- [ ] Guarded production deployment with independent rollback, real LAN TCP/UDP,
+  AWG failover and full-cone-sensitive application acceptance.
+- [ ] Sustained source/destination churn followed by an idle period shows UDP
+  inode retirement and bounded FD/RSS; no renewed EMFILE under the old workload.
+- [ ] Complete LAN TPROXY/QUIC/IPv6/failure-injection WAN capture and native signed
+  APK acceptance. Real PacketWriter sockets are not a full firewall/LAN test.
+
 ## Required commands
+
+FD capacity regression: the shared main Xray instance must request
+`nofile=16384 16384` on core restart and last-working startup recovery. The
+health-only disabled-routing path must not acquire that limit. Regression
+coverage: `tests/xray_instance_restart_smoke.sh` and
+`tests/startup_safety_smoke.sh`. Raising the cap is not acceptance of a leak fix;
+live FD/UDP turnover and EMFILE checks are recorded in
+[the AX6000 FD report](XRAY-FD-20261105.md).
 
 These commands must exist:
 

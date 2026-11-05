@@ -92,6 +92,11 @@ status() {
 		installed_source=system
 	fi
 	printf 'installed=%s\nsource=%s\narchitecture=%s\n' "${installed:-unknown}" "$installed_source" "$(uname -m)"
+	if [ -n "$bin" ] && "$bin" version 2>/dev/null | head -n 1 | grep -Fq 'podkopchik-udp-cache-v1'; then
+		echo 'udp_reply_cache=bounded-v1'
+	else
+		echo 'udp_reply_cache=stock'
+	fi
 	printf 'package_manager=%s\npackage_version=%s\n' "$PKG_MANAGER" "$package_version"
 	for source in package official; do
 		file="$TMP_DIR/xray-$source.check"
@@ -257,6 +262,16 @@ finish() {
 }
 
 install_update() {
+	if [ "$action" != xray-rollback ] && [ "$channel" = local ]; then
+		# SSH/root-only staging, never an arbitrary URL or a LuCI upload path.
+		[ "${#local_digest}" = 64 ] || fail "local build requires an independently checked SHA256 argument"
+		case "$local_digest" in *[!a-f0-9]*) fail "invalid local build SHA256" ;; esac
+		local_candidate="$TMP_DIR/xray-local/xray"
+		ucode -e 'import * as fs from "fs";let p=ARGV[1],d=fs.lstat(p+"/xray-local"),f=fs.lstat(p+"/xray-local/xray"),u=int(ARGV[0]);
+		 if(!d||d.type!="directory"||d.uid!=u||(d.mode&0o077)||!f||f.type!="file"||f.uid!=u||f.nlink!=1||(f.mode&0o022))exit(1);' \
+			"$(id -u)" "$TMP_DIR" || fail "local build staging must be a private owned directory with a regular owned executable"
+		[ "$(sha256sum "$local_candidate" | awk '{print $1}')" = "$local_digest" ] || fail "local build SHA256 mismatch"
+	fi
 	[ "$(uci -q get podkopchik.main.routing_enabled 2>/dev/null || echo 0)" = 1 ] || fail "apply working routing with a main proxy before updating Xray"
 	[ -s "$CONFIG" ] || fail "active configuration is missing"
 	lock_update
@@ -276,6 +291,11 @@ install_update() {
 		[ -x "$CORE_DIR/previous/xray" ] || fail "no previous Xray binary is available"
 		cp "$CORE_DIR/previous/xray" "$work/candidate"
 		new_source=rollback
+	elif [ "$channel" = local ]; then
+		cp "$local_candidate" "$work/candidate"
+		[ "$(sha256sum "$work/candidate" | awk '{print $1}')" = "$local_digest" ] || fail "local build changed while staging"
+		chmod 755 "$work/candidate"
+		new_source=local
 	elif [ "$channel" = official ]; then
 		command -v unzip >/dev/null 2>&1 || fail "unzip is required; install the OpenWrt unzip package"
 		check_update
@@ -315,6 +335,9 @@ install_update() {
 		new_source=package
 	fi
 	validate_candidate "$work/candidate"
+	if [ "$new_source" = local ]; then
+		"$work/candidate" version | head -n 1 | grep -Fq 'podkopchik-udp-cache-v1' || fail "local executable is not the reviewed UDP reply-cache build"
+	fi
 	if [ "$new_source" = official ]; then
 		[ "$(version "$work/candidate")" = "${latest#v}" ] || fail "candidate version differs from the verified release"
 	fi
@@ -341,6 +364,7 @@ install_update() {
 
 action="${1:-xray-status}"
 channel="${2:-package}"
+local_digest="${3:-}"
 mkdir -p "$TMP_DIR"
 case "$action" in
 	xray-status) status ;;
