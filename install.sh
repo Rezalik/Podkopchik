@@ -413,7 +413,7 @@ install_tree() {
 		info "default /etc/config/podkopchik created"
 	fi
 
-	chmod 755 "$(path /etc/init.d/podkopchik)" "$(path /usr/bin/podkopchikctl)" || die "could not set executable permissions"
+	chmod 755 "$(path /etc/init.d/podkopchik)" "$(path /etc/init.d/podkopchik-fakedns)" "$(path /usr/bin/podkopchikctl)" || die "could not set executable permissions"
 	chmod 755 "$(path /usr/libexec/podkopchik)"/*.sh "$(path /usr/libexec/podkopchik)"/*.uc || die "could not set helper permissions"
 	[ -f "$CONFIG_PATH" ] && chmod 600 "$CONFIG_PATH"
 }
@@ -443,6 +443,7 @@ start_service() {
 		info "test root detected; skipping service enable/start"
 		return
 	}
+	/etc/init.d/podkopchik-fakedns enable >/dev/null 2>&1 || warn "could not enable early FakeDNS guard"
 	/etc/init.d/podkopchik enable >/dev/null 2>&1 || warn "could not enable podkopchik service"
 	/etc/init.d/podkopchik start >/dev/null 2>&1 || warn "service did not start; configure proxies and run /etc/init.d/podkopchik restart"
 }

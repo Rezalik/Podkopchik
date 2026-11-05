@@ -49,7 +49,8 @@ case "${1:---check}" in
 	 usr/share/luci/menu.d/luci-app-podkopchik.json usr/share/rpcd/acl.d/luci-app-podkopchik.json \
 	 www/luci-static/resources/view/podkopchik lib/upgrade/keep.d/podkopchik-awg
 	archive="$1"; shift
-	for path in usr/share/ucode/luci/i18n/podkopchik.ru.lmo usr/lib/lua/luci/i18n/podkopchik.ru.lmo; do
+	for path in etc/init.d/podkopchik-fakedns lib/upgrade/keep.d/podkopchik-fakedns \
+	 usr/share/ucode/luci/i18n/podkopchik.ru.lmo usr/lib/lua/luci/i18n/podkopchik.ru.lmo; do
 		[ ! -f "/$path" ] || set -- "$@" "$path"
 	done
 	# Add this as an explicit file, never repack a private staging directory:

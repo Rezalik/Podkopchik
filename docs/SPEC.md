@@ -499,7 +499,7 @@ pgrep -af '/tmp/podkopchik/health-.*.json' || echo 'OK: no stale health Xray'
 ls -d /tmp/podkopchik/health-port-*.lock /tmp/podkopchik/health-check.lock 2>/dev/null || echo 'OK: no stale health locks'
 nft -a list table inet podkopchik | grep -nE 'proxy_bypass|reserved|dns_prerouting|tproxy|chain prerouting|chain dns_prerouting'
 jsonfilter -q -i /etc/podkopchik/config.generated.json -e '@.fakedns.ipPool' || true
-jsonfilter -q -i /etc/podkopchik/config.generated.json -e '@.routing.rules[*].ip[*]' | grep '198.18.0.0/15' && echo 'WARNING: FakeDNS pool direct-routed' || echo 'OK: FakeDNS pool not direct-routed'
+jsonfilter -q -i /etc/podkopchik/config.generated.json -e '@.routing.rules[@.outboundTag="direct"].ip[*]' | grep -Fx '198.18.0.0/15' && echo 'WARNING: FakeDNS pool direct-routed' || echo 'OK: FakeDNS pool not direct-routed'
 nft list set inet podkopchik reserved4 | grep '198.18.0.0/15' && echo 'WARNING: FakeDNS pool in reserved4' || echo 'OK: FakeDNS pool not in reserved4'
 nslookup -port=1053 x.com 127.0.0.1 || true
 grep -oE '91\.108\.[0-9.]+/[0-9]+|149\.154\.[0-9.]+/[0-9]+' /etc/podkopchik/config.json | sort -u
@@ -529,6 +529,25 @@ The r7 recovery candidate was subsequently installed on the approved AX6000. See
 Normal Apply/health/FakeDNS/LAN tests passed; destructive runtime faults and
 reboot were not exercised on the working router.
 
+### Universal Routing Preview
+
+The preview is not a selectable runtime mode. A pure planner renders LAN
+source, DNS-set and CIDR classification before transport. Native AWG uses
+existing per-profile marks/tables, with a forward guard requiring the selected
+interface and a terminal unreachable route. An atomic selection transaction
+replaces only owned chains and leaves DNS sets intact. VLESS remains on the
+legacy Xray path; it is rejected as a native adapter rather than sent direct.
+
+The separate FakeDNS guard tracks only configured or previously issued pools.
+It uses protocol-owned destination blackholes after the transparent local rule
+and an owned nft table in output, forward and postrouting. A residual FakeDNS
+IP is blocked in Xray before direct rules. Previously issued pools survive
+stop, disable and rollback; the ledger is independent of the runtime snapshot.
+No pool is reserved on a never-enabled installation. Explicit uninstall releases
+ownership; clear client DNS caches before decommissioning. See the
+[preview report](UNIVERSAL-ROUTING-20261105.md) for the remaining boot,
+DNS transaction and live verification gates.
+
 The earlier cone-disabling mitigation was withdrawn before deployment. The
 main process must preserve full-cone behavior. The reviewed source-core
 candidate instead limits each dokodemo transparent reply cache to 128 sockets,
@@ -548,6 +567,13 @@ job. LuCI displays the installed source and reported reply-cache build, and
 warns that stock-core updates remove the local patch. Local build metadata is
 not an official signature. No installation or core switch is automatic.
 See [cache fix, evidence and remaining gates](XRAY-UDP-CACHE-FIX-20261105.md).
+
+The subsequent AX6000 production pilot was rolled back and its release is HELD:
+see [the scoped results](XRAY-UDP-LIVE-PILOT-20261105.md). Early live UDP inode
+retirement passed, but unknown fake destinations were observed towards WAN;
+the original core reproduced direct attempts in a contained synthetic control.
+Neither long-term stability nor complete fail-closed acceptance is claimed.
+The operator-only pilot/measurement tools are not installed by the application.
 
 - Missing enabled connections/rules or failed candidate validation must not
   change `routing_enabled`, stop Xray, sync AWG or remove current interception.

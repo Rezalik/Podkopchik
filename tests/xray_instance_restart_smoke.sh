@@ -16,7 +16,7 @@ xray_bin() { echo /usr/libexec/podkopchik-core/xray; }
 uci_bool() { return 0; }
 ubus() { echo '{"podkopchik":{"instances":{"health":{"running":true}}}}'; }
 jsonfilter() { echo true; }
-safety() { case "$1" in pids) echo 100 ;; ready) [ "$2" = 100 ] ;; *) return 1 ;; esac; }
+safety() { case "$1" in fake-sync) return 0 ;; pids) echo 100 ;; ready) [ "$2" = 100 ] ;; *) return 1 ;; esac; }
 procd_kill() { echo "kill $*" >> "$RESTART_LOG"; }
 procd_open_service() { echo "open $*" >> "$RESTART_LOG"; }
 procd_open_instance() { echo "instance $*" >> "$RESTART_LOG"; }

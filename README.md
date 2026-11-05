@@ -216,7 +216,7 @@ podkopchikctl apply
 netstat -lnp 2>/dev/null | grep -E '1053|12345'
 nft -a list table inet podkopchik | grep -A10 -B3 'dns_prerouting'
 nft list set inet podkopchik reserved4 | grep '198.18.0.0/15' || echo 'OK: FakeDNS pool is not in reserved4'
-jsonfilter -q -i /etc/podkopchik/config.generated.json -e '@.routing.rules[*].ip[*]' | grep '198.18.0.0/15' || echo 'OK: FakeDNS pool is not direct-routed'
+jsonfilter -q -i /etc/podkopchik/config.generated.json -e '@.routing.rules[@.outboundTag="direct"].ip[*]' | grep -Fx '198.18.0.0/15' || echo 'OK: FakeDNS pool is not direct-routed'
 nslookup x.com 192.168.8.1
 logread | grep -iE 'dns-in|dns-out|transparent.*198\\.18|transparent.*198\\.19'
 ```
@@ -456,6 +456,11 @@ See [the deployment, current roles, evidence and recovery snapshots](docs/AWG-ST
 and [the earlier diagnosis and local regression tests](docs/AWG-STABILITY-FIXES-20261104.md).
 Full failure-injection/reboot/leak-capture acceptance remains separate.
 
+The [Universal Routing Engine preview](docs/UNIVERSAL-ROUTING-20261105.md)
+is not a production update. It tests classifying traffic before transport,
+with a native AWG path and a separate FakeDNS quarantine. The working router
+still uses Xray for interception and DNS. Do not install the preview from LuCI.
+
 An invalid Apply leaves existing interception and the saved routing intention
 unchanged. Runtime failures attempt recovery from a private last-working
 Xray/nft snapshot. If recovery fails, an owned forward guard blocks LAN
@@ -486,6 +491,11 @@ logread -e podkopchik
 ```
 
 ## Troubleshooting
+
+The [AX6000 UDP-cache live pilot](docs/XRAY-UDP-LIVE-PILOT-20261105.md) is **HELD**,
+not a stable release: early socket retirement passed, but the fake-address WAN
+boundary gate failed and the original core was restored. No automatic core
+upgrade is enabled by these test artifacts.
 
 - If **Apply** fails, run `podkopchikctl validate` and inspect the error.
 - If AWG health is UP but sites stall, inspect main Xray logs for `too many open files` and its `/proc/PID/limits`/`fd` usage. Xray still handles transparent traffic and FakeDNS with only AWG profiles. The [bounded UDP reply-cache source fix](docs/XRAY-UDP-CACHE-FIX-20261105.md) preserves full-cone; it is a separately reviewed local-core candidate, not an automatic application update. See also [the FD incident](docs/XRAY-FD-20261105.md) and [the coreless architecture assessment](docs/AWG-ONLY-WITHOUT-XRAY.md).

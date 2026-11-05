@@ -4,6 +4,7 @@ package dokodemo
 
 import (
 	"errors"
+	"io"
 	"net"
 	"sync"
 	"testing"
@@ -194,5 +195,76 @@ func TestUDPReplyCacheCloseInterruptsBlockedWrite(t *testing.T) {
 	case <-written:
 	case <-time.After(time.Second):
 		t.Fatal("socket close did not interrupt write")
+	}
+}
+
+func TestUDPReplyCacheNeverEvictsInFlightWrite(t *testing.T) {
+	conn := &blockingReplyConn{started: make(chan struct{}), stop: make(chan struct{})}
+	created := 0
+	c := newUDPReplyCache(cacheTestPeer(0), conn, func(xnet.Destination) (net.PacketConn, error) {
+		created++
+		return &cacheTestConn{}, nil
+	}, 1, time.Minute, time.Minute)
+	defer c.Close()
+	written := make(chan struct{})
+	go func() { _, _ = c.writeTo(cacheTestPeer(0), nil, &net.UDPAddr{}); close(written) }()
+	<-conn.started
+	if _, err := c.writeTo(cacheTestPeer(1), nil, &net.UDPAddr{}); !errors.Is(err, io.ErrShortBuffer) {
+		t.Fatalf("in-flight cache entry was not protected: %v", err)
+	}
+	if created != 0 {
+		t.Fatal("allocated beyond the cache budget")
+	}
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-written:
+	case <-time.After(time.Second):
+		t.Fatal("close failed to release the active writer")
+	}
+}
+
+func TestUDPReplyCacheRecreationRecoversAfterFactoryError(t *testing.T) {
+	initial, replacement := &cacheTestConn{}, &cacheTestConn{}
+	fail := true
+	c := newUDPReplyCache(cacheTestPeer(0), initial, func(xnet.Destination) (net.PacketConn, error) {
+		if fail {
+			return nil, errors.New("fixture creation error")
+		}
+		return replacement, nil
+	}, 1, time.Minute, time.Minute)
+	defer c.Close()
+	if _, err := c.writeTo(cacheTestPeer(1), nil, &net.UDPAddr{}); err == nil {
+		t.Fatal("failed recreation reported success")
+	}
+	if initial.closed != 1 || len(c.entries) != 0 {
+		t.Fatal("failed recreation retained a stale entry")
+	}
+	fail = false
+	if _, err := c.writeTo(cacheTestPeer(0), []byte("retry"), &net.UDPAddr{}); err != nil {
+		t.Fatal(err)
+	}
+	_ = c.Close()
+	if replacement.closed != 1 || initial.closed != 1 {
+		t.Fatal("recreated socket ownership was not released exactly once")
+	}
+}
+
+func TestUDPReplyCacheRetainsMostRecentlyUsedPeer(t *testing.T) {
+	connections := map[xnet.Destination]*cacheTestConn{cacheTestPeer(0): {}}
+	c := newUDPReplyCache(cacheTestPeer(0), connections[cacheTestPeer(0)], func(d xnet.Destination) (net.PacketConn, error) {
+		conn := &cacheTestConn{}
+		connections[d] = conn
+		return conn, nil
+	}, 2, time.Minute, time.Minute)
+	defer c.Close()
+	for _, i := range []int{1, 0, 2} {
+		if _, err := c.writeTo(cacheTestPeer(i), nil, &net.UDPAddr{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if connections[cacheTestPeer(0)].closed != 0 || connections[cacheTestPeer(1)].closed != 1 {
+		t.Fatal("LRU evicted the recently active reply source")
 	}
 }

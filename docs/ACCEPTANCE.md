@@ -162,7 +162,7 @@ pgrep -af '/tmp/podkopchik/health-.*.json' || echo 'OK: no stale health Xray'
 ls -d /tmp/podkopchik/health-port-*.lock /tmp/podkopchik/health-check.lock 2>/dev/null || echo 'OK: no stale health locks'
 nft -a list table inet podkopchik | grep -nE 'proxy_bypass|reserved|dns_prerouting|tproxy|chain prerouting|chain dns_prerouting'
 jsonfilter -q -i /etc/podkopchik/config.generated.json -e '@.fakedns.ipPool' || true
-jsonfilter -q -i /etc/podkopchik/config.generated.json -e '@.routing.rules[*].ip[*]' | grep '198.18.0.0/15' && echo 'WARNING: FakeDNS pool direct-routed' || echo 'OK: FakeDNS pool not direct-routed'
+jsonfilter -q -i /etc/podkopchik/config.generated.json -e '@.routing.rules[@.outboundTag="direct"].ip[*]' | grep -Fx '198.18.0.0/15' && echo 'WARNING: FakeDNS pool direct-routed' || echo 'OK: FakeDNS pool not direct-routed'
 nft list set inet podkopchik reserved4 | grep '198.18.0.0/15' && echo 'WARNING: FakeDNS pool in reserved4' || echo 'OK: FakeDNS pool not in reserved4'
 nslookup -port=1053 x.com 127.0.0.1 || true
 grep -oE '91\.108\.[0-9.]+/[0-9]+|149\.154\.[0-9.]+/[0-9]+' /etc/podkopchik/config.json | sort -u
@@ -435,6 +435,38 @@ been switched to the patched core; isolated acceptance is not production PASS.
 - [ ] Complete LAN TPROXY/QUIC/IPv6/failure-injection WAN capture and native signed
   APK acceptance. Real PacketWriter sockets are not a full firewall/LAN test.
 
+## AX6000 Live UDP Cache Pilot: HELD (2026-11-05)
+
+See [the measurements, rollback and boundary finding](XRAY-UDP-LIVE-PILOT-20261105.md).
+
+- [x] Nine cache review cases pass ten race-enabled runs, including protected
+  in-flight entries, retry after factory failure and recently used-peer retention.
+- [x] Independent procd watchdog fixture test, actual main-core promotion,
+  active-config validation and operator-triggered rollback preserve original state.
+- [x] LAN UDP/TCP FakeDNS, public YouTube HTTPS/TCP TPROXY and all three current
+  AWG interface HTTPS probes pass. Marked AWG WAN counters remain zero.
+- [x] Short live measurement shows UDP230->199 and205/230 old inode retirement
+  over183s; no inference of multi-hour stability is made from this short window.
+- [ ] Overall fake-address WAN boundary: FAIL. Late TCP/UDP counters to the fake
+  pool were nonzero; the original core also made contained synthetic direct attempts.
+- [ ] Six-hour comparable-load acceptance: SKIPPED after the boundary failure.
+- [ ] Authenticated apps/video, HTTP3/QUIC and destructive AWG failure/WAN/DNS
+  capture: SKIPPED; no working AWG/network configuration was changed for testing.
+- [x] Original package core/helper restored, test tables/services/RAM staging
+  cleaned, configs/rules/routes unchanged and private backups retained.
+
+Do not advertise this pilot as a stable release. The later automatic WAN-abort
+extension in operator tooling has static coverage only and needs its own live gate.
+
+## Universal Routing Preview Gate
+
+The [AX6000 preview report](UNIVERSAL-ROUTING-20261105.md) records isolated
+packet captures for FakeDNS quarantine and the native AWG planner. This is not
+production acceptance. Promotion requires a DNS reply/commit failure test,
+real AWG and available VLESS tests, physical WAN capture with a working direct
+control, protected Apply and rollback, and a sustained load/resource comparison.
+An ordinary WAN path must continue working when every transport is down.
+
 ## Required commands
 
 FD capacity regression: the shared main Xray instance must request
@@ -451,6 +483,7 @@ These commands must exist:
 podkopchikctl status
 podkopchikctl generate
 podkopchikctl validate
+podkopchikctl fakedns-guard-status
 podkopchikctl apply
 podkopchikctl restart
 podkopchikctl cleanup

@@ -108,7 +108,7 @@ find "$work/payload" -type f > "$work/files"
 while IFS= read -r file; do
 	path="${file#"$work/payload/"}"
 	case "$path" in
-	 etc/init.d/podkopchik|usr/bin/podkopchikctl|usr/libexec/podkopchik/*|usr/libexec/rpcd/podkopchik.awg|usr/share/podkopchik/tools/*|usr/share/luci/menu.d/luci-app-podkopchik.json|usr/share/rpcd/acl.d/luci-app-podkopchik.json|www/luci-static/resources/view/podkopchik/*|lib/upgrade/keep.d/podkopchik-awg|usr/share/ucode/luci/i18n/podkopchik.ru.lmo|usr/lib/lua/luci/i18n/podkopchik.ru.lmo) ;;
+	 etc/init.d/podkopchik|etc/init.d/podkopchik-fakedns|usr/bin/podkopchikctl|usr/libexec/podkopchik/*|usr/libexec/rpcd/podkopchik.awg|usr/share/podkopchik/tools/*|usr/share/luci/menu.d/luci-app-podkopchik.json|usr/share/rpcd/acl.d/luci-app-podkopchik.json|www/luci-static/resources/view/podkopchik/*|lib/upgrade/keep.d/podkopchik-awg|lib/upgrade/keep.d/podkopchik-fakedns|usr/share/ucode/luci/i18n/podkopchik.ru.lmo|usr/lib/lua/luci/i18n/podkopchik.ru.lmo) ;;
 	 etc/config/podkopchik|etc/podkopchik/*|tmp/podkopchik/state.json) [ "$mode" = --rollback ] || fail 'public overlay contains private configuration' ;;
 	 *) fail 'unknown archive destination' ;;
 	esac
@@ -148,6 +148,7 @@ ip -N -6 route show table all > "$diag/routes6.txt"
 changing=1
 tar -xzf "$archive" -C /
 podkopchikctl validate
+if [ -x /etc/init.d/podkopchik-fakedns ]; then /etc/init.d/podkopchik-fakedns enable; fi
 activate
 sleep 2
 podkopchikctl status > "$work/status.txt"

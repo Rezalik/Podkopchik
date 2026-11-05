@@ -47,7 +47,8 @@ try {
 	assert.strictEqual(config.outbounds.find(x=>x.tag===ta).protocol,'blackhole','unstarted AWG is never plain WAN freedom');
 	assert(config.dns.servers.includes('fakedns')&&config.dns.servers.includes('tcp://1.1.1.1'));
 	assert(config.routing.rules.some(x=>x.inboundTag?.includes('awg-resolver')&&x.outboundTag==='ibn'));
-	assert(!config.routing.rules.some(x=>x.ip?.includes('198.18.0.0/15')));
+	assert(!config.routing.rules.some(x=>x.outboundTag==='direct'&&x.ip?.includes('198.18.0.0/15')));
+	assert(config.routing.rules.some(x=>x.outboundTag==='blocked'&&x.ip?.includes('198.18.0.0/15')));
 	assert.strictEqual(config.fakedns.ipPool,'198.18.0.0/15');
 	assert.strictEqual(config.api.tag,'podkopchik-api');
 	assert.strictEqual(config.inbounds.find(x=>x.port===10085).listen,'127.0.0.1');

@@ -24,7 +24,7 @@ check_snapshot() {
 			continue
 		fi
 		case "$path" in
-		 etc/config/podkopchik|etc/podkopchik/|etc/podkopchik/*|etc/init.d/podkopchik|usr/bin/podkopchikctl|usr/libexec/podkopchik/|usr/libexec/podkopchik/*|usr/libexec/rpcd/podkopchik.awg|usr/share/podkopchik/tools/|usr/share/podkopchik/tools/*|usr/share/luci/menu.d/luci-app-podkopchik.json|usr/share/rpcd/acl.d/luci-app-podkopchik.json|www/luci-static/resources/view/podkopchik/|www/luci-static/resources/view/podkopchik/*|lib/upgrade/keep.d/podkopchik-awg|usr/share/ucode/luci/i18n/podkopchik.ru.lmo|usr/lib/lua/luci/i18n/podkopchik.ru.lmo|tmp/podkopchik/state.json) ;;
+		 etc/config/podkopchik|etc/podkopchik/|etc/podkopchik/*|etc/init.d/podkopchik|etc/init.d/podkopchik-fakedns|usr/bin/podkopchikctl|usr/libexec/podkopchik/|usr/libexec/podkopchik/*|usr/libexec/rpcd/podkopchik.awg|usr/share/podkopchik/tools/|usr/share/podkopchik/tools/*|usr/share/luci/menu.d/luci-app-podkopchik.json|usr/share/rpcd/acl.d/luci-app-podkopchik.json|www/luci-static/resources/view/podkopchik/|www/luci-static/resources/view/podkopchik/*|lib/upgrade/keep.d/podkopchik-awg|lib/upgrade/keep.d/podkopchik-fakedns|usr/share/ucode/luci/i18n/podkopchik.ru.lmo|usr/lib/lua/luci/i18n/podkopchik.ru.lmo|tmp/podkopchik/state.json) ;;
 		 *) return 1 ;;
 		esac
 	done < "$dir/snapshot.paths"

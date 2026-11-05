@@ -479,6 +479,7 @@ cmd_apply() {
 	trap 'exit 130' INT
 	trap 'exit 143' HUP TERM
 
+	safety fake-sync || die "could not retain the existing FakeDNS quarantine"
 	if ! has_enabled_proxy || ! has_enabled_route; then
 		die "configure at least one enabled connection and one routing rule before applying interception"
 	fi
@@ -503,6 +504,7 @@ cmd_apply() {
 
 	generate_to "$tmp"
 	validate_file "$tmp"
+	safety fake-sync "$tmp" || die "could not protect the candidate FakeDNS pool"
 
 	uci -q set "$APP.main.enabled=1"
 	uci -q commit "$APP"
@@ -571,6 +573,7 @@ cmd_apply_health_state() {
 		log "failover config validation failed; keeping previous active config"
 		die "failover config validation failed"
 	fi
+	safety fake-sync "$tmp" || die "could not retain FakeDNS quarantine during failover"
 
 	safety save || die "could not preserve working failover runtime"
 	safety guard || die "could not arm failover guard"
@@ -590,13 +593,14 @@ cmd_cleanup() {
 	mkdir -p "$TMP_DIR"
 	mkdir "$lock_dir" || die "another config apply is in progress"
 	trap 'rmdir "$lock_dir" 2>/dev/null || true' EXIT
+	safety fake-sync || die "could not retain FakeDNS quarantine while disabling routing"
 	# Only this explicit action clears persisted user intent, before restart.
 	uci -q set "$APP.main.routing_enabled=0"
 	uci -q commit "$APP"
 	"$LIB/cleanup_rules.sh"
 	safety unguard || die "could not remove routing safety guard"
 	"$INIT" restart
-	echo "Podkopchik routing disabled and owned nftables rules removed."
+	echo "Podkopchik interception disabled; issued FakeDNS pools remain quarantined."
 }
 
 time_to_minutes() {
@@ -919,6 +923,7 @@ case "${1:-}" in
 	generate) shift; cmd_generate "$@" ;;
 	validate) cmd_validate ;;
 	validate-active) cmd_validate_active ;;
+	fakedns-guard-status) sh "$LIB/fakedns_guard.sh" status ;;
 	prepare-connections) cmd_prepare_connections ;;
 	apply) cmd_apply ;;
 	apply-health-state) shift; cmd_apply_health_state "$@" ;;
@@ -945,7 +950,7 @@ case "${1:-}" in
 		exec sh "$LIB/xray_jobs.sh" start "xray-$job" "${1:-package}"
 		;;
 	*)
-		echo "Usage: podkopchikctl {status|generate|validate|apply|restart|cleanup|health|shaping-status|awg-list|awg-start ID|awg-stop ID|awg-restart ID|awg-check ID|awg-recover|update-check|update-install|rollback|xray-status|xray-check [package|official]|xray-install [package|official]|xray-install local SHA256|xray-rollback}" >&2
+		echo "Usage: podkopchikctl {status|generate|validate|apply|restart|cleanup|health|fakedns-guard-status|shaping-status|awg-list|awg-start ID|awg-stop ID|awg-restart ID|awg-check ID|awg-recover|update-check|update-install|rollback|xray-status|xray-check [package|official]|xray-install [package|official]|xray-install local SHA256|xray-rollback}" >&2
 		exit 2
 		;;
 esac

@@ -60,8 +60,10 @@ jsonfilter -q -i "$enabled" -e '@.inbounds[1].port' | grep -qx '1053'
 jsonfilter -q -i "$enabled" -e '@.outbounds[2].tag' | grep -qx 'dns-out'
 jsonfilter -q -i "$enabled" -e '@.routing.rules[0].inboundTag[0]' | grep -qx 'dns-in'
 jsonfilter -q -i "$enabled" -e '@.routing.rules[0].outboundTag' | grep -qx 'dns-out'
-! jsonfilter -q -i "$enabled" -e '@.routing.rules[1].ip[*]' | grep -qx '198.18.0.0/15'
-jsonfilter -q -i "$enabled" -e '@.routing.rules[1].ip[*]' | grep -qx '10.0.0.0/8'
+jsonfilter -q -i "$enabled" -e '@.routing.rules[1].outboundTag' | grep -qx 'blocked'
+jsonfilter -q -i "$enabled" -e '@.routing.rules[1].ip[*]' | grep -qx '198.18.0.0/15'
+! jsonfilter -q -i "$enabled" -e '@.routing.rules[2].ip[*]' | grep -qx '198.18.0.0/15'
+jsonfilter -q -i "$enabled" -e '@.routing.rules[2].ip[*]' | grep -qx '10.0.0.0/8'
 jsonfilter -q -i "$enabled" -e '@.inbounds[0].sniffing.destOverride[*]' | grep -qx 'fakedns'
 
 cat > "$tmp/podkopchik" <<'EOF'
@@ -79,8 +81,9 @@ EOF
 custom_pool="$tmp/custom-pool.json"
 UCI_CONFIG_DIR="$tmp" ucode -L root/usr/libexec/podkopchik root/usr/libexec/podkopchik/generate.uc > "$custom_pool"
 jsonfilter -q -i "$custom_pool" -e '@.fakedns.ipPool' | grep -qx '10.0.0.0/8'
-! jsonfilter -q -i "$custom_pool" -e '@.routing.rules[1].ip[*]' | grep -qx '10.0.0.0/8'
-jsonfilter -q -i "$custom_pool" -e '@.routing.rules[1].ip[*]' | grep -qx '198.18.0.0/15'
+jsonfilter -q -i "$custom_pool" -e '@.routing.rules[1].ip[*]' | grep -qx '10.0.0.0/8'
+! jsonfilter -q -i "$custom_pool" -e '@.routing.rules[2].ip[*]' | grep -qx '10.0.0.0/8'
+jsonfilter -q -i "$custom_pool" -e '@.routing.rules[2].ip[*]' | grep -qx '198.18.0.0/15'
 
 cat > "$tmp/podkopchik" <<'EOF'
 config settings 'main'

@@ -22,7 +22,7 @@ find "$stage" -name .DS_Store -delete
 find "$stage" -type d -exec chmod 755 {} \;
 find "$stage" -type f -exec chmod 644 {} \;
 find "$stage/usr/libexec/podkopchik" -name '*.sh' -exec chmod 755 {} \;
-chmod 755 "$stage/etc/init.d/podkopchik" "$stage/usr/bin/podkopchikctl" "$stage/usr/libexec/rpcd/podkopchik.awg"
+chmod 755 "$stage/etc/init.d/podkopchik" "$stage/etc/init.d/podkopchik-fakedns" "$stage/usr/bin/podkopchikctl" "$stage/usr/libexec/rpcd/podkopchik.awg"
 if tar --version 2>/dev/null | grep -q bsdtar; then
 	COPYFILE_DISABLE=1 tar --uid 0 --gid 0 --uname root --gname root -czf "$out" -C "$stage" .
 else tar --owner=0 --group=0 -czf "$out" -C "$stage" .; fi

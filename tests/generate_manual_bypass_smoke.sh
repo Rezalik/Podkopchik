@@ -58,7 +58,8 @@ UCI_CONFIG_DIR="$tmp" ucode -L root/usr/libexec/podkopchik root/usr/libexec/podk
 jsonfilter -q -i "$out" -e '@.routing.rules[1].outboundTag' | grep -qx 'direct'
 jsonfilter -q -i "$out" -e '@.routing.rules[1].domain[*]' | grep -qx 'domain:panel.example.com'
 ! jsonfilter -q -i "$out" -e '@.routing.rules[1].domain[*]' | grep -qx 'domain:5.42.117.16'
-jsonfilter -q -i "$out" -e '@.routing.rules[2].domain[*]' | grep -qx 'domain:x.com'
-jsonfilter -q -i "$out" -e '@.routing.rules[2].outboundTag' | grep -qx 'gerwarp'
+jsonfilter -q -i "$out" -e '@.routing.rules[2].domain[*]' | grep -qx 'domain:panel.example.com'
+jsonfilter -q -i "$out" -e '@.routing.rules[3].domain[*]' | grep -qx 'domain:x.com'
+jsonfilter -q -i "$out" -e '@.routing.rules[3].outboundTag' | grep -qx 'gerwarp'
 
 echo "generate manual bypass smoke OK"

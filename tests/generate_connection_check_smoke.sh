@@ -23,7 +23,13 @@ jsonfilter -q -i "$tmp/config.json" -e '@.inbounds[0].port' | grep -qx 20999
 jsonfilter -q -i "$tmp/config.json" -e '@.outbounds[0].tag' | grep -qx probe
 ! grep -q fakedns "$tmp/config.json"
 ucode -L root/usr/libexec/podkopchik "$gen" probe-primary > "$tmp/primary.json"
-cmp "$tmp/config.json" "$tmp/primary.json"
+jsonfilter -q -i "$tmp/primary.json" -e '@.inbounds[0].port' | grep -qx 20999
+jsonfilter -q -i "$tmp/primary.json" -e '@.routing.rules[0].outboundTag' | grep -qx fixture
+for field in settings streamSettings; do
+	jsonfilter -q -i "$tmp/config.json" -e "@.outbounds[0].$field" > "$tmp/uri-$field"
+	jsonfilter -q -i "$tmp/primary.json" -e "@.outbounds[0].$field" > "$tmp/main-$field"
+	cmp "$tmp/uri-$field" "$tmp/main-$field"
+done
 ucode -L root/usr/libexec/podkopchik "$gen" health fixture 20800 > "$tmp/health.json"
 jsonfilter -q -i "$tmp/health.json" -e '@.routing.rules[0].outboundTag' | grep -qx fixture
 if command -v xray >/dev/null 2>&1; then

@@ -8,6 +8,7 @@ mkdir -p "$base/bin" "$base/lib" "$base/config" "$base/run" "$base/proc"
 export PATH="$base/bin:$PATH"
 cp root/usr/libexec/podkopchik/routing_safety.sh root/usr/libexec/podkopchik/xray.sh "$base/lib/"
 touch "$base/lib/awg_cli.uc"
+printf '%s\n' '#!/bin/sh' 'echo "fake guard $1" >> "$TEST_ROOT/events"' > "$base/lib/fakedns_guard.sh"
 cat > "$base/bin/uci" <<'EOF'
 #!/bin/sh
 [ "$1" != -q ] || shift

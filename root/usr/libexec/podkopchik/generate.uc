@@ -468,6 +468,11 @@ function build_config() {
 			inboundTag: [ 'dns-in' ],
 			outboundTag: 'dns-out'
 		});
+		// With AsIs, a destination recovered to a domain does not match this
+		// IP rule. An unresolved synthetic address must never reach freedom.
+		let residual = [opt(main, 'fakedns_pool_v4', '198.18.0.0/15')];
+		if (ipv6) push(residual, '2001:2::/48');
+		push(rules, { type: 'field', ip: residual, outboundTag: 'blocked' });
 	}
 
 	push(rules, private_direct_rule(fakedns_enabled ? opt(main, 'fakedns_pool_v4', '198.18.0.0/15') : ''));

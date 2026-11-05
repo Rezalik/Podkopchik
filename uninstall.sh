@@ -63,6 +63,13 @@ if [ -z "$DESTDIR" ] && [ -f /usr/libexec/podkopchik/routing_safety.sh ]; then
 		exit 1
 	}
 fi
+if [ -z "$DESTDIR" ] && [ -f /usr/libexec/podkopchik/fakedns_guard.sh ]; then
+	sh /usr/libexec/podkopchik/fakedns_guard.sh release || {
+		echo 'podkopchik uninstall: could not remove owned FakeDNS quarantine; files retained' >&2
+		exit 1
+	}
+	if [ -x /etc/init.d/podkopchik-fakedns ]; then /etc/init.d/podkopchik-fakedns disable; fi
+fi
 if [ -z "$DESTDIR" ] && [ -f /usr/libexec/podkopchik/awg_cli.uc ]; then
 	ucode -L /usr/libexec/podkopchik /usr/libexec/podkopchik/awg_cli.uc dispose-all || {
 		echo 'podkopchik uninstall: could not safely remove owned AWG resources; files retained' >&2
@@ -75,10 +82,12 @@ for package in $REGISTERED; do
 done
 
 rm -f "$(path /etc/init.d/podkopchik)"
+rm -f "$(path /etc/init.d/podkopchik-fakedns)"
 rm -f "$(path /usr/bin/podkopchikctl)"
 rm -rf "$(path /usr/libexec/podkopchik)"
 rm -f "$(path /usr/libexec/rpcd/podkopchik.awg)"
 rm -f "$(path /lib/upgrade/keep.d/podkopchik-awg)"
+rm -f "$(path /lib/upgrade/keep.d/podkopchik-fakedns)"
 rm -f "$(path /usr/share/luci/menu.d/luci-app-podkopchik.json)"
 rm -f "$(path /usr/share/rpcd/acl.d/luci-app-podkopchik.json)"
 rm -f "$(path /usr/share/ucode/luci/i18n/podkopchik.ru.lmo)"

@@ -140,6 +140,7 @@ restore() {
 	. "$LIB/xray.sh"
 	bin=$(xray_bin) || return 1
 	"$bin" run -test -config "$state/config.json" >/dev/null 2>&1 || return 1
+	sh "$LIB/fakedns_guard.sh" sync "$state/config.json" || return 1
 	if "$NFT" list table inet podkopchik >/dev/null 2>&1; then
 		[ "$(cat "$TMP/routing.env" 2>/dev/null)" = podkopchik-routing-v1 ] || return 1
 	fi
@@ -174,5 +175,6 @@ case "${1:-}" in
 	pids) main_pids ;;
 	save) save ;;
 	restore) restore ;;
-	*) echo 'Usage: routing_safety.sh guard|unguard|status|ready [OLD_PIDS]|pids|save|restore' >&2; exit 2 ;;
+	fake-sync) sh "$LIB/fakedns_guard.sh" sync "${2:-}" ;;
+	*) echo 'Usage: routing_safety.sh guard|unguard|status|ready [OLD_PIDS]|pids|save|restore|fake-sync [JSON]' >&2; exit 2 ;;
 esac

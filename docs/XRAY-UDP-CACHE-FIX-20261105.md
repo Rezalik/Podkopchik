@@ -1,5 +1,9 @@
 # UDP Reply-Cache Root Cause And Full-Cone-Preserving Candidate
 
+Historical pre-deployment checkpoint. A later authorized short production pilot
+was rolled back at a failed fake-address WAN boundary gate; see
+[the live pilot and HELD status](XRAY-UDP-LIVE-PILOT-20261105.md).
+
 Date: 2026-11-05, Europe/Moscow. Approved device only: Xiaomi Redmi AX6000,
 board `xiaomi,redmi-router-ax6000-stock`, OpenWrt25.12.6/kernel6.12.112.
 `openwrt2` was never accessed. No main core switch, Apply, firmware/package
