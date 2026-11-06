@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -49,7 +50,7 @@ func run() error {
 	if *initLedger {
 		return nil
 	}
-	r := &resolver{policy: p, writer: &publisher{policy: p, ledger: l, leases: make(map[bindingKey]binding), commit: nftCommit(p.Epoch)},
+	r := &resolver{policy: p, writer: &publisher{policy: p, ledger: l, leases: make(map[bindingKey]binding), commit: nftCommit(p)},
 		upstream: makeUpstream(p.Upstream), slots: make(chan struct{}, 64), cache: make(map[questionKey]result)}
 	// A failed bind must not leave a partial UDP/TCP or IPv4/IPv6 service.
 	var servers []*dns.Server
@@ -77,12 +78,27 @@ func run() error {
 	}
 	ticker := time.NewTicker(leaseGrace)
 	defer ticker.Stop()
+	var heartbeat <-chan time.Time
+	if p.Virtual {
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		heartbeat = t.C
+	}
 	for {
 		select {
 		case <-ends:
 			return errors.New("DNS listener stopped")
 		case now := <-ticker.C:
 			r.writer.expire(now)
+		case <-heartbeat:
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			base := "inet pkc_virtual_guard s_" + p.Epoch + "_live4"
+			err := nftTransaction(ctx, "destroy element "+base+" { 172.31.252.2 }\n"+
+				"create element "+base+" { 172.31.252.2 timeout 4s }\n")
+			cancel()
+			if err != nil {
+				return err
+			}
 		}
 	}
 }

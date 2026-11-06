@@ -17,7 +17,7 @@ for f in check-offload.sh preflight-ax6000.sh procd-dns.sh; do cp "$base/native/
 for f in universal_plan native_pool awg awg_network fakedns_guard; do cp "$base/root/usr/libexec/podkopchik/$f.uc" "$root/"; done
 cp "$base/native/runtime/trial-state.uc" "$root/"
 cp "$base/native/runtime/pool-review.uc" "$root/"
-for f in ax6000-recovery.sh ax6000-recovery-data.uc pkc-ax6000-recovery.init ax6000-virtual-watch.sh virtual-trial-cleanup.uc; do cp "$base/native/runtime/$f" "$root/"; done
+for f in ax6000-recovery.sh ax6000-recovery-data.uc pkc-ax6000-recovery.init ax6000-virtual-watch.sh virtual-trial-cleanup.uc virtual-pilot-plan.uc; do cp "$base/native/runtime/$f" "$root/"; done
 cp "$base/docs/UNIVERSAL-RELEASE-VM-20261106.md" "$root/REVIEW.md"
 cp "$base/docs/UNIVERSAL-MIXED-CANARY-20261106.md" "$root/CANARY.md"
 cp "$base/docs/UNIVERSAL-AX6000-ACCEPTANCE.md" "$root/AX6000.md"

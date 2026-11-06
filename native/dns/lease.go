@@ -228,7 +228,7 @@ func maxTime(a, b time.Time) time.Time {
 	return b
 }
 
-func transaction(epoch string, bindings []binding, now time.Time) string {
+func transaction(table, epoch string, bindings []binding, now time.Time) string {
 	var lines strings.Builder
 	for _, b := range bindings {
 		f := "6"
@@ -236,7 +236,7 @@ func transaction(epoch string, bindings []binding, now time.Time) string {
 			f = "4"
 		}
 		ttl := max(int64(1), int64((b.until.Sub(now)+time.Second-1)/time.Second))
-		base := "inet podkopchik_native s_" + epoch
+		base := "inet " + table + " s_" + epoch
 		mapping := base + "_m" + f
 		set := fmt.Sprintf("%s_g%d_%s", base, b.group, f)
 		fmt.Fprintf(&lines, "destroy element %s { %s }\ndestroy element %s { %s }\n", mapping, b.fake, set, b.fake)
@@ -245,13 +245,21 @@ func transaction(epoch string, bindings []binding, now time.Time) string {
 	return lines.String()
 }
 
-func nftCommit(epoch string) func(context.Context, []binding, time.Time) error {
-	return func(ctx context.Context, b []binding, now time.Time) error {
-		cmd := exec.CommandContext(ctx, "/usr/sbin/nft", "-f", "-")
-		cmd.Stdin = strings.NewReader(transaction(epoch, b, now))
-		if err := cmd.Run(); err != nil {
-			return errors.New("nftables transaction not acknowledged")
-		}
-		return nil
+func nftCommit(p *policy) func(context.Context, []binding, time.Time) error {
+	table := "podkopchik_native"
+	if p.Virtual {
+		table = "pkc_virtual_guard"
 	}
+	return func(ctx context.Context, b []binding, now time.Time) error {
+		return nftTransaction(ctx, transaction(table, p.Epoch, b, now))
+	}
+}
+
+func nftTransaction(ctx context.Context, batch string) error {
+	cmd := exec.CommandContext(ctx, "/usr/sbin/nft", "-f", "-")
+	cmd.Stdin = strings.NewReader(batch)
+	if err := cmd.Run(); err != nil {
+		return errors.New("nftables transaction not acknowledged")
+	}
+	return nil
 }

@@ -47,8 +47,19 @@ note() {
 	printf '%s %s\n' "$(date -u +%FT%TZ)" "$1" > "$root/recovery.status"
 }
 
+owned_routing() {
+	local rules routes all
+	rules=$(run ip -4 -j rule show) || return 1
+	all=$(run ip -4 -j route show table all) || return 1
+	routes=$(printf '%s\n' "$all" | ucode -e 'import { stdin } from "fs";
+		const a = json(stdin.read("all")); if (type(a) != "array") exit(1);
+		print(sprintf("%J", filter(a, x => +x.table == 48181)));') || return 1
+	printf '{"rules":%s,"routes":%s}\n' "$rules" "$routes" |
+		ucode "$lib/virtual-trial-cleanup.uc" routing "$epoch" "$root/route.json"
+}
+
 cleanup() {
-	local link links exists=0 info rules tables batch identity pids
+	local link links exists=0 info rules tables batch identity pids routing= item device
 	links=$(run ip -j link show) || return 1
 	if printf '%s\n' "$links" | jsonfilter -q -e '@[*].ifname' | grep -Fxq "$port"; then
 		exists=1
@@ -73,8 +84,21 @@ cleanup() {
 		info=$(run nft -j -a list table inet fw4) || return 1
 		rules=$(printf '%s\n' "$info" | decode rules) || return 1
 	fi
+	if [ -e "$root/route.json" ]; then
+		[ -f "$root/route.json" ] && [ ! -L "$root/route.json" ] || return 1
+		routing=$(owned_routing) || return 1
+	fi
 	batch=$(printf '%s\n%s\n' "$rules" "$tables")
 	[ -z "$batch" ] || printf '%s\n' "$batch" | run nft -f - || return 1
+	for item in $routing; do
+		case "$item" in
+			rule) run ip -4 rule del priority 11581 from 172.31.252.2 iif "$port" fwmark 0x504b0901 table 48181 protocol 242 || return 1 ;;
+			tunnel) device=$(jsonfilter -i "$root/route.json" -e '@.device') &&
+				run ip -4 route del default dev "$device" metric 100 proto 242 table 48181 || return 1 ;;
+			unreachable) run ip -4 route del unreachable default metric 42760 proto 242 table 48181 || return 1 ;;
+			*) return 1 ;;
+		esac
+	done
 	if [ "$exists" = 1 ]; then run ip link del dev "$port" || return 1; fi
 	if [ -e "$mount" ]; then ip netns del "$ns" || return 1; fi
 	[ ! -e "$mount" ]

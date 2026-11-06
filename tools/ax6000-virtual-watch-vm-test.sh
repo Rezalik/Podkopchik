@@ -49,6 +49,9 @@ scenario() (
 	rn ip link set br-lan addrgenmode none
 	rn ip addr add 192.168.1.1/24 dev br-lan
 	rn ip link set br-lan up
+	rn ip link add paw111111111111 type bridge
+	rn ip link set paw111111111111 addrgenmode none
+	rn ip link set paw111111111111 up
 	rn nft add table inet fw4
 	rn nft 'add chain inet fw4 input { type filter hook input priority filter; policy accept; }'
 	rn nft 'add chain inet fw4 forward { type filter hook forward priority filter; policy drop; }'
@@ -84,6 +87,10 @@ scenario() (
 	rn ip addr add 172.31.252.1/30 dev "$port"
 	rn ip link set dev "$port" up
 	ip -n "$ns" link set dev client0 up
+	printf '{"owner":"%s","port":"%s","mark":"0x504b0901","route_table":48181,"priority":11581,"device":"paw111111111111"}\n' "$alias" "$port" > "$root/route.json"
+	rn ip -4 route add unreachable default metric 42760 proto 242 table 48181
+	rn ip -4 route add default dev paw111111111111 metric 100 proto 242 table 48181
+	rn ip -4 rule add priority 11581 from 172.31.252.2 iif "$port" fwmark 0x504b0901 table 48181 protocol 242
 	if [ "$mode" = fault ]; then
 		# Correct epoch but not scoped to the virtual port: never delete it.
 		rn nft add rule inet fw4 forward iifname '"br-lan"' counter accept comment "\"$alias\""

@@ -22,6 +22,7 @@ type group struct {
 
 type config struct {
 	Epoch       string   `json:"epoch"`
+	Virtual     bool     `json:"virtual,omitempty"`
 	Listen      string   `json:"listen"`
 	Listen6     string   `json:"listen6,omitempty"`
 	Upstream    string   `json:"upstream"`
@@ -51,6 +52,10 @@ func compile(c config) (*policy, error) {
 	}
 	listen := netip.MustParseAddrPort(c.Listen)
 	upstream := netip.MustParseAddrPort(c.Upstream)
+	if c.Virtual && (c.Listen != "172.31.252.1:24053" || c.Listen6 != "" || len(c.Pools) != 1 ||
+		c.Pools[0] != "172.31.253.0/24" || c.PrivatePool != c.Pools[0]) {
+		return nil, errors.New("virtual DNS requires the dedicated IPv4 listener and pool")
+	}
 	if listen == upstream {
 		return nil, errors.New("DNS upstream loops to listener")
 	}

@@ -518,6 +518,10 @@ For [release qualification](UNIVERSAL-RELEASE-VM-20261106.md), also verify:
   owned veth/namespace state. Verify deadline cleanup after owner loss,
   watchdog respawn and refusal to delete a mis-scoped firewall4 rule. Do not
   reuse a shared AWG/FakeDNS guard unscoped on the physical router.
+- The isolated data-plane fixture must prove UDP/TCP DNS, TCP/UDP/QUIC via
+  the selected interface, mark and route ownership, and WAN isolation after
+  loss of DNS redirect, DNAT map, route or classifier. Keep separate direct
+  and household positive controls. Never infer physical WAN results from a VM.
 
 ## Required commands
 

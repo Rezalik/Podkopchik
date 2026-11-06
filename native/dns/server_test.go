@@ -23,6 +23,27 @@ func testConfig() config {
 		Groups: []group{{[]string{"protected.example"}, true}, {[]string{"other.example"}, true}, {[]string{"direct.example"}, false}}}
 }
 
+func TestVirtualPolicyRequiresSeparateListenerAndPool(t *testing.T) {
+	c := testConfig()
+	c.Virtual = true
+	if _, err := compile(c); err == nil {
+		t.Fatal("virtual policy accepted ordinary DNS configuration")
+	}
+	c.Listen = "172.31.252.1:24053"
+	c.Pools = []string{"172.31.253.0/24"}
+	c.PrivatePool = c.Pools[0]
+	c.Groups = c.Groups[:1]
+	p, err := compile(c)
+	if err != nil || !p.Virtual {
+		t.Fatalf("dedicated virtual DNS configuration was rejected: %v", err)
+	}
+	b := []binding{{group: 0, real: netip.MustParseAddr("203.0.113.80"), fake: netip.MustParseAddr("172.31.253.1"), until: time.Now().Add(time.Minute)}}
+	batch := transaction("pkc_virtual_guard", p.Epoch, b, time.Now())
+	if strings.Contains(batch, "podkopchik_native") || strings.Count(batch, "inet pkc_virtual_guard") != 4 {
+		t.Fatal("virtual DNS transaction did not stay in the dedicated table")
+	}
+}
+
 func testLedger(t *testing.T, p *policy) *ledger {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "state")
