@@ -467,6 +467,14 @@ real AWG and available VLESS tests, physical WAN capture with a working direct
 control, protected Apply and rollback, and a sustained load/resource comparison.
 An ordinary WAN path must continue working when every transport is down.
 
+For the [native DNS laboratory](UNIVERSAL-DNS-20261106.md), verify that an
+unacknowledged protected answer returns SERVFAIL, a rejected batch leaves no
+partial map entry, and direct DNS remains usable. Verify actual timeout of
+IPv4/IPv6 map entries, stale client packets, and an established DNAT flow with
+classification removed. Virtual-WAN captures must have a positive direct
+control. Native forwarding without Xray and a separate Xray/VLESS test are
+necessary but do not replace physical AWG, fw4 and mixed-adapter acceptance.
+
 ## Required commands
 
 FD capacity regression: the shared main Xray instance must request

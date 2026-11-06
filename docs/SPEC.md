@@ -548,6 +548,24 @@ ownership; clear client DNS caches before decommissioning. See the
 [preview report](UNIVERSAL-ROUTING-20261105.md) for the remaining boot,
 DNS transaction and live verification gates.
 
+### Transactional Native DNS Preview
+
+The native DNS experiment keeps the existing dnsmasq and Xray paths unchanged.
+For a protected A/AAAA answer, a separate listener flattens the relevant CNAME
+chain and assigns a synthetic address per policy and real destination. Before
+sending an address, it durably reserves the allocation and commits both the
+route-set element and its DNAT map entry in one nftables batch. A failed or
+uncertain commit returns SERVFAIL without any answer address. Direct answers
+need no nft transaction; two domains sharing an upstream IP can still use
+different routes. A cache hit does not bypass the transaction.
+
+The synthetic addresses are not reused across expired leases or daemon restarts
+in one generation. An independent nft gate verifies the original conntrack
+destination even after DNAT and blocks escape when the classification table
+is absent or the packet uses the wrong egress. Expired and unknown synthetic
+addresses are never classified as ordinary direct destinations. See the
+[DNS preview evidence and remaining deployment gates](UNIVERSAL-DNS-20261106.md).
+
 The earlier cone-disabling mitigation was withdrawn before deployment. The
 main process must preserve full-cone behavior. The reviewed source-core
 candidate instead limits each dokodemo transparent reply cache to 128 sockets,

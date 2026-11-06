@@ -6,6 +6,7 @@ const awg = require('awg');
 const network = require('awg_network');
 const guard = require('fakedns_guard');
 const TABLE = 'podkopchik_native';
+const GATE = 'podkopchik_native_gate';
 
 function list(value, label, limit) {
 	if (type(value) != 'array' || length(value) > limit) die('invalid native ' + label);
@@ -54,7 +55,24 @@ function compile(input) {
 	function rules(rows, label) {
 		return map(list(rows, label, 512), row => ({ cidr: network_value(row?.cidr), target: target(row.target) }));
 	}
-	return { schema: 1, lan, automatic: input.automatic, adapters, fake, bypass, domains,
+	let synthetic = null;
+	if (input.synthetic != null) {
+		let epoch = input.synthetic.epoch, pools = {};
+		if (type(epoch) != 'string' || !match(epoch, /^[a-f0-9]{16}$/)) die('invalid native DNS generation');
+		for (let prefix in list(input.synthetic.pools, 'synthetic pools', 2)) {
+			let cidr = network_value(prefix), family = index(cidr, ':') < 0 ? '4' : '6';
+			let allowed = family == '4' ? ['198.18.0.0/15', '100.64.0.0/10'] : ['2001:2::/48', 'fd00::/8'];
+			let bits = +split(cidr, '/')[1];
+			if (pools[family] || bits > (family == '4' ? 29 : 125) ||
+				!length(filter(allowed, p => bits >= +split(p, '/')[1] && awg.overlap(cidr, p))))
+				die('invalid native synthetic prefix');
+			for (let x in [...fake, ...bypass]) if (awg.overlap(cidr, x)) die('native synthetic prefix overlaps an existing pool or bypass');
+			pools[family] = cidr;
+		}
+		if (!length(keys(pools))) die('missing native synthetic prefix');
+		synthetic = { epoch, pools };
+	}
+	return { schema: 1, lan, automatic: input.automatic, adapters, fake, bypass, domains, synthetic,
 		clients: rules(input.clients, 'client policies'), ips: rules(input.ips, 'CIDR policies') };
 }
 
@@ -67,6 +85,7 @@ function render(plan, switching) {
 	chain('classify', 'filter', 'prerouting', -151);
 	chain('egress_guard', 'filter', 'forward', -200);
 	chain('nat', 'nat', 'postrouting', 99);
+	if (plan.synthetic) chain('synth_nat', 'nat', 'prerouting', -105);
 	function rule(chain, expression) { push(lines, 'add rule inet ' + TABLE + ' ' + chain + ' ' + expression); }
 	function set(name, family, elements, timed) {
 		if (switching) return;
@@ -88,21 +107,44 @@ function render(plan, switching) {
 		function classify(match, tag) { rule('classify', lan + match + ' ' + verdict(tag)); }
 		set('fake' + family, family, filter(plan.fake, of_family), false);
 		set('bypass' + family, family, filter(plan.bypass, of_family), false);
-		set('quarantine' + family, family, [], false);
-		set('ambiguous' + family, family, [], true);
+		if (!plan.synthetic) {
+			set('quarantine' + family, family, [], false);
+			set('ambiguous' + family, family, [], true);
+		}
 		classify(proto + ' daddr @fake' + family, 'blocked');
+		let pool = plan.synthetic?.pools[family];
+		if (pool) {
+			let prefix = 's_' + plan.synthetic.epoch, map = prefix + '_m' + family;
+			let overrides = 'synth_clients' + family;
+			push(lines, (switching ? 'flush' : 'add') + ' chain inet ' + TABLE + ' ' + overrides);
+			for (let r in plan.clients) if (of_family(r.cidr))
+				rule(overrides, proto + ' saddr ' + r.cidr + ' ' + verdict(r.target == 'direct' ? 'blocked' : r.target));
+			if (!switching) push(lines, 'add map inet ' + TABLE + ' ' + map + ' { type ipv' + family + '_addr : ipv' + family + '_addr; flags timeout; size 65536; }');
+			for (let i = 0; i < length(plan.domains); i++) {
+				let row = plan.domains[i];
+				if (row.target == 'direct') continue;
+				let name = prefix + '_g' + i + '_' + family;
+				set(name, family, [], true);
+				let match = proto + ' daddr @' + name;
+				rule('classify', lan + match + ' jump ' + overrides);
+				classify(match, row.target);
+			}
+			classify(proto + ' daddr ' + pool, 'blocked');
+			rule('synth_nat', lan + proto + ' daddr ' + pool + ' dnat ' + proto + ' to ' + proto + ' daddr map @' + map);
+		}
 		rule('classify', lan + 'meta nfproto ipv' + family + ' fib daddr type local return');
 		classify(proto + ' daddr @bypass' + family, 'direct');
 		for (let r in plan.clients) if (of_family(r.cidr)) classify(proto + ' saddr ' + r.cidr, r.target);
-		classify(proto + ' daddr @ambiguous' + family, 'blocked');
-		for (let row in plan.domains) {
-			let name = row.set + '_' + family;
-			set(name, family, [], true);
-			classify(proto + ' daddr @' + name, row.target);
+		if (!plan.synthetic) {
+			classify(proto + ' daddr @ambiguous' + family, 'blocked');
+			for (let row in plan.domains) {
+				let name = row.set + '_' + family;
+				set(name, family, [], true);
+				classify(proto + ' daddr @' + name, row.target);
+			}
+			// A formerly protected address cannot go direct after its lease expires.
+			classify(proto + ' daddr @quarantine' + family, 'blocked');
 		}
-		// A previously classified protected answer cannot go direct after its
-		// lease expires. Only an independently verified DNS writer may populate it.
-		classify(proto + ' daddr @quarantine' + family, 'blocked');
 		for (let r in plan.ips) if (of_family(r.cidr)) classify(proto + ' daddr ' + r.cidr, r.target);
 	}
 	for (let _, a in plan.adapters) {
@@ -115,9 +157,46 @@ function render(plan, switching) {
 
 function batch(plan) { return render(plan, false); }
 
+function dns_policy(plan, listen, upstream, excluded) {
+	if (!plan.synthetic) die('native DNS requires synthetic mode');
+	return { epoch: plan.synthetic.epoch, listen, upstream,
+		pools: values(plan.synthetic.pools), exclusions: [...plan.fake, ...plan.bypass, ...map(excluded, network_value)],
+		groups: map(plan.domains, g => ({ names: g.names, protected: g.target != 'direct' })) };
+}
+
+function dns_gate(plan) {
+	if (!plan.synthetic) die('native DNS gate requires synthetic mode');
+	let lines = ['add table inet ' + GATE + ' { comment "podkopchik-native-dns-' + plan.synthetic.epoch + '"; }'];
+	function rule(chain, expression) { push(lines, 'add rule inet ' + GATE + ' ' + chain + ' ' + expression); }
+	for (let hook in ['input', 'forward', 'output', 'postrouting'])
+		push(lines, 'add chain inet ' + GATE + ' ' + hook + ' { type filter hook ' + hook + ' priority ' + (hook == 'postrouting' ? 300 : -10) + '; policy accept; }');
+	push(lines, 'add chain inet ' + GATE + ' allowed');
+	for (let _, a in plan.adapters)
+		rule('allowed', 'iifname "' + plan.lan + '" meta mark ' + a.mark + ' oifname "' + a.interface + '" return');
+	rule('allowed', 'counter drop');
+	for (let family, pool in plan.synthetic.pools) {
+		let proto = family == '4' ? 'ip' : 'ip6';
+		for (let hook in ['input', 'forward', 'output', 'postrouting']) {
+			rule(hook, proto + ' daddr ' + pool + ' counter drop');
+			rule(hook, 'meta nfproto ipv' + family + ' ct direction original ct original ' + proto + ' daddr ' + pool +
+				(hook == 'forward' || hook == 'postrouting' ? ' jump allowed' : ' counter drop'));
+		}
+		rule('postrouting', proto + ' saddr ' + pool + ' oifname != { "lo", "' + plan.lan + '" } counter drop');
+	}
+	for (let pool in plan.fake) {
+		let family = index(pool, ':') < 0 ? '4' : '6', proto = family == '4' ? 'ip' : 'ip6';
+		for (let hook in ['input', 'forward', 'output', 'postrouting']) {
+			rule(hook, proto + ' daddr ' + pool + ' counter drop');
+			rule(hook, 'meta nfproto ipv' + family + ' ct direction original ct original ' + proto + ' daddr ' + pool + ' counter drop');
+		}
+		rule('postrouting', proto + ' saddr ' + pool + ' oifname != { "lo", "' + plan.lan + '" } counter drop');
+	}
+	return join('\n', lines) + '\n';
+}
+
 function switch_batch(previous, next) {
 	function layout(p) {
-		return { lan: p.lan, fake: p.fake, bypass: p.bypass, domains: p.domains, clients: p.clients, ips: p.ips,
+		return { lan: p.lan, fake: p.fake, bypass: p.bypass, domains: p.domains, clients: p.clients, ips: p.ips, synthetic: p.synthetic,
 			adapters: map(keys(p.adapters), tag => [tag, p.adapters[tag].interface, p.adapters[tag].mark]) };
 	}
 	// A health transition must keep every DNS set and its leases intact.
@@ -125,4 +204,4 @@ function switch_batch(previous, next) {
 	return render(next, true);
 }
 
-return { compile, batch, switch_batch };
+return { compile, batch, switch_batch, dns_policy, dns_gate };

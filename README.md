@@ -460,6 +460,8 @@ The [Universal Routing Engine preview](docs/UNIVERSAL-ROUTING-20261105.md)
 is not a production update. It tests classifying traffic before transport,
 with a native AWG path and a separate FakeDNS quarantine. The working router
 still uses Xray for interception and DNS. Do not install the preview from LuCI.
+The [transactional DNS laboratory](docs/UNIVERSAL-DNS-20261106.md) uses an
+offline OpenWrt VM on the workstation and does not access a router.
 
 An invalid Apply leaves existing interception and the saved routing intention
 unchanged. Runtime failures attempt recovery from a private last-working
