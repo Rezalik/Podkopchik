@@ -6,7 +6,7 @@ umask 077
 [ "$(uname -r)" = 6.12.112 ]
 cd /mnt/lab
 sha256sum -c SHA256SUMS
-printf '%s\n' 'f9fd8632e0a8e651fcfb5d5f1de9288e163c5ffff09da6a38d7fccfd064b75a0  xray' | sha256sum -c
+printf '%s\n' 'b07ac0b0bc7c8ae09fefa5d93e3623ee32f0d52bba26cb809da82fede794461d  xray' | sha256sum -c
 printf '%s\n' /mnt/lab/base/packages.adb /mnt/lab/kernel/packages.adb >/tmp/pkc-lab-repositories
 apk --repositories-file /tmp/pkc-lab-repositories --no-cache --no-progress add ip-full kmod-veth kmod-nft-tproxy tcpdump-mini
 modprobe veth

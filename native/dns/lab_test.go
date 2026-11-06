@@ -56,6 +56,8 @@ func TestGuestFixture(t *testing.T) {
 				fmt.Println("address=" + x.A.String())
 			case *dns.AAAA:
 				fmt.Println("address=" + x.AAAA.String())
+			case *dns.PTR:
+				fmt.Println("name=" + x.Ptr)
 			default:
 				t.Fatal("unflattened DNS response")
 			}
@@ -101,6 +103,16 @@ func TestGuestFixture(t *testing.T) {
 		n, err := c.Read(b[:])
 		if err != nil || string(b[:n]) != "isolated-udp-ok" {
 			t.Fatal("UDP echo missing", err)
+		}
+	case "dial":
+		c, err := net.DialTimeout("tcp", a[0], time.Second)
+		if err != nil {
+			t.Fatal("TCP connect failed", err)
+		}
+		_ = c.Close()
+	case "quic-serve", "quic-client":
+		if err := quicFixture(mode, a[0], a[1]); err != nil {
+			t.Fatal(err)
 		}
 	case "socks":
 		d, err := proxy.SOCKS5("tcp", a[0], nil, &net.Dialer{Timeout: 2 * time.Second})

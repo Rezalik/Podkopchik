@@ -162,6 +162,16 @@ type publisher struct {
 	poisoned bool
 }
 
+func (p *publisher) expire(now time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for key, lease := range p.leases {
+		if !lease.until.After(now) {
+			delete(p.leases, key)
+		}
+	}
+}
+
 func (p *publisher) publish(ctx context.Context, group int, ips []netip.Addr, ttl uint32) ([]netip.Addr, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

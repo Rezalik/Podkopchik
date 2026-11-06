@@ -112,7 +112,11 @@ func allowedPool(n netip.Prefix) bool {
 }
 
 func validName(n string) bool {
-	if len(n) > 253 || !strings.Contains(n, ".") {
+	return strings.Contains(n, ".") && validQuestionName(n)
+}
+
+func validQuestionName(n string) bool {
+	if len(n) > 253 {
 		return false
 	}
 	for _, label := range strings.Split(n, ".") {

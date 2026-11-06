@@ -23,8 +23,9 @@ for f in packages.adb kmod-veth-6.12.112-r1.apk kmod-nf-tproxy-6.12.112-r1.apk k
 	fetch "$target/kmods/6.12.112-1-67e205f26d0458c4d12f1fd315216398/$f" "$payload/kernel/$f"
 done
 sh "$base/tools/build-native-dns.sh"
-xray="$base/.build/xray-udp-v26.3.27/release/xray"
-printf '%s  %s\n' f9fd8632e0a8e651fcfb5d5f1de9288e163c5ffff09da6a38d7fccfd064b75a0 "$xray" | shasum -a 256 -c
+sh "$base/tools/build-native-stock-xray.sh"
+xray="$base/.build/native-stock-xray/xray"
+printf '%s  %s\n' b07ac0b0bc7c8ae09fefa5d93e3623ee32f0d52bba26cb809da82fede794461d "$xray" | shasum -a 256 -c
 cp "$xray" "$payload/xray"
 for f in podkopchik-native-dns native-dns.test SHA256SUMS; do cp "$base/.build/native-dns/$f" "$payload/"; done
 for f in universal_plan awg awg_network fakedns_guard; do cp "$base/root/usr/libexec/podkopchik/$f.uc" "$payload/source/"; done

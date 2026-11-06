@@ -24,17 +24,40 @@ function domain_value(value) {
 	return value;
 }
 
+function check_pool_inventory(pools, inventory) {
+	let addresses = list(inventory?.addresses, 'address inventory', 512);
+	let routes = list(inventory?.routes, 'route inventory', 8192);
+	let issued = map(list(inventory?.issued, 'previous pool inventory', 64), network_value);
+	if (!length(addresses) || !length(routes)) die('empty native network inventory');
+	guard.check_conflicts(pools, addresses, routes, issued);
+	return issued;
+}
+
 function compile(input) {
 	let lan = input?.lan;
 	if (type(lan) != 'string' || !match(lan, /^[A-Za-z0-9_.-]{1,15}$/) || lan == 'lo') die('invalid native LAN');
+	let legacy_lans = list(input.legacy_lans ?? [], 'legacy LANs', 8);
+	for (let name in legacy_lans)
+		if (type(name) != 'string' || !match(name, /^[A-Za-z0-9_.-]{1,15}$/) || name == 'lo' || name == lan)
+			die('legacy and native LAN interfaces must be separate');
 	let adapters = {}, marks = {}, interfaces = {};
 	for (let a in list(input.adapters, 'adapters', 32)) {
-		if (a?.type != 'amneziawg' || !match(a.id || '', /^[a-f0-9]{32}$/))
-			die('unsupported native adapter');
-		let r = network.resources(a.id);
-		if (adapters[r.tag] || marks[r.mark] || interfaces[r.interface]) die('colliding native adapter resources');
-		marks[r.mark] = true; interfaces[r.interface] = true;
-		adapters[r.tag] = { ...r, usable: a.usable == true, ipv4: a.ipv4 == true, ipv6: a.ipv6 == true };
+		let r;
+		if (a?.type == 'amneziawg' && match(a.id || '', /^[a-f0-9]{32}$/)) {
+			r = network.resources(a.id);
+		}
+		else if (a?.type == 'vless' && match(a.tag || '', /^[a-z][a-z0-9_]{0,63}$/) &&
+			type(a.port) == 'int' && a.port >= 23000 && a.port <= 23031 && input.synthetic) {
+			let slot = a.port - 23000;
+			r = { tag: a.tag, port: a.port, mark: 67108864 + slot, delivery: 67109120 + slot,
+				table: 43000 + slot, priority: 12000 + slot };
+		}
+		else die('unsupported native adapter');
+		if (index(['direct', 'blocked', 'auto_proxy_group'], r.tag) >= 0 || adapters[r.tag] || marks[r.mark] ||
+			(r.interface && interfaces[r.interface])) die('colliding native adapter resources');
+		marks[r.mark] = true;
+		if (r.interface) interfaces[r.interface] = true;
+		adapters[r.tag] = { ...r, type: a.type, usable: a.usable == true, ipv4: a.ipv4 == true, ipv6: a.ipv6 == true };
 	}
 	// Runtime health/threshold/cooldown selection supplies resolved automatic
 	// targets. The planner does not probe or treat unknown health as available.
@@ -70,6 +93,10 @@ function compile(input) {
 			pools[family] = cidr;
 		}
 		if (!length(keys(pools))) die('missing native synthetic prefix');
+		for (let previous in check_pool_inventory(values(pools), input.synthetic.inventory)) {
+			if (index(fake, previous) < 0) push(fake, previous);
+			for (let b in bypass) if (awg.overlap(previous, b)) die('native bypass overlaps a previously issued pool');
+		}
 		let dns = null;
 		if (input.synthetic.dns != null) {
 			let port = input.synthetic.dns.port, ipv4 = input.synthetic.dns.ipv4, ipv6 = input.synthetic.dns.ipv6;
@@ -86,7 +113,7 @@ function compile(input) {
 		}
 		synthetic = { epoch, pools, dns };
 	}
-	return { schema: 1, lan, automatic: input.automatic, adapters, fake, bypass, domains, synthetic,
+	return { schema: 1, lan, legacy_lans, automatic: input.automatic, adapters, fake, bypass, domains, synthetic,
 		clients: rules(input.clients, 'client policies'), ips: rules(input.ips, 'CIDR policies') };
 }
 
@@ -108,6 +135,18 @@ function render(plan, switching) {
 		if (length(elements)) push(lines, 'add element inet ' + TABLE + ' ' + name + ' { ' + join(', ', elements) + ' }');
 	}
 	let lan = 'iifname "' + plan.lan + '" ';
+	let xray = filter(values(plan.adapters), a => a.type == 'vless');
+	if (length(xray)) {
+		// TCP IP_TRANSPARENT sees the post-DNAT socket destination. The
+		// original tuple remains available to the independent egress guard.
+		chain('xray_ingress', 'filter', 'prerouting', -95);
+		for (let a in xray) {
+			let marked = lan + 'meta mark ' + a.mark;
+			if (a.usable) rule('xray_ingress', marked + ' meta l4proto tcp tproxy to :' + a.port +
+				' meta mark set ' + a.delivery + ' accept');
+			rule('xray_ingress', marked + ' counter drop');
+		}
+	}
 	for (let family in ['4', '6']) {
 		let v6 = family == '6', proto = v6 ? 'ip6' : 'ip';
 		function of_family(x) { return (index(x, ':') >= 0) == v6; }
@@ -163,6 +202,11 @@ function render(plan, switching) {
 	}
 	for (let _, a in plan.adapters) {
 		let marked = lan + 'meta mark ' + a.mark;
+		if (a.type == 'vless') {
+			rule('egress_guard', marked + ' counter drop');
+			rule('egress_guard', lan + 'meta mark ' + a.delivery + ' counter drop');
+			continue;
+		}
 		rule('egress_guard', marked + ' oifname != "' + a.interface + '" counter drop');
 		rule('nat', marked + ' oifname "' + a.interface + '" masquerade');
 	}
@@ -188,10 +232,26 @@ function dns_policy(plan, listen, upstream, excluded) {
 function fw4_forward(plan) {
 	if (!plan.synthetic) die('native firewall4 forwarding requires synthetic mode');
 	let lines = [];
-	for (let _, a in plan.adapters)
+	for (let _, a in plan.adapters) if (a.type == 'amneziawg')
 		push(lines, 'iifname "' + plan.lan + '" oifname "' + a.interface + '" meta mark ' + a.mark +
 			' ct state { new, established, related } counter accept comment "Podkopchik native marked tunnel"');
 	return join('\n', lines) + '\n';
+}
+
+function xray_config(plan, outbounds) {
+	let config = { log: { loglevel: 'warning' }, inbounds: [], outbounds: [{ tag: 'blocked', protocol: 'blackhole' }],
+		routing: { domainStrategy: 'AsIs', rules: [] } };
+	for (let a in values(plan.adapters)) if (a.type == 'vless') {
+		let outbound = outbounds[a.tag];
+		if (outbound?.protocol != 'vless' || outbound.tag != a.tag || outbound.proxySettings || outbound.streamSettings?.sockopt?.dialerProxy)
+			die('invalid isolated VLESS outbound');
+		let tag = 'native-in-' + a.port;
+		push(config.inbounds, { tag, port: a.port, protocol: 'dokodemo-door', settings: { network: 'tcp', followRedirect: true },
+			streamSettings: { sockopt: { tproxy: 'tproxy' } } });
+		push(config.outbounds, outbound);
+		push(config.routing.rules, { type: 'field', inboundTag: [tag], outboundTag: a.tag });
+	}
+	return config;
 }
 
 function dns_gate(plan) {
@@ -201,9 +261,13 @@ function dns_gate(plan) {
 	for (let hook in ['input', 'forward', 'output', 'postrouting'])
 		push(lines, 'add chain inet ' + GATE + ' ' + hook + ' { type filter hook ' + hook + ' priority ' + (hook == 'postrouting' ? 300 : -10) + '; policy accept; }');
 	push(lines, 'add chain inet ' + GATE + ' allowed');
-	for (let _, a in plan.adapters)
+	for (let _, a in plan.adapters) if (a.type == 'amneziawg')
 		rule('allowed', 'iifname "' + plan.lan + '" meta mark ' + a.mark + ' oifname "' + a.interface + '" return');
 	rule('allowed', 'counter drop');
+	for (let a in values(plan.adapters)) if (a.type == 'vless') {
+		rule('input', 'iifname "' + plan.lan + '" meta mark ' + a.delivery + ' meta l4proto tcp return');
+		rule('input', 'tcp dport ' + a.port + ' counter drop');
+	}
 	for (let family, pool in plan.synthetic.pools) {
 		let proto = family == '4' ? 'ip' : 'ip6';
 		for (let hook in ['input', 'forward', 'output', 'postrouting']) {
@@ -215,12 +279,25 @@ function dns_gate(plan) {
 	}
 	for (let pool in plan.fake) {
 		let family = index(pool, ':') < 0 ? '4' : '6', proto = family == '4' ? 'ip' : 'ip6';
+		let legacy = ['lo', ...plan.legacy_lans], lan_set = '{ ' + join(', ', map(legacy, x => '"' + x + '"')) + ' }';
 		for (let hook in ['input', 'forward', 'output', 'postrouting']) {
-			rule(hook, proto + ' daddr ' + pool + ' counter drop');
-			rule(hook, 'meta nfproto ipv' + family + ' ct direction original ct original ' + proto + ' daddr ' + pool + ' counter drop');
+			// Only the existing LAN may keep its old local transparent delivery.
+			let scope = hook == 'input' ? 'iifname != ' + lan_set + ' ' : '';
+			rule(hook, scope + proto + ' daddr ' + pool + ' counter drop');
+			rule(hook, scope + 'meta nfproto ipv' + family + ' ct direction original ct original ' + proto + ' daddr ' + pool + ' counter drop');
 		}
-		rule('postrouting', proto + ' saddr ' + pool + ' oifname != { "lo", "' + plan.lan + '" } counter drop');
+		rule('postrouting', proto + ' saddr ' + pool + ' oifname != ' + lan_set + ' counter drop');
 	}
+	return join('\n', lines) + '\n';
+}
+
+function canary_guard(plan) {
+	if (!plan.synthetic?.dns) die('canary requires managed DNS');
+	let table = 'inet ' + GATE, lan = 'iifname "' + plan.lan + '"';
+	let lines = ['add chain ' + table + ' canary { type filter hook forward priority -12; policy accept; }'];
+	for (let a in values(plan.adapters)) if (a.type == 'amneziawg')
+		push(lines, 'add rule ' + table + ' canary ' + lan + ' meta mark ' + a.mark + ' oifname "' + a.interface + '" return');
+	push(lines, 'add rule ' + table + ' canary ' + lan + ' counter drop');
 	return join('\n', lines) + '\n';
 }
 
@@ -256,12 +333,12 @@ function dns_release(plan) {
 
 function switch_batch(previous, next) {
 	function layout(p) {
-		return { lan: p.lan, fake: p.fake, bypass: p.bypass, domains: p.domains, clients: p.clients, ips: p.ips, synthetic: p.synthetic,
-			adapters: map(keys(p.adapters), tag => [tag, p.adapters[tag].interface, p.adapters[tag].mark]) };
+		return { lan: p.lan, legacy_lans: p.legacy_lans, fake: p.fake, bypass: p.bypass, domains: p.domains, clients: p.clients, ips: p.ips, synthetic: p.synthetic,
+			adapters: map(keys(p.adapters), tag => [tag, p.adapters[tag].type, p.adapters[tag].interface, p.adapters[tag].mark, p.adapters[tag].port]) };
 	}
 	// A health transition must keep every DNS set and its leases intact.
 	if (sprintf('%J', layout(previous)) != sprintf('%J', layout(next))) die('native layout changed during selection');
 	return render(next, true);
 }
 
-return { compile, batch, switch_batch, dns_policy, dns_gate, dns_edge, dns_release, fw4_forward };
+return { compile, batch, switch_batch, check_pool_inventory, dns_policy, dns_gate, dns_edge, dns_release, fw4_forward, canary_guard, xray_config };

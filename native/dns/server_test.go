@@ -100,6 +100,50 @@ func requireAnswer(t *testing.T, addr, protocol, name string, qt uint16, code, c
 	return m
 }
 
+func TestLocalNamesAndReverseDoNotPublishAddresses(t *testing.T) {
+	p, _ := compile(testConfig())
+	r := testResolver(t, p, func(context.Context, []binding, time.Time) error {
+		return errors.New("local DNS should not require nftables")
+	}, func(_ context.Context, q dns.Question) (*dns.Msg, error) {
+		if q.Qtype == dns.TypePTR {
+			m := fixture(q, q.Name+" 600 IN PTR printer.lan.", q.Name+" 90 IN A 203.0.113.80")
+			m.Extra = []dns.RR{rr("printer.lan. 90 IN A 192.168.1.20")}
+			return m, nil
+		}
+		return fixture(q, q.Name+" 90 IN A 192.168.1.20"), nil
+	})
+	addr := startTestDNS(t, r)
+	for _, proto := range []string{"udp", "tcp"} {
+		m := requireAnswer(t, addr, proto, "printer.", dns.TypeA, dns.RcodeSuccess, 1)
+		if m.Answer[0].(*dns.A).A.String() != "192.168.1.20" {
+			t.Fatal("local address lost")
+		}
+		m = requireAnswer(t, addr, proto, "20.1.168.192.in-addr.arpa.", dns.TypePTR, dns.RcodeSuccess, 1)
+		if m.Answer[0].(*dns.PTR).Ptr != "printer.lan." || m.Answer[0].Header().Ttl > maxTTL || len(m.Extra) > 0 {
+			t.Fatal("PTR answer not sanitized")
+		}
+		requireAnswer(t, addr, proto, "protected.example.", dns.TypePTR, dns.RcodeRefused, 0)
+	}
+}
+
+func TestExpireFreesLeaseButDoesNotReuseAddress(t *testing.T) {
+	p, _ := compile(testConfig())
+	r := testResolver(t, p, func(context.Context, []binding, time.Time) error { return nil }, nil)
+	ips := []netip.Addr{netip.MustParseAddr("203.0.113.80")}
+	first, err := r.writer.publish(t.Context(), 0, ips, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.writer.expire(time.Now().Add(leaseGrace + 2*time.Second))
+	if len(r.writer.leases) != 0 || r.writer.ledger.data.Next4 != 2 {
+		t.Fatal("sweep did not release memory or rewound the watermark")
+	}
+	second, err := r.writer.publish(t.Context(), 0, ips, 1)
+	if err != nil || first[0] == second[0] {
+		t.Fatal("expired address was reused", err)
+	}
+}
+
 func TestNoReplyBeforeKernelAckAndNoRealIPOnFailure(t *testing.T) {
 	p, _ := compile(testConfig())
 	entered, allow := make(chan struct{}), make(chan struct{})

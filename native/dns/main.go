@@ -75,8 +75,16 @@ func run() error {
 	for _, s := range servers {
 		go func() { ends <- s.ActivateAndServe() }()
 	}
-	<-ends
-	return errors.New("DNS listener stopped")
+	ticker := time.NewTicker(leaseGrace)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ends:
+			return errors.New("DNS listener stopped")
+		case now := <-ticker.C:
+			r.writer.expire(now)
+		}
+	}
 }
 
 func main() {

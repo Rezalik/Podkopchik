@@ -17,11 +17,12 @@ for f in check-offload.sh preflight-ax6000.sh procd-dns.sh; do cp "$base/native/
 for f in universal_plan awg awg_network fakedns_guard; do cp "$base/root/usr/libexec/podkopchik/$f.uc" "$root/"; done
 cp "$base/native/runtime/trial-state.uc" "$root/"
 cp "$base/docs/UNIVERSAL-RELEASE-VM-20261106.md" "$root/REVIEW.md"
+cp "$base/docs/UNIVERSAL-MIXED-CANARY-20261106.md" "$root/CANARY.md"
 printf '%s\n' 'board=xiaomi,redmi-router-ax6000-stock' 'openwrt=25.12.6' 'kernel=6.12.112' \
 	'architecture=aarch64_cortex-a53' 'mode=review-only-no-installer' > "$root/TARGET"
 chmod 755 "$root/podkopchik-native-dns"
-chmod 644 "$root"/*.sh "$root"/*.uc "$root/REVIEW.md" "$root/TARGET"
-(cd "$root" && LC_ALL=C sha256sum podkopchik-native-dns ./*.sh ./*.uc REVIEW.md TARGET > SHA256SUMS)
+chmod 644 "$root"/*.sh "$root"/*.uc "$root"/*.md "$root/TARGET"
+(cd "$root" && LC_ALL=C sha256sum podkopchik-native-dns ./*.sh ./*.uc ./*.md TARGET > SHA256SUMS)
 chmod 644 "$root/SHA256SUMS"
 touch -t 200001010000 "$root"/*
 name=podkopchik-native-ax6000-25.12.6-REVIEW.tar.gz

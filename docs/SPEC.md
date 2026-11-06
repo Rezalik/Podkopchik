@@ -586,6 +586,15 @@ uses a monotonic deadline and refuses to confirm an unfinished prior-boot
 trial. See [release qualification](UNIVERSAL-RELEASE-VM-20261106.md) for the VM
 evidence, encrypted-DNS limits, and outstanding physical deployment gates.
 
+The [mixed transport canary](UNIVERSAL-MIXED-CANARY-20261106.md) retains a
+synthetic address for protected DNS policies that share a real CDN address.
+Native AWG uses kernel DNAT and policy routing. A separate VLESS adapter uses
+TCP TPROXY after DNAT, with a dedicated Xray inbound and no direct outbound.
+VLESS fallback does not forward unsupported UDP. The strict canary denies
+unclassified forwarding, including real IPs cached before migration. Pool
+admission rejects live-network and previously issued ranges; neither a new
+production pool nor the canary is enabled by default.
+
 The earlier cone-disabling mitigation was withdrawn before deployment. The
 main process must preserve full-cone behavior. The reviewed source-core
 candidate instead limits each dokodemo transparent reply cache to 128 sockets,

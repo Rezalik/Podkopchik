@@ -61,8 +61,9 @@ only synthetic fixtures and build outputs. Guest dependencies are installed
 from signed OpenWrt indexes for the exact guest kernel ABI. No DNS or routing
 commands are sent outside the guest.
 
-Build the patched v26.3.27 Xray fixture with the pinned workstation recipe in
-[patches/xray](../patches/xray/README.md), then use Go 1.26.10 for the DNS helper:
+The original results below used a patched v26.3.27 Xray fixture. The current
+runner uses unmodified upstream Xray; see the
+[mixed transport canary](UNIVERSAL-MIXED-CANARY-20261106.md). Use Go 1.26.10:
 
 ```sh
 GO=/absolute/path/to/go1.26.10/bin/go sh tools/prepare-native-dns-vm.sh

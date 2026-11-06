@@ -496,6 +496,12 @@ For [release qualification](UNIVERSAL-RELEASE-VM-20261106.md), also verify:
 - Rebuild the ARM64 review archive twice and compare bytes. The archive does
   not install or activate native routing; physical canary and rollback tests
   are required before production promotion.
+- For [mixed transport](UNIVERSAL-MIXED-CANARY-20261106.md), reject overlap
+  with the entire prior FakeDNS pool and with live network inventory. Verify
+  direct/AWG/VLESS policies sharing a CDN IP, native dual-stack QUIC, a TCP
+  failover to stock Xray, unsupported VLESS UDP drop, and a strict canary that
+  denies cached real-IP forwarding. Never use the lab prefixes on a router
+  without a separate approved inventory and ownership check.
 
 ## Required commands
 

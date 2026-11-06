@@ -23,9 +23,13 @@ type result struct {
 	until time.Time
 }
 
+func matchingReply(q dns.Question, m *dns.Msg) bool {
+	return m != nil && m.Response && !m.Truncated && m.Opcode == dns.OpcodeQuery && len(m.Question) == 1 &&
+		strings.EqualFold(m.Question[0].Name, q.Name) && m.Question[0].Qtype == q.Qtype && m.Question[0].Qclass == q.Qclass
+}
+
 func inspect(p *policy, q dns.Question, m *dns.Msg, now time.Time) (result, error) {
-	if m == nil || !m.Response || m.Truncated || m.Opcode != dns.OpcodeQuery || len(m.Question) != 1 ||
-		!strings.EqualFold(m.Question[0].Name, q.Name) || m.Question[0].Qtype != q.Qtype || m.Question[0].Qclass != q.Qclass {
+	if !matchingReply(q, m) {
 		return result{}, errors.New("invalid DNS response")
 	}
 	r := result{rcode: m.Rcode, group: -1}
@@ -39,7 +43,7 @@ func inspect(p *policy, q dns.Question, m *dns.Msg, now time.Time) (result, erro
 	seen := make(map[string]bool)
 	ttl := uint32(maxTTL)
 	for {
-		if seen[n] || len(seen) == 16 || !validName(strings.TrimSuffix(n, ".")) {
+		if seen[n] || len(seen) == 16 || !validQuestionName(strings.TrimSuffix(n, ".")) {
 			return result{}, errors.New("invalid DNS alias chain")
 		}
 		seen[n] = true
@@ -165,6 +169,34 @@ func makeUpstream(addr string) func(context.Context, dns.Question) (*dns.Msg, er
 	}
 }
 
+func (r *resolver) reverse(ctx context.Context, q dns.Question, resp *dns.Msg) int {
+	name := strings.ToLower(q.Name)
+	if !strings.HasSuffix(name, ".in-addr.arpa.") && !strings.HasSuffix(name, ".ip6.arpa.") {
+		return dns.RcodeRefused
+	}
+	m, err := r.upstream(ctx, q)
+	if err != nil || ctx.Err() != nil || !matchingReply(q, m) || len(m.Answer) > 16 {
+		return dns.RcodeServerFailure
+	}
+	if m.Rcode != dns.RcodeSuccess {
+		if m.Rcode == dns.RcodeNameError {
+			return m.Rcode
+		}
+		return dns.RcodeServerFailure
+	}
+	for _, rr := range m.Answer {
+		ptr, ok := rr.(*dns.PTR)
+		if !ok || ptr.Hdr.Class != dns.ClassINET || !strings.EqualFold(ptr.Hdr.Name, name) ||
+			!validQuestionName(strings.TrimSuffix(strings.ToLower(ptr.Ptr), ".")) {
+			continue
+		}
+		copy := *ptr
+		copy.Hdr.Ttl = min(copy.Hdr.Ttl, maxTTL)
+		resp.Answer = append(resp.Answer, &copy)
+	}
+	return dns.RcodeSuccess
+}
+
 func (r *resolver) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	resp := new(dns.Msg).SetReply(req)
 	resp.RecursionAvailable = true
@@ -175,7 +207,7 @@ func (r *resolver) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 		return
 	}
 	q := req.Question[0]
-	if q.Qclass != dns.ClassINET || !validName(strings.TrimSuffix(strings.ToLower(q.Name), ".")) {
+	if q.Qclass != dns.ClassINET || !validQuestionName(strings.TrimSuffix(strings.ToLower(q.Name), ".")) {
 		write(dns.RcodeRefused)
 		return
 	}
@@ -184,7 +216,7 @@ func (r *resolver) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 		// Do not expose real address hints or alternative targets.
 		write(dns.RcodeSuccess)
 		return
-	case dns.TypeA, dns.TypeAAAA:
+	case dns.TypeA, dns.TypeAAAA, dns.TypePTR:
 	default:
 		write(dns.RcodeRefused)
 		return
@@ -198,6 +230,28 @@ func (r *resolver) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	fitUDP := func() bool {
+		if w.LocalAddr().Network() != "udp" {
+			return true
+		}
+		limit := uint16(512)
+		if opt := req.IsEdns0(); opt != nil {
+			limit = min(uint16(1232), max(limit, opt.UDPSize()))
+		}
+		if resp.Len() > int(limit) {
+			resp.Truncated = true
+			resp.Answer = nil
+			return false
+		}
+		return true
+	}
+	resp.Compress = true
+	if q.Qtype == dns.TypePTR {
+		code := r.reverse(ctx, q, resp)
+		fitUDP()
+		write(code)
+		return
+	}
 	answer, err := r.resolve(ctx, q)
 	if err != nil || ctx.Err() != nil {
 		write(dns.RcodeServerFailure)
@@ -219,19 +273,10 @@ func (r *resolver) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 		}
 	}
 	// A truncated UDP reply publishes no binding and carries no addresses.
-	resp.Compress = true
 	appendAddresses(answer.ips)
-	if w.LocalAddr().Network() == "udp" {
-		limit := uint16(512)
-		if opt := req.IsEdns0(); opt != nil {
-			limit = min(uint16(1232), max(limit, opt.UDPSize()))
-		}
-		if resp.Len() > int(limit) {
-			resp.Truncated = true
-			resp.Answer = nil
-			write(dns.RcodeSuccess)
-			return
-		}
+	if !fitUDP() {
+		write(dns.RcodeSuccess)
+		return
 	}
 	if answer.group >= 0 {
 		resp.Answer = nil
