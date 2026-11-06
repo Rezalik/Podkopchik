@@ -9,16 +9,19 @@ import (
 	"errors"
 	"io"
 	"math/big"
+	"net"
+	"net/http"
 	"os"
 	"time"
 
 	quic "github.com/apernet/quic-go"
+	"github.com/apernet/quic-go/http3"
 )
 
 // Both sides run only in the isolated guest; private keys never leave memory.
 func quicFixture(mode, addr, certPath string) error {
-	tlsConf := &tls.Config{NextProtos: []string{"podkopchik-lab"}, ServerName: "protected.example"}
-	if mode == "quic-serve" {
+	tlsConf := &tls.Config{ServerName: "protected.example", MinVersion: tls.VersionTLS13}
+	if mode == "quic-serve" || mode == "https-serve" {
 		pub, key, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
 			return err
@@ -31,32 +34,22 @@ func quicFixture(mode, addr, certPath string) error {
 			return err
 		}
 		tlsConf.Certificates = []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}
-		listener, err := quic.ListenAddr(addr, tlsConf, nil)
-		if err != nil {
-			return err
-		}
-		defer listener.Close()
 		if err := os.WriteFile(certPath, der, 0600); err != nil {
 			return err
 		}
-		for {
-			c, err := listener.Accept(context.Background())
-			if err != nil {
-				return err
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/test" || (mode == "quic-serve" && r.ProtoMajor != 3) {
+				http.NotFound(w, r)
+				return
 			}
-			go func() {
-				ctx, cancel := context.WithTimeout(c.Context(), 3*time.Second)
-				defer cancel()
-				s, err := c.AcceptStream(ctx)
-				if err == nil {
-					_ = s.SetDeadline(time.Now().Add(2 * time.Second))
-					if b, err := io.ReadAll(io.LimitReader(s, 32)); err == nil && string(b) == "request" {
-						_, _ = s.Write([]byte("quic-ok"))
-					}
-					_ = s.Close()
-				}
-			}()
+			_, _ = w.Write([]byte("tls-ok"))
+		})
+		if mode == "https-serve" {
+			server := http.Server{Addr: addr, TLSConfig: tlsConf, Handler: handler, ReadHeaderTimeout: time.Second}
+			return server.ListenAndServeTLS("", "")
 		}
+		server := http3.Server{Addr: addr, TLSConfig: tlsConf, Handler: handler}
+		return server.ListenAndServe()
 	}
 	der, err := os.ReadFile(certPath)
 	if err != nil {
@@ -70,24 +63,35 @@ func quicFixture(mode, addr, certPath string) error {
 	tlsConf.RootCAs.AddCert(cert)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	c, err := quic.DialAddr(ctx, addr, tlsConf, nil)
+	transport := &http3.Transport{TLSClientConfig: tlsConf,
+		Dial: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+			return quic.DialAddr(ctx, addr, tlsCfg, cfg)
+		}}
+	defer transport.Close()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://protected.example/test", nil)
 	if err != nil {
 		return err
 	}
-	defer c.CloseWithError(0, "")
-	s, err := c.OpenStreamSync(ctx)
+	var res *http.Response
+	proto := 3
+	if mode == "https-client" {
+		proto = 1
+		dialer := &net.Dialer{}
+		tcp := &http.Transport{TLSClientConfig: tlsConf,
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return dialer.DialContext(ctx, "tcp", addr)
+			}}
+		defer tcp.CloseIdleConnections()
+		res, err = tcp.RoundTrip(req)
+	} else {
+		res, err = transport.RoundTrip(req)
+	}
 	if err != nil {
 		return err
 	}
-	_ = s.SetDeadline(time.Now().Add(2 * time.Second))
-	if _, err := s.Write([]byte("request")); err != nil {
-		return err
-	}
-	if err := s.Close(); err != nil {
-		return err
-	}
-	if b, err := io.ReadAll(io.LimitReader(s, 32)); err != nil || string(b) != "quic-ok" {
-		return errors.New("QUIC response missing")
+	defer res.Body.Close()
+	if b, err := io.ReadAll(io.LimitReader(res.Body, 32)); err != nil || res.ProtoMajor != proto || res.StatusCode != 200 || string(b) != "tls-ok" {
+		return errors.New("TLS HTTP response missing")
 	}
 	return nil
 }

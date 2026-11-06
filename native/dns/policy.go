@@ -21,15 +21,16 @@ type group struct {
 }
 
 type config struct {
-	Epoch       string   `json:"epoch"`
-	Virtual     bool     `json:"virtual,omitempty"`
-	Listen      string   `json:"listen"`
-	Listen6     string   `json:"listen6,omitempty"`
-	Upstream    string   `json:"upstream"`
-	Pools       []string `json:"pools"`
-	PrivatePool string   `json:"private_pool,omitempty"`
-	Exclusions  []string `json:"exclusions"`
-	Groups      []group  `json:"groups"`
+	Epoch         string   `json:"epoch"`
+	Virtual       bool     `json:"virtual,omitempty"`
+	VirtualWindow []uint32 `json:"virtual_window,omitempty"`
+	Listen        string   `json:"listen"`
+	Listen6       string   `json:"listen6,omitempty"`
+	Upstream      string   `json:"upstream"`
+	Pools         []string `json:"pools"`
+	PrivatePool   string   `json:"private_pool,omitempty"`
+	Exclusions    []string `json:"exclusions"`
+	Groups        []group  `json:"groups"`
 }
 
 type policy struct {
@@ -55,6 +56,10 @@ func compile(c config) (*policy, error) {
 	if c.Virtual && (c.Listen != "172.31.252.1:24053" || c.Listen6 != "" || len(c.Pools) != 1 ||
 		c.Pools[0] != "172.31.253.0/24" || c.PrivatePool != c.Pools[0]) {
 		return nil, errors.New("virtual DNS requires the dedicated IPv4 listener and pool")
+	}
+	if len(c.VirtualWindow) != 0 && (!c.Virtual || len(c.VirtualWindow) != 2 ||
+		c.VirtualWindow[0] < 3 || c.VirtualWindow[0] > c.VirtualWindow[1] || c.VirtualWindow[1] > 254) {
+		return nil, errors.New("invalid virtual address allocation window")
 	}
 	if listen == upstream {
 		return nil, errors.New("DNS upstream loops to listener")

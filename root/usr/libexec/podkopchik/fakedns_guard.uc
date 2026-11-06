@@ -57,7 +57,7 @@ function pools(config) {
 function state(value) {
 	if (!value || value.schema != 1 || type(value.pools) != 'array' || type(value.lans) != 'array' ||
 		length(value.pools) > 16 || length(value.lans) > 8) die('invalid FakeDNS guard state');
-	let out = { schema: 1, pools: [], lans: [] };
+	let out = { schema: 1, pools: [], lans: [], native_pools: [] };
 	for (let entry in value.pools) {
 		let p = canonical(entry);
 		if (index(out.pools, p) < 0) push(out.pools, p);
@@ -66,12 +66,26 @@ function state(value) {
 		if (!match(lan || '', /^[A-Za-z0-9_.-]{1,15}$/)) die('invalid FakeDNS guard LAN interface');
 		if (index(out.lans, lan) < 0) push(out.lans, lan);
 	}
+	let native = value.native_pools ?? [];
+	if (type(native) != 'array' || length(native) > 16) die('invalid native quarantine pool list');
+	for (let entry in native) {
+		let p = canonical(entry);
+		if (index(out.pools, p) < 0) die('native quarantine pool is missing from the ledger');
+		if (index(out.native_pools, p) < 0) push(out.native_pools, p);
+	}
 	return out;
 }
 
-function desired(previous, configs, lans) {
+function desired(previous, configs, lans, native) {
 	let next = state(previous);
-	for (let c in configs) for (let p in pools(c)) if (index(next.pools, p) < 0) push(next.pools, p);
+	function admit(p, is_native) {
+		for (let used in next.pools) if ((index(next.native_pools, used) >= 0) != is_native && awg.overlap(p, used))
+			die('legacy and native synthetic pools overlap');
+		if (index(next.pools, p) < 0) push(next.pools, p);
+		if (is_native && index(next.native_pools, p) < 0) push(next.native_pools, p);
+	}
+	for (let c in configs) for (let p in pools(c)) admit(p, false);
+	if (native != null) admit(canonical(native), true);
 	if (length(next.pools)) for (let lan in lans) if (index(next.lans, lan) < 0) push(next.lans, lan);
 	return state(next);
 }
@@ -81,7 +95,12 @@ function check_conflicts(pools, addresses, routes, exclusions) {
 		'::/128', '::1/128', 'fe80::/10', 'ff00::/8'];
 	for (let link in addresses) for (let a in link.addr_info || [])
 		if (a.local && a.prefixlen != null) push(used, a.local + '/' + a.prefixlen);
-	for (let r in routes) if (r.dst && r.dst != 'default' && r.dst != '0.0.0.0/0' && r.dst != '::/0') push(used, r.dst);
+	for (let r in routes) {
+		if (r.dst && r.dst != 'default' && r.dst != '0.0.0.0/0' && r.dst != '::/0') push(used, r.dst);
+		if (r.gateway) push(used, r.gateway);
+		if (r.prefsrc) push(used, r.prefsrc);
+		for (let nh in r.nexthops || []) if (nh.gateway) push(used, nh.gateway);
+	}
 	for (let x in exclusions) push(used, x);
 	for (let p in pools) for (let x in used) {
 		if (!valid_cidr(x, false)) continue;
@@ -107,19 +126,47 @@ function batch(value, replace_existing) {
 	push(lines, 'add table inet ' + TABLE + ' { comment "' + OWNER + '"; }');
 	let allowed = ['lo', ...filter(s.lans, x => x != 'lo')];
 	let interfaces = join(', ', map(allowed, x => '"' + x + '"'));
-	for (let hook in ['output', 'forward', 'postrouting'])
+	// OUTPUT is after conntrack and destination NAT; FORWARD is after
+	// prerouting DNAT and before SNAT. POSTROUTING sees the final addresses.
+	let priorities = { output: -90, forward: -200, postrouting: 300 };
+	for (let hook, priority in priorities)
 		push(lines, 'add chain inet ' + TABLE + ' ' + hook + ' { type filter hook ' + hook +
-			' priority ' + (hook == 'postrouting' ? 300 : -200) + '; policy accept; }');
+			' priority ' + priority + '; policy accept; }');
+	if (length(s.native_pools)) {
+		push(lines, 'add chain inet ' + TABLE + ' native_original');
+		// Positive match plus unconditional drop: interfaces without a link
+		// kind must not accidentally pass a negated oifkind comparison.
+		push(lines, 'add rule inet ' + TABLE + ' native_original ct status dnat meta oifkind "amneziawg" return');
+		push(lines, 'add rule inet ' + TABLE + ' native_original counter drop');
+	}
 	for (let family in ['4', '6']) {
 		let v6 = family == '6', proto = v6 ? 'ip6' : 'ip', name = 'fake' + family;
 		let list = filter(s.pools, p => (index(p, ':') >= 0) == v6);
 		if (!length(list)) continue;
-		push(lines, 'add set inet ' + TABLE + ' ' + name + ' { type ipv' + family + '_addr; flags interval; auto-merge; }');
-		push(lines, 'add element inet ' + TABLE + ' ' + name + ' { ' + join(', ', list) + ' }');
+		function add_set(name, entries) {
+			if (!length(entries)) return false;
+			push(lines, 'add set inet ' + TABLE + ' ' + name + ' { type ipv' + family + '_addr; flags interval; auto-merge; }');
+			push(lines, 'add element inet ' + TABLE + ' ' + name + ' { ' + join(', ', entries) + ' }');
+			return true;
+		}
+		add_set(name, list);
+		let legacy = add_set('legacy' + family, filter(list, p => index(s.native_pools, p) < 0));
+		let native = add_set('native' + family, filter(list, p => index(s.native_pools, p) >= 0));
 		for (let hook in ['output', 'forward', 'postrouting']) {
 			let base = 'add rule inet ' + TABLE + ' ' + hook + ' ' + proto;
 			push(lines, base + ' daddr @' + name + ' counter drop');
+			// Reverse DNAT restores a fake source only at postrouting. The
+			// scoped client's dedicated veth is not a permanent LAN; its
+			// own later hook still checks lease and classifier liveness.
+			if (!v6 && native && hook == 'postrouting' && index(s.native_pools, '172.31.253.0/24') >= 0)
+				push(lines, base + ' saddr 172.31.253.0/24 ip daddr 172.31.252.2 ' +
+					'oifname "pv*" meta oifkind "veth" ct direction reply ct status dnat ct mark 0x504b0901 ' +
+					'ct original ip saddr 172.31.252.2 ct original ip daddr @native4 counter return');
 			push(lines, base + ' saddr @' + name + ' oifname != { ' + interfaces + ' } counter drop');
+			let original = 'add rule inet ' + TABLE + ' ' + hook + ' meta nfproto ipv' + family +
+				' ct direction original ct original ' + proto + ' daddr @';
+			if (legacy) push(lines, original + 'legacy' + family + ' counter drop');
+			if (native) push(lines, original + 'native' + family + (hook == 'output' ? ' counter drop' : ' jump native_original'));
 		}
 	}
 	return join('\n', lines) + '\n';
@@ -176,7 +223,7 @@ function cli(args) {
 		return { table: table, rules: rules };
 	}
 	function work() {
-		if (index(['sync', 'status', 'release'], cmd) < 0) die('invalid FakeDNS guard action');
+		if (index(['sync', 'status', 'release', 'register-native'], cmd) < 0) die('invalid FakeDNS guard action');
 		execute(['mkdir', '-p', conf, tmp]);
 		private_file(tmp + '/fakedns-guard.lock');
 		lock = fs.open(tmp + '/fakedns-guard.lock', 'a+', 0o600);
@@ -190,12 +237,26 @@ function cli(args) {
 			let old = trim(fs.readfile(conf + '/' + pointer + '/lan') || '');
 			if (old) push(lans, old);
 		}
-		if (candidate) push(configs, config(candidate, true));
-		let next = desired(previous, configs, lans);
+		let native;
+		if (cmd == 'register-native') {
+			// An explicit operator step after native pool admission; never
+			// assume an RFC1918 block is free or reserve it on normal Apply.
+			native = canonical(candidate);
+			let admission = require('native_pool');
+			if (!admission.allowed(native, native)) die('invalid native quarantine pool');
+			uci.foreach('firewall', 'defaults', s => {
+				if (s.flow_offloading == '1' || s.flow_offloading_hw == '1')
+					die('flow offloading must be disabled before native quarantine registration');
+			});
+			for (let row in json(execute([nft, '-j', 'list', 'ruleset'])).nftables || [])
+				if (row.flowtable) die('a live flowtable prevents native quarantine registration');
+		}
+		else if (candidate) push(configs, config(candidate, true));
+		let next = desired(previous, configs, lans, native);
 		if (!length(next.pools) && cmd != 'release') { if (cmd == 'status') print('state=inactive\n'); return; }
 		let live = kernel(previous);
 		if (cmd == 'status') {
-			printf('state=%s\npools=%s\n', live.table && length(keys(live.rules)) == length(next.pools) ? 'active' : 'incomplete', join(' ', next.pools));
+			printf('state=%s\npools=%s\nnative_pools=%s\n', live.table && length(keys(live.rules)) == length(next.pools) ? 'active' : 'incomplete', join(' ', next.pools), join(' ', next.native_pools));
 			return;
 		}
 		if (cmd == 'release') {
@@ -215,6 +276,10 @@ function cli(args) {
 		}
 		for (let c in configs) for (let o in c?.outbounds || [])
 			if (o.protocol == 'vless') for (let server in o.settings?.vnext || []) push(exclusions, server.address);
+		if (native != null) for (let family in ['-4', '-6'])
+			for (let r in json(execute([ip, '-N', family, '-j', 'rule', 'show'])))
+				if (+r.priority != PRIORITY) for (let p in [r.src, r.dst])
+					if (p && index(['all', 'default', '0.0.0.0/0', '::/0'], p) < 0) push(exclusions, p);
 		check_conflicts(next.pools, json(execute([ip, '-j', 'address', 'show'])),
 			[...json(execute([ip, '-4', '-j', 'route', 'show', 'table', 'all'])),
 			 ...json(execute([ip, '-6', '-j', 'route', 'show', 'table', 'all']))], exclusions);

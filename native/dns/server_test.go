@@ -44,6 +44,31 @@ func TestVirtualPolicyRequiresSeparateListenerAndPool(t *testing.T) {
 	}
 }
 
+func TestVirtualAllocationWindowExhaustion(t *testing.T) {
+	c := testConfig()
+	c.Virtual, c.Listen = true, "172.31.252.1:24053"
+	c.Pools, c.PrivatePool = []string{"172.31.253.0/24"}, "172.31.253.0/24"
+	c.VirtualWindow = []uint32{2, 32}
+	if _, err := compile(c); err == nil {
+		t.Fatal("window may not cover addresses issued in earlier pilots")
+	}
+	c.VirtualWindow = []uint32{32, 32}
+	p, err := compile(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits := 0
+	pub := publisher{policy: p, ledger: testLedger(t, p), leases: map[bindingKey]binding{},
+		commit: func(context.Context, []binding, time.Time) error { commits++; return nil }}
+	addresses, err := pub.publish(context.Background(), 0, []netip.Addr{netip.MustParseAddr("203.0.113.80")}, 60)
+	if err != nil || len(addresses) != 1 || addresses[0].String() != "172.31.253.32" || pub.ledger.data.Next4 != 33 {
+		t.Fatal("publisher did not use the reserved window", addresses, err)
+	}
+	if _, err := pub.publish(context.Background(), 0, []netip.Addr{netip.MustParseAddr("203.0.113.81")}, 60); err == nil || commits != 1 {
+		t.Fatal("publisher spilled beyond the reserved window")
+	}
+}
+
 func testLedger(t *testing.T, p *policy) *ledger {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "state")

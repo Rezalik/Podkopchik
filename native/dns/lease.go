@@ -193,6 +193,12 @@ func (p *publisher) publish(ctx context.Context, group int, ips []netip.Addr, tt
 			cursor := &next.Next6
 			if ip.Is4() {
 				cursor = &next.Next4
+				if w := p.policy.VirtualWindow; len(w) == 2 {
+					*cursor = max(*cursor, w[0])
+					if *cursor > w[1] {
+						return nil, errors.New("virtual address allocation window exhausted")
+					}
+				}
 			}
 			addr, err := addressAt(p.policy.pools[ip.Is4()], *cursor)
 			if err != nil {

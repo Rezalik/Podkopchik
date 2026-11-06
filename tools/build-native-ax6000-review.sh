@@ -15,14 +15,18 @@ root="$stage/package"
 cp "$stage/arm64/podkopchik-native-dns" "$root/"
 for f in check-offload.sh preflight-ax6000.sh procd-dns.sh; do cp "$base/native/runtime/$f" "$root/"; done
 for f in universal_plan native_pool awg awg_network fakedns_guard; do cp "$base/root/usr/libexec/podkopchik/$f.uc" "$root/"; done
+cp "$base/root/usr/libexec/podkopchik/fakedns_guard.sh" "$root/"
+cp "$base/root/etc/init.d/podkopchik-fakedns" "$root/podkopchik-fakedns.init"
 cp "$base/native/runtime/trial-state.uc" "$root/"
 cp "$base/native/runtime/pool-review.uc" "$root/"
 for f in ax6000-recovery.sh ax6000-recovery-data.uc pkc-ax6000-recovery.init ax6000-virtual-watch.sh virtual-trial-cleanup.uc virtual-pilot-plan.uc; do cp "$base/native/runtime/$f" "$root/"; done
+for f in ax6000-scoped-pilot-arm.sh ax6000-scoped-pilot-exercise.sh pack-ax6000-scoped-pilot.sh; do cp "$base/tools/$f" "$root/"; done
 cp "$base/docs/UNIVERSAL-RELEASE-VM-20261106.md" "$root/REVIEW.md"
 cp "$base/docs/UNIVERSAL-MIXED-CANARY-20261106.md" "$root/CANARY.md"
 cp "$base/docs/UNIVERSAL-AX6000-ACCEPTANCE.md" "$root/AX6000.md"
 cp "$base/docs/UNIVERSAL-AX6000-PILOT.md" "$root/PILOT.md"
 cp "$base/docs/UNIVERSAL-AX6000-VIRTUAL-PILOT.md" "$root/VIRTUAL-PILOT.md"
+cp "$base/docs/UNIVERSAL-AX6000-FAKEDNS-UDP.md" "$root/FAKEDNS-UDP.md"
 printf '%s\n' 'board=xiaomi,redmi-router-ax6000-stock' 'openwrt=25.12.6' 'kernel=6.12.112' \
 	'architecture=aarch64_cortex-a53' 'mode=review-only-no-installer' > "$root/TARGET"
 chmod 755 "$root/podkopchik-native-dns"
@@ -33,5 +37,6 @@ touch -t 200001010000 "$root"/*
 name=podkopchik-native-ax6000-25.12.6-REVIEW.tar.gz
 (cd "$root" && COPYFILE_DISABLE=1 tar --format ustar --uid 0 --gid 0 --uname root --gname root -cf "$stage/package.tar" *)
 gzip -n -c "$stage/package.tar" > "$out/$name"
-(cd "$out" && sha256sum "$name" > "$name.sha256")
+cp "$stage/arm64/pilot-probe" "$out/"
+(cd "$out" && sha256sum "$name" > "$name.sha256" && sha256sum pilot-probe > pilot-probe.sha256)
 echo "Review package (not an installer): $out/$name"

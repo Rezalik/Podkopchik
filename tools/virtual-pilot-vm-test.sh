@@ -52,7 +52,7 @@ NFT
 rn nft -s list table inet podkopchik > "$work/home-nft"
 addr=$(rn ip -j addr show); routes=$(rn ip -4 -j route show table all); rules=$(rn ip -4 -j rule show)
 chains=$(rn nft -j list chains | ucode -e 'import { stdin } from "fs"; print(sprintf("%J", map(filter(json(stdin.read("all")).nftables, x => x.chain), x => x.chain)));')
-printf '{"epoch":"%s","awg":"%s","wan":"wan","direct":"203.0.113.81","protected":"protected.example","upstream":"127.0.0.1:1056","nft_chains":%s,"inventory":{"addresses":%s,"routes":%s,"rules":%s,"issued":["198.18.0.0/15"],"exclusions":[],"endpoints":[]}}\n' \
+printf '{"epoch":"%s","awg":"%s","wan":"wan","direct":"203.0.113.81","protected":"protected.example","upstream":"127.0.0.1:1056","window":[32,63],"nft_chains":%s,"inventory":{"addresses":%s,"routes":%s,"rules":%s,"issued":["198.18.0.0/15"],"exclusions":[],"endpoints":[]}}\n' \
 	"$epoch" "$awg" "$chains" "$addr" "$routes" "$rules" > "$work/spec"
 plan() { ucode -L /mnt/lab/source /mnt/lab/virtual-pilot-plan.uc "$1" "$2"; }
 plan nft "$work/spec" > "$work/nft"
@@ -83,6 +83,8 @@ for dst in 203.0.113.80 203.0.113.81; do
 	PKC_NATIVE_LAB=serve ip netns exec "$w" "$bin" -test.run='^TestGuestFixture$' -- "$dst:18081" > "$work/$dst" 2>&1 & pids="$pids $!"
 done
 PKC_NATIVE_LAB=quic-serve ip netns exec "$w" "$bin" -test.run='^TestGuestFixture$' -- 203.0.113.80:18443 "$work/cert" > "$work/quic" 2>&1 & pids="$pids $!"
+PKC_NATIVE_LAB=https-serve ip netns exec "$w" "$bin" -test.run='^TestGuestFixture$' -- 203.0.113.80:18444 "$work/https-cert" > "$work/https" 2>&1 & pids="$pids $!"
+ip netns exec "$w" /mnt/lab/pilot-probe udp-serve 203.0.113.80:19000 120 > "$work/echo" 2>&1 & pids="$pids $!"
 rn "$daemon" -config "$work/dns.json" -ledger "$work/ledger" -init-ledger
 ip netns exec "$r" "$daemon" -config "$work/dns.json" -ledger "$work/ledger" > "$work/classifier" 2>&1 & dp=$!
 for dev in wan0 tunnel0; do
@@ -94,8 +96,15 @@ rn nft get element inet pkc_virtual_guard "$live" '{ 172.31.252.2 }' >/dev/null
 query() { PKC_NATIVE_LAB=query ln "$bin" -test.run='^TestGuestFixture$' -- 172.31.252.1:53 "$1" protected.example. A "$2" "$3"; }
 probe() { PKC_NATIVE_LAB="$1" "$2" "$bin" -test.run='^TestGuestFixture$' -- "$3"; }
 fake=$(query udp NOERROR 1 | sed -n 's/^address=//p')
-case "$fake" in 172.31.253.*) ;; *) fail 'missing synthetic reply' ;; esac
+[ "$fake" = 172.31.253.32 ] || fail 'synthetic reply reused an old allocation window'
 query tcp NOERROR 1 | grep -Fxq "address=$fake"
+mkdir "$work/guard-conf" "$work/guard-run"
+rn env PODKOPCHIK_CONFIG_DIR="$work/guard-conf" PODKOPCHIK_TMP_DIR="$work/guard-run" PODKOPCHIK_LIB=/mnt/lab/source \
+	sh /mnt/lab/source/fakedns_guard.sh register-native 172.31.253.0/24
+if probe dial ln "$fake:18081" > "$work/kind-rejected" 2>&1; then fail 'veth was accepted as a real AWG interface'; fi
+# This exception exists only in the disposable VM, and only for the named
+# veth stand-in. Exercise the rest of the production guard, including replies.
+rn nft insert rule inet podkopchik_fake_guard native_original oifname "$awg" meta oifkind '"veth"' return
 if ! probe dial ln "$fake:18081"; then
 	rn nft list table inet pkc_virtual_guard
 	rn nft list table inet fw4
@@ -103,15 +112,43 @@ if ! probe dial ln "$fake:18081"; then
 	fail 'initial TCP did not reach the native transport'
 fi
 probe udp ln "$fake:18081"
+rn sysctl -w net.netfilter.nf_conntrack_acct=1 net.netfilter.nf_conntrack_udp_timeout=2 net.netfilter.nf_conntrack_udp_timeout_stream=3 >/dev/null
+wn /mnt/lab/pilot-probe udp-echo 203.0.113.80:19000
+ln /mnt/lab/pilot-probe udp-echo "$fake:19000"
+echo_tuple() {
+	rn awk -v ip="$fake" '$3=="udp" && $0 ~ "dst=" ip " sport=[0-9]+ dport=19000 packets=[4-9]" &&
+		$0 ~ /src=203.0.113.80 dst=.*sport=19000 dport=[0-9]+ packets=[4-9]/ {found=1} END{exit !found}' /proc/net/nf_conntrack
+}
+echo_tuple || fail 'missing DNAT/reply UDP conntrack tuple'
+for i in 1 2 3 4 5 6 7 8; do ! echo_tuple && break; sleep 1; done
+if echo_tuple; then fail 'UDP conntrack tuple did not expire'; fi
+ln /mnt/lab/pilot-probe udp-echo "$fake:19000"
+echo_tuple || fail 'missing renewed UDP session'
+echo 'PASS: four verified replies on a reused UDP socket, original/translated tuple, expiry and new UDP session'
+
+PKC_NATIVE_LAB=late-udp-serve ip netns exec "$w" "$bin" -test.run='^TestGuestFixture$' -- 203.0.113.80:19001 "$work/late-ready" "$work/late-send" > "$work/late-server" 2>&1 & late_server=$!; pids="$pids $late_server"
+sleep 1
+PKC_NATIVE_LAB=late-udp-client ip netns exec "$l" "$bin" -test.run='^TestGuestFixture$' -- "$fake:19001" > "$work/late-client" 2>&1 & late_client=$!; pids="$pids $late_client"
+for i in 1 2 3 4; do [ ! -f "$work/late-ready" ] || break; sleep 1; done
+[ -f "$work/late-ready" ] || fail 'late UDP request never arrived'
+rn nft delete element inet pkc_virtual_guard "s_${epoch}_g0_4" "{ $fake }"
+touch "$work/late-send"
+wait "$late_server" || { cat "$work/late-server"; fail 'late UDP reply was not sent'; }
+grep -qx 'late UDP reply sent' "$work/late-server"
+wait "$late_client" || { cat "$work/late-client"; fail 'revoked late UDP reply escaped'; }
+query tcp NOERROR 1 | grep -Fxq "address=$fake"
+rn nft list chain inet podkopchik_fake_guard postrouting | grep -E 'oifkind "veth".*counter packets [1-9][0-9]*' >/dev/null
+echo 'PASS: a real late UDP reply after authorization removal did not reach the virtual client'
 PKC_NATIVE_LAB=quic-client ln "$bin" -test.run='^TestGuestFixture$' -- "$fake:18443" "$work/cert"
+PKC_NATIVE_LAB=https-client ln "$bin" -test.run='^TestGuestFixture$' -- "$fake:18444" "$work/https-cert"
 probe dial ln 203.0.113.81:18081
 probe udp ln 203.0.113.81:18081
 probe dial hn 203.0.113.80:18081
 awk '/^VmRSS:/ {printf "Virtual classifier RSS=%s KiB\n", $2}' "/proc/$dp/status"
 printf 'Virtual classifier FD=%s\n' "$(find "/proc/$dp/fd" -maxdepth 1 -type l | wc -l)"
-echo 'PASS: UDP/TCP DNS and synthetic TCP/UDP/QUIC through native stand-in without Xray; explicit direct and home traffic work'
+echo 'PASS: UDP/TCP DNS and synthetic HTTPS/UDP/HTTP3 through native stand-in without Xray; explicit direct and home traffic work'
 
-for dst in 172.31.253.254 198.19.0.1 203.0.113.80; do
+for dst in 172.31.253.1 172.31.253.2 172.31.253.254 198.19.0.1 203.0.113.80; do
 	if probe dial ln "$dst:18081" > "$work/rejected" 2>&1; then fail 'unknown or cached real address forwarded'; fi
 done
 rn ip -4 route del default dev "$awg" metric 100 proto 242 table 48181
@@ -141,6 +178,7 @@ count() { tcpdump -nn -r "$work/$1.pcap" "$2" 2>/dev/null | wc -l; }
 fakeleak=$(count wan0 'net 172.31.253.0/24 or net 198.18.0.0/15'); tunnelout=$(count tunnel0 'dst host 203.0.113.80'); direct=$(count wan0 'dst host 203.0.113.81');
 # Home may reach the protected test server directly; distinguish its source.
 bad=$(count wan0 'dst host 203.0.113.80 and not src host 192.168.1.2'); dnsleak=$(count wan0 'dst port 53')
+[ "$(count tunnel0 'src host 203.0.113.80 and udp src port 19001')" -eq 1 ] || fail 'delayed reply was not observed on tunnel link'
 printf 'Virtual WAN: synthetic=%s protected_wrong_egress=%s DNS=%s direct=%s tunnel=%s\n' "$fakeleak" "$bad" "$dnsleak" "$direct" "$tunnelout"
 [ "$fakeleak" -eq 0 ] && [ "$bad" -eq 0 ] && [ "$dnsleak" -eq 0 ] && [ "$direct" -gt 0 ] && [ "$tunnelout" -gt 0 ] || fail 'WAN capture controls'
 echo 'PASS: missing route/map, unknown/old addresses and classifier death fail closed only for virtual traffic'

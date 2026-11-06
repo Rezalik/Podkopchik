@@ -29,4 +29,6 @@ modprobe veth
 sh ./ax6000-recovery-vm-test.sh
 sh ./ax6000-virtual-watch-vm-test.sh
 sh ./virtual-pilot-vm-test.sh
+ucode -L /mnt/lab/source /mnt/lab/source/fakedns_guard_smoke.uc
+sh ./fakedns-egress-vm-test.sh
 sh ./native-dns-vm-test.sh

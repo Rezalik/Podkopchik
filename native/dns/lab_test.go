@@ -149,6 +149,51 @@ func TestGuestFixture(t *testing.T) {
 		if err != nil || string(b[:n]) != "isolated-udp-ok" {
 			t.Fatal("UDP echo missing", err)
 		}
+	case "late-udp-serve":
+		pc, err := net.ListenPacket("udp", a[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer pc.Close()
+		_ = pc.SetDeadline(time.Now().Add(10 * time.Second))
+		var b [32]byte
+		n, src, err := pc.ReadFrom(b[:])
+		if err != nil || string(b[:n]) != "late-probe" {
+			t.Fatal("late UDP request not received", err)
+		}
+		if err := os.WriteFile(a[1], nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+		until := time.Now().Add(3 * time.Second)
+		for {
+			if _, err := os.Stat(a[2]); err == nil {
+				break
+			}
+			if time.Now().After(until) {
+				t.Fatal("late UDP release missing")
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+		if _, err := pc.WriteTo(b[:n], src); err != nil {
+			t.Fatal(err)
+		}
+		fmt.Println("late UDP reply sent")
+	case "late-udp-client":
+		c, err := net.Dial("udp", a[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		_ = c.SetDeadline(time.Now().Add(4 * time.Second))
+		if _, err := c.Write([]byte("late-probe")); err != nil {
+			t.Fatal(err)
+		}
+		var b [32]byte
+		if _, err := c.Read(b[:]); err == nil {
+			t.Fatal("late UDP reply reached the revoked client")
+		} else if e, ok := err.(net.Error); !ok || !e.Timeout() {
+			t.Fatal("late UDP read failed without a timeout", err)
+		}
 	case "dial":
 		d := net.Dialer{Timeout: time.Second}
 		if len(a) > 1 {
@@ -163,7 +208,7 @@ func TestGuestFixture(t *testing.T) {
 			t.Fatal("TCP connect failed", err)
 		}
 		_ = c.Close()
-	case "quic-serve", "quic-client":
+	case "quic-serve", "quic-client", "https-serve", "https-client":
 		if err := quicFixture(mode, a[0], a[1]); err != nil {
 			t.Fatal(err)
 		}

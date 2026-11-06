@@ -2,25 +2,25 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/tls"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/netip"
 	"os"
+	"strconv"
 	"time"
 
 	quic "github.com/apernet/quic-go"
+	"github.com/apernet/quic-go/http3"
 	"github.com/miekg/dns"
 )
 
 func run(args []string) error {
 	if len(args) < 2 {
-		return errors.New("use lookup, tcp, ntp or quic with a numeric IPv4 endpoint")
+		return errors.New("use lookup, tcp, udp-echo, udp-serve or quic with a numeric IPv4 endpoint")
 	}
 	mode := args[0]
 	endpoint, err := netip.ParseAddrPort(args[1])
@@ -59,38 +59,24 @@ func run(args []string) error {
 		}
 		c.Close()
 		fmt.Println("TCP connection established")
-	case "ntp":
-		if len(args) != 2 || endpoint.Port() != 123 {
-			return errors.New("ntp requires a UDP/123 endpoint")
+	case "udp-echo":
+		if len(args) > 3 {
+			return errors.New("udp-echo requires an endpoint and an optional Linux interface")
 		}
-		d := net.Dialer{}
-		c, err := d.DialContext(ctx, "udp4", endpoint.String())
-		if err != nil {
-			return err
+		iface := ""
+		if len(args) == 3 {
+			iface = args[2]
 		}
-		defer c.Close()
-		deadline, _ := ctx.Deadline()
-		if err := c.SetDeadline(deadline); err != nil {
-			return err
+		return probeEcho(ctx, endpoint, iface)
+	case "udp-serve":
+		if len(args) != 3 {
+			return errors.New("udp-serve requires a bind endpoint and a lifetime in seconds")
 		}
-		var request [48]byte
-		request[0] = 0x23 // NTPv4 client.
-		binary.BigEndian.PutUint32(request[40:44], uint32(time.Now().Unix()+2208988800))
-		if _, err := rand.Read(request[44:]); err != nil {
-			return err
+		seconds, err := strconv.Atoi(args[2])
+		if err != nil || seconds < 1 || seconds > 600 || endpoint.Addr().IsUnspecified() {
+			return errors.New("use a specific bind address and a lifetime of 1 to 600 seconds")
 		}
-		if _, err := c.Write(request[:]); err != nil {
-			return err
-		}
-		var reply [512]byte
-		n, err := c.Read(reply[:])
-		if err != nil {
-			return err
-		}
-		if n < 48 || reply[0]&7 != 4 || reply[1] == 0 || !bytes.Equal(reply[24:32], request[40:48]) {
-			return errors.New("NTP response did not match the probe")
-		}
-		fmt.Println("UDP NTP response verified; system clock unchanged")
+		return serveEcho(endpoint, time.Duration(seconds)*time.Second)
 	case "quic":
 		if len(args) != 3 || endpoint.Port() != 443 {
 			return errors.New("quic requires UDP/443 and a TLS server name")
@@ -98,18 +84,26 @@ func run(args []string) error {
 		if labels, ok := dns.IsDomainName(args[2]); !ok || labels < 2 {
 			return errors.New("invalid QUIC TLS server name")
 		}
-		c, err := quic.DialAddr(ctx, endpoint.String(), &tls.Config{
-			ServerName: args[2], NextProtos: []string{"h3"}, MinVersion: tls.VersionTLS13,
-		}, nil)
+		tr := &http3.Transport{
+			TLSClientConfig: &tls.Config{ServerName: args[2], MinVersion: tls.VersionTLS13},
+			Dial: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+				return quic.DialAddr(ctx, endpoint.String(), tlsCfg, cfg)
+			},
+		}
+		defer tr.Close()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+args[2]+"/", nil)
 		if err != nil {
 			return err
 		}
-		defer c.CloseWithError(0, "pilot done")
-		s := c.ConnectionState().TLS
-		if s.NegotiatedProtocol != "h3" || len(s.VerifiedChains) == 0 {
-			return errors.New("QUIC did not authenticate an h3 peer")
+		res, err := tr.RoundTrip(req)
+		if err != nil {
+			return err
 		}
-		fmt.Println("QUIC TLS handshake verified; ALPN h3")
+		defer res.Body.Close()
+		if res.ProtoMajor != 3 || res.StatusCode < 200 || res.StatusCode >= 400 {
+			return errors.New("expected a successful HTTP/3 response")
+		}
+		fmt.Printf("HTTP/3 response verified: %d\n", res.StatusCode)
 	default:
 		return errors.New("unknown probe")
 	}

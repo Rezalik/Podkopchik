@@ -14,8 +14,10 @@ mkdir -p "$out"
 "$go" -C "$base/native/dns" mod verify
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 "$go" -C "$base/native/dns" build -mod=readonly -trimpath -buildvcs=false \
 	-ldflags='-s -w -buildid=' -o "$out/podkopchik-native-dns" .
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 "$go" -C "$base/native/dns" build -mod=readonly -trimpath -buildvcs=false \
+	-ldflags='-s -w -buildid=' -o "$out/pilot-probe" ./cmd/pilot-probe
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 "$go" -C "$base/native/dns" test -mod=readonly -c -trimpath -ldflags='-buildid=' \
 	-o "$out/native-dns.test" .
-(cd "$out" && sha256sum podkopchik-native-dns native-dns.test > SHA256SUMS)
+(cd "$out" && sha256sum podkopchik-native-dns pilot-probe native-dns.test > SHA256SUMS)
 echo "Local ARM64 preview built: $out"
 echo 'Unsigned laboratory artifact. Do not install on a router.'

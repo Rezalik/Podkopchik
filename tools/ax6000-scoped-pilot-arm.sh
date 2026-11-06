@@ -9,6 +9,11 @@ case "${1:-}" in rehearsal) limit=25 ;; pilot) limit=125 ;; *) exit 2 ;; esac
 [ "$DISTRIB_RELEASE" = 25.12.6 ] && [ -d /sys/module/veth ] || exit 2
 root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$root"
+ucode -e 'import { lstat } from "fs";
+	const dir=lstat("."); if(dir?.type!="directory"||dir.uid!=0||dir.gid!=0||dir.mode!=0o700) die("unsafe pilot directory\n");
+	let files=["ax6000-scoped-pilot-arm.sh","ax6000-virtual-watch.sh","trial-state.uc","virtual-trial-cleanup.uc","pilot.nft","route.json","run.json","SHA256SUMS"];
+	if(ARGV[0]=="pilot") push(files,"ax6000-scoped-pilot-exercise.sh","pilot.dns","podkopchik-native-dns");
+	for(let f in files){let s=lstat(f); if(s?.type!="file"||s.uid!=0||s.gid!=0||s.nlink!=1||s.mode!=(f=="podkopchik-native-dns"?0o700:0o600)) die("unsafe pilot file metadata: "+f+"\n");}' -- "$1"
 sha256sum -c SHA256SUMS
 get() { jsonfilter -i run.json -e "@.$1"; }
 epoch=$(get epoch); port=$(get port); ns=$(get ns); awg=$(get awg); owner=$(get owner)
@@ -28,6 +33,16 @@ if printf '%s\n' "$rules" | grep -Eq '48181|11581|0x504b0901' ||
 	printf '%s\n' "$routes" | grep -Eq '"table":"48181"'; then exit 1; fi
 nft -c -f pilot.nft
 if [ "$1" = pilot ]; then
+	# The system-wide guard is a separately authorized prerequisite, never
+	# created by the temporary pilot or removed by its watchdog.
+	nft -j list tables | ucode -e 'import { stdin } from "fs";
+		if(!length(filter(json(stdin.read("all")).nftables, r=>r.table?.family=="inet" &&
+			r.table.name=="podkopchik_fake_guard" && r.table.comment=="podkopchik-fakedns-guard-v1"))) die("persistent FakeDNS guard is missing\n");'
+	nft -s list set inet podkopchik_fake_guard legacy4 | grep -Fq '198.18.0.0/15'
+	nft -s list set inet podkopchik_fake_guard native4 | grep -Fq '172.31.253.0/24'
+	ip -d -j link show dev "$awg" | jsonfilter -q -e '@[0].linkinfo.info_kind' | grep -qx amneziawg
+	ucode -e 'import { readfile } from "fs"; if(length(json(readfile("pilot.dns")).virtual_window || []) != 2)
+		die("pilot requires a fresh reserved address window\n");'
 	# The daemon checks UID, mode and hardlink count before opening the policy.
 	# Initialize only the private ledger before making any kernel changes.
 	./podkopchik-native-dns -config "$root/pilot.dns" -ledger "$root/ledger" -init-ledger

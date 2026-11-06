@@ -3,6 +3,7 @@
 // Render only. The caller owns admission of live routes, fw4 and the watchdog.
 import { readfile } from 'fs';
 const pool = require('native_pool');
+const guard = require('fakedns_guard');
 const mode = ARGV[0], file = ARGV[1];
 const p = json(readfile(file || '', 262145) || '{}');
 const client = '172.31.252.2', gateway = '172.31.252.1', subnet = '172.31.252.0/30';
@@ -20,7 +21,11 @@ if (!match(p.epoch || '', /^[0-9a-f]{16}$/) || !match(p.awg || '', /^paw[0-9a-f]
 const port = 'pv' + substr(p.epoch, 0, 12), owner = 'pkc-virtual-' + p.epoch;
 if (p.wan == port) die('conflicting virtual pilot interface');
 const set = 's_' + p.epoch;
-const occupied = pool.inventory(p.inventory, true);
+// An already registered, owned blackhole for this exact pool is not a real
+// network overlap. The arm script separately checks the live guard.
+if (type(p.inventory?.rules) != 'array') die('missing pilot policy rules');
+const occupied = pool.inventory({ ...p.inventory, rules: filter(p.inventory.rules, r =>
+	r.priority != 10992 || index(r.dst || '', ':') >= 0 || guard.rule_pool(r, '-4') != synthetic) }, true);
 if (!length(filter(p.inventory.addresses, l => l.ifname == p.awg && length(filter(l.addr_info, a => a.family == 'inet')))) ||
 	!length(filter(p.inventory.routes, r => r.dst == 'default' && (!r.table || r.table == 'main' || +r.table == 254) && r.dev == p.wan)))
 	die('pilot requires an existing IPv4 AWG interface and the actual WAN');
@@ -40,11 +45,26 @@ if (direct != p.direct || pool.family(direct) != '4' || pool.overlaps(pool.prefi
 if (!match(p.protected || '', /^[a-z0-9-]+(\.[a-z0-9-]+)+$/) || length(p.protected) > 253 ||
 	!match(p.upstream || '', /^127\.0\.0\.1:[0-9]{1,5}$/) || +split(p.upstream, ':')[1] < 1 || +split(p.upstream, ':')[1] > 65535)
 	die('invalid pilot DNS inputs');
+const names = [p.protected];
+if (p.udp != null) {
+	let echo = pool.prefix(p.udp);
+	if (pool.family(echo) != '4' || echo != p.udp + '/32' ||
+		pool.overlaps(echo, [...occupied, synthetic, subnet, pool.prefix(direct)]) ||
+		type(p.udp_port) != 'int' || p.udp_port < 1024 || p.udp_port > 65535)
+		die('invalid controlled UDP echo endpoint');
+	push(names, 'echo.pkc.invalid');
+}
+if (p.window != null && (type(p.window) != 'array' || length(p.window) != 2 ||
+	type(p.window[0]) != 'int' || type(p.window[1]) != 'int' ||
+	p.window[0] < 3 || p.window[0] > p.window[1] - 3 || p.window[1] > 254))
+	die('invalid or insufficient reserved pilot address window');
+if (p.udp != null && p.window == null) die('controlled pilot requires a fresh address window');
 
 if (mode == 'dns') {
 	print(sprintf('%J\n', { epoch: p.epoch, virtual: true, listen: gateway + ':24053', upstream: p.upstream,
+		...(p.window == null ? {} : { virtual_window: p.window }),
 		pools: [synthetic], private_pool: synthetic, exclusions: [pool.prefix(direct), ...occupied],
-		groups: [{ names: [p.protected], protected: true }] }));
+		groups: [{ names, protected: true }] }));
 }
 else if (mode == 'resources') {
 	printf('%J\n', { port, owner, mark, route_table: routeTable, priority, device: p.awg });
@@ -63,6 +83,9 @@ else if (mode == 'nft') {
 	const directFlow = flow + 'ct original ip daddr ' + direct + ' ip daddr ' + direct + ' meta l4proto { tcp, udp } th dport != 53 ' + wan;
 	const dns = src + 'ip daddr ' + gateway + ' meta l4proto { tcp, udp } th dport 24053 ct status dnat ct original proto-dst 53 ';
 	const ret = 'oifname "' + port + '" ip daddr ' + client + ' ct direction reply ct original ip saddr ' + client + ' ct state established ';
+	const awgRet = ret + 'iifname "' + p.awg + '" ct status dnat ct mark ' + mark + ' ';
+	const protectedRet = awgRet + 'ct original ip saddr @' + set + '_live4 ct original ip daddr @' + set + '_g0_4 ';
+	const directRet = ret + 'iifname "' + p.wan + '" ct original ip daddr ' + direct + ' ';
 	const proto = 'meta l4proto { tcp, udp } ';
 	for (let row in hooks) chain(row[0], row[1], row[2], row[3]);
 	push(lines, 'add map ' + table + ' ' + set + '_m4 { type ipv4_addr : ipv4_addr; flags timeout; size 254; }');
@@ -86,6 +109,12 @@ else if (mode == 'nft') {
 		rule(hook, protected + 'counter return');
 		rule(hook, directFlow + 'counter return');
 		rule(hook, flow + 'counter drop');
+		rule(hook, protectedRet + 'counter return');
+		rule(hook, directRet + 'counter return');
+		if (hook == 'egress')
+			rule(hook, ret + 'ct status dnat ' + proto + 'ct original proto-dst 53 ct reply ip saddr ' +
+				gateway + ' ct reply proto-src 24053 counter return');
+		rule(hook, 'oifname "' + port + '" counter drop');
 	}
 	rule('forward', src + 'counter drop');
 	rule('nat', src + authorized + awg + 'masquerade');
@@ -94,7 +123,7 @@ else if (mode == 'nft') {
 	// the exact virtual sender, or a tracked reply back to that same sender.
 	const forwardPilot = flow + 'ct original ip daddr ' + synthetic + ' ' + authorized + awg;
 	for (let row in [['input', dns], ['forward', forwardPilot], ['forward', directFlow],
-		['forward', ret + 'iifname { "' + p.awg + '", "' + p.wan + '" } ']])
+		['forward', awgRet + 'ct original ip daddr ' + synthetic + ' '], ['forward', directRet]])
 		push(lines, 'insert rule inet fw4 ' + row[0] + ' ' + row[1] + 'counter accept comment "' + owner + '"');
 	print(join('\n', lines) + '\n');
 }
