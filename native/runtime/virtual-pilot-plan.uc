@@ -63,7 +63,8 @@ if (p.udp != null && p.window == null) die('controlled pilot requires a fresh ad
 if (mode == 'dns') {
 	print(sprintf('%J\n', { epoch: p.epoch, virtual: true, listen: gateway + ':24053', upstream: p.upstream,
 		...(p.window == null ? {} : { virtual_window: p.window }),
-		pools: [synthetic], private_pool: synthetic, exclusions: [pool.prefix(direct), ...occupied],
+		pools: [synthetic], private_pool: synthetic, retired_pools: map(p.inventory.issued, pool.prefix),
+		exclusions: [pool.prefix(direct), ...occupied],
 		groups: [{ names, protected: true }] }));
 }
 else if (mode == 'resources') {

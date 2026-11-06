@@ -7,7 +7,10 @@ work="$base/.build/universal-dns-vm"
 utm=/Applications/UTM.app/Contents
 fw="$utm/Frameworks"
 image="$work/openwrt-efi.img.gz"
-disk="$work/reboot-lab.img"
+name="${1:-reboot-lab}"
+case "$name" in reboot-lab*) ;; *) exit 2 ;; esac
+case "$name" in *[!A-Za-z0-9_-]*) exit 2 ;; esac
+disk="$work/$name.img"
 printf '%s  %s\n' 77a3802b583a6964ccb868c80f83a6ea0eb5847d3835350b5f0bcbf6f141d1d3 "$image" | shasum -a 256 -c
 [ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$utm/Info.plist")" = 4.7.5 ]
 [ ! -e "$disk" ] || { echo 'Existing VM disk: move it aside before a fresh run' >&2; exit 1; }

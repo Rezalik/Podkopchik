@@ -85,7 +85,8 @@ function desired(previous, configs, lans, native) {
 		if (is_native && index(next.native_pools, p) < 0) push(next.native_pools, p);
 	}
 	for (let c in configs) for (let p in pools(c)) admit(p, false);
-	if (native != null) admit(canonical(native), true);
+	if (native != null) for (let p in type(native) == 'array' ? native : [native])
+		admit(canonical(p), true);
 	if (length(next.pools)) for (let lan in lans) if (index(next.lans, lan) < 0) push(next.lans, lan);
 	return state(next);
 }
@@ -184,6 +185,7 @@ function execute(args) {
 function cli(args) {
 	let cmd = args[0], candidate = args[1], conf = getenv('PODKOPCHIK_CONFIG_DIR') || '/etc/podkopchik';
 	let tmp = getenv('PODKOPCHIK_TMP_DIR') || '/tmp/podkopchik';
+	let trial = getenv('PODKOPCHIK_GUARD_TRIAL_DIR');
 	let ip = getenv('PODKOPCHIK_IP') || 'ip', nft = getenv('PODKOPCHIK_NFT') || 'nft';
 	// This ledger must not be rewound by a working-config or Stage4 rollback.
 	let path = getenv('PODKOPCHIK_CONFIG_DIR') ? conf + '/fakedns-guard.json' : '/etc/podkopchik-fakedns-guard.json';
@@ -222,12 +224,31 @@ function cli(args) {
 		}
 		return { table: table, rules: rules };
 	}
+	function complete_table(expected) {
+		let rows = json(execute([nft, '-j', 'list', 'table', 'inet', TABLE])).nftables || [];
+		for (let name, priority in { output: -90, forward: -200, postrouting: 300 }) {
+			let chain = filter(rows, row => row.chain?.name == name)[0]?.chain;
+			if (chain?.hook != name || chain.prio != priority || chain.policy != 'accept') return false;
+		}
+		let source = split(batch(expected, false), '\n');
+		for (let type in ['rule', 'set', 'chain']) {
+			let prefix = 'add ' + type + ' inet ' + TABLE + ' ';
+			if (length(filter(rows, row => row[type])) != length(filter(source, line => index(line, prefix) == 0)))
+				return false;
+		}
+		return true;
+	}
 	function work() {
-		if (index(['sync', 'status', 'release', 'register-native'], cmd) < 0) die('invalid FakeDNS guard action');
-		execute(['mkdir', '-p', conf, tmp]);
-		private_file(tmp + '/fakedns-guard.lock');
-		lock = fs.open(tmp + '/fakedns-guard.lock', 'a+', 0o600);
-		if (!lock || !lock.lock('x')) die('cannot lock FakeDNS guard');
+		if (index(['sync', 'status', 'release', 'register-native', 'preview-native', 'rollback-first-install'], cmd) < 0)
+			die('invalid FakeDNS guard action');
+		// LuCI diagnostics must neither initialize the guard nor write flash.
+		if (cmd != 'status') {
+			execute(['mkdir', '-p', conf, tmp]);
+			let lockpath = tmp + '/fakedns-guard.lock';
+			private_file(lockpath);
+			lock = fs.open(lockpath, 'a+', 0o600);
+			if (!lock || !lock.lock('x')) die('cannot lock FakeDNS guard');
+		}
 		let previous = private_file(path) ? state(json(fs.readfile(path))) : { schema: 1, pools: [], lans: [] };
 		let uci = require('uci').cursor(), lan = uci.get('podkopchik', 'main', 'lan_ifname') || 'br-lan';
 		let configs = [config(conf + '/config.json', false)], lans = [lan];
@@ -238,7 +259,22 @@ function cli(args) {
 			if (old) push(lans, old);
 		}
 		let native;
-		if (cmd == 'register-native') {
+		if (cmd == 'rollback-first-install') {
+			// Only the scoped deployment watchdog uses this path, after
+			// proving the ledger, table and priority were absent at baseline.
+			if (!trial || candidate != '172.31.253.0/24' || length(previous.pools) &&
+				(length(previous.pools) != 2 || index(previous.pools, '198.18.0.0/15') < 0 ||
+				 length(previous.native_pools) != 1 || previous.native_pools[0] != candidate))
+				die('refusing to roll back a different FakeDNS ledger');
+			let live = kernel(previous);
+			if (live.table) execute([nft, 'delete', 'table', 'inet', TABLE]);
+			for (let pool, family in live.rules) execute([ip, family, 'rule', 'del', 'blackhole', 'to', pool,
+				'priority', PRIORITY, 'protocol', PROTOCOL]);
+			if (private_file(path) && !fs.unlink(path)) die('cannot remove trial FakeDNS guard ledger');
+			if (private_file(path + '.new') && !fs.unlink(path + '.new')) die('cannot remove unfinished trial ledger');
+			return;
+		}
+		if (cmd == 'register-native' || cmd == 'preview-native') {
 			// An explicit operator step after native pool admission; never
 			// assume an RFC1918 block is free or reserve it on normal Apply.
 			native = canonical(candidate);
@@ -256,7 +292,8 @@ function cli(args) {
 		if (!length(next.pools) && cmd != 'release') { if (cmd == 'status') print('state=inactive\n'); return; }
 		let live = kernel(previous);
 		if (cmd == 'status') {
-			printf('state=%s\npools=%s\nnative_pools=%s\n', live.table && length(keys(live.rules)) == length(next.pools) ? 'active' : 'incomplete', join(' ', next.pools), join(' ', next.native_pools));
+			let active = live.table && length(keys(live.rules)) == length(next.pools) && complete_table(next);
+			printf('state=%s\npools=%s\nnative_pools=%s\n', active ? 'active' : 'incomplete', join(' ', next.pools), join(' ', next.native_pools));
 			return;
 		}
 		if (cmd == 'release') {
@@ -287,6 +324,13 @@ function cli(args) {
 		let rules = batch(next, live.table);
 		if (fs.writefile(scratch, rules) != length(rules)) die('cannot stage FakeDNS nftables rules');
 		execute([nft, '-c', '-f', scratch]);
+		if (cmd == 'preview-native') {
+			if (length(next.pools) != 2 || index(next.pools, '198.18.0.0/15') < 0 ||
+				length(next.native_pools) != 1 || next.native_pools[0] != '172.31.253.0/24')
+				die('unexpected FakeDNS WAN Guard trial pools');
+			print('preview=ok\n');
+			return;
+		}
 		// Publish the union before acquiring rules. Interruption cannot lose an
 		// already-issued pool, even when the new runtime transaction fails.
 		if (sprintf('%J', next) != sprintf('%J', previous)) save(path, sprintf('%J\n', next));

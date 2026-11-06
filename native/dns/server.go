@@ -80,10 +80,8 @@ func inspect(p *policy, q dns.Question, m *dns.Msg, now time.Time) (result, erro
 			if !ip.IsValid() || ip.Is4In6() {
 				return result{}, errors.New("invalid DNS address family")
 			}
-			for _, pool := range p.pools {
-				if pool.Contains(ip) {
-					return result{}, errors.New("upstream returned a synthetic address")
-				}
+			if p.syntheticAddress(ip) {
+				return result{}, errors.New("upstream returned a synthetic address")
 			}
 			if !slices.Contains(r.ips, ip) {
 				if len(r.ips) == 32 {

@@ -136,6 +136,8 @@ const statusText = [
 	'Podkopchik 0.1.0-beta',
 	'Service enabled: 1',
 	'Routing applied: 0',
+	'Routing engine: legacy',
+	'Synthetic IP protection: incomplete',
 	'Configured proxies: 1',
 	'Proxy groups: 1',
 	'Domain rules: 1',
@@ -148,6 +150,9 @@ const statusText = [
 
 const rendered = view.render([ statusText ]);
 const text = textOf(rendered).replace(/\s+/g, ' ').trim();
+
+if (!text.includes('Legacy routing through Xray') || !text.includes('Protection is incomplete'))
+	throw new Error('Status page did not report the actual engine and incomplete quarantine');
 
 if (!text.includes('Speed limits'))
 	throw new Error('Status page did not render the Speed limits card');

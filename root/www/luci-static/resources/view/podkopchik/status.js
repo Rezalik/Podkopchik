@@ -127,6 +127,8 @@ function parseStatus(text) {
 		ipRules: 0,
 		lanDeviceRules: 0,
 		xray: 'not running',
+		routingEngine: '',
+		syntheticProtection: 'unknown',
 		stateText: '',
 		state: null,
 		stateError: ''
@@ -189,6 +191,12 @@ function parseStatus(text) {
 			break;
 		case 'Xray':
 			data.xray = field[2] || 'not running';
+			break;
+		case 'Routing engine':
+			data.routingEngine = field[2];
+			break;
+		case 'Synthetic IP protection':
+			data.syntheticProtection = field[2];
 			break;
 		}
 	}
@@ -289,6 +297,13 @@ function summaryState(data, health) {
 			tone: 'warning',
 			title: _('Settings are present, but traffic routing is not applied'),
 			detail: _('Traffic is not currently routed through proxy.')
+		};
+
+	if (data.syntheticProtection == 'incomplete')
+		return {
+			tone: 'error',
+			title: _('Podkopchik needs attention'),
+			detail: _('Protection is incomplete')
 		};
 
 	if (data.xray != 'running' || health.down > 0)
@@ -508,7 +523,13 @@ function renderCards(statusText, awg) {
 				data.serviceEnabled ? _('The background service can start when needed.') : _('Enable the service before applying traffic routing.')),
 			card(_('Traffic routing'), data.routingApplied ? 'ok' : (hasRules ? 'warning' : 'inactive'),
 				data.routingApplied ? _('Traffic routing is active') : _('Traffic is not currently routed through proxy'),
-				data.routingApplied ? _('LAN traffic matching your rules is being redirected to Xray.') : _('Settings exist, but traffic routing is not applied.')),
+				data.routingApplied ? _('LAN traffic is handled by the active routing engine.') : _('Settings exist, but traffic routing is not applied.')),
+			data.routingEngine == 'legacy' ? card(_('Routing engine'), 'inactive', _('Legacy routing through Xray'), '') : null,
+			card(_('Synthetic IP protection'), data.syntheticProtection == 'active' ? 'ok' :
+				data.syntheticProtection == 'incomplete' ? 'error' : 'inactive',
+				data.syntheticProtection == 'active' ? _('Protection is installed') :
+				data.syntheticProtection == 'incomplete' ? _('Protection is incomplete') :
+				data.syntheticProtection == 'inactive' ? _('No synthetic pools are registered') : _('Protection could not be verified'), ''),
 			card(_('Xray'), xrayTone,
 				data.xray == 'running' ? _('Xray is running') : (data.routingApplied ? _('Xray is not running although routing is enabled') : _('Xray is stopped; this is normal while routing is disabled')),
 				data.xray == 'running' ? _('Proxy traffic can be handled by Xray.') : ''),

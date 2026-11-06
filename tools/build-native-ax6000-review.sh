@@ -14,13 +14,17 @@ sh "$base/tools/build-native-dns.sh" "$stage/arm64"
 root="$stage/package"
 cp "$stage/arm64/podkopchik-native-dns" "$root/"
 for f in check-offload.sh preflight-ax6000.sh procd-dns.sh; do cp "$base/native/runtime/$f" "$root/"; done
-for f in universal_plan native_pool awg awg_network fakedns_guard; do cp "$base/root/usr/libexec/podkopchik/$f.uc" "$root/"; done
+for f in universal_plan universal_selection native_pool awg awg_network fakedns_guard generate vless interception; do
+	cp "$base/root/usr/libexec/podkopchik/$f.uc" "$root/"
+done
 cp "$base/root/usr/libexec/podkopchik/fakedns_guard.sh" "$root/"
 cp "$base/root/etc/init.d/podkopchik-fakedns" "$root/podkopchik-fakedns.init"
 cp "$base/native/runtime/trial-state.uc" "$root/"
 cp "$base/native/runtime/pool-review.uc" "$root/"
 for f in ax6000-recovery.sh ax6000-recovery-data.uc pkc-ax6000-recovery.init ax6000-virtual-watch.sh virtual-trial-cleanup.uc virtual-pilot-plan.uc; do cp "$base/native/runtime/$f" "$root/"; done
-for f in ax6000-scoped-pilot-arm.sh ax6000-scoped-pilot-exercise.sh pack-ax6000-scoped-pilot.sh; do cp "$base/tools/$f" "$root/"; done
+for f in ax6000-scoped-pilot-arm.sh ax6000-scoped-pilot-exercise.sh pack-ax6000-scoped-pilot.sh ax6000-awg-udp-control.sh; do
+	cp "$base/tools/$f" "$root/"
+done
 cp "$base/docs/UNIVERSAL-RELEASE-VM-20261106.md" "$root/REVIEW.md"
 cp "$base/docs/UNIVERSAL-MIXED-CANARY-20261106.md" "$root/CANARY.md"
 cp "$base/docs/UNIVERSAL-AX6000-ACCEPTANCE.md" "$root/AX6000.md"

@@ -31,6 +31,9 @@ for f in podkopchik-native-dns pilot-probe native-dns.test SHA256SUMS; do cp "$b
 for f in universal_plan native_pool awg awg_network fakedns_guard; do cp "$base/root/usr/libexec/podkopchik/$f.uc" "$payload/source/"; done
 cp "$base/tests/native_dns_vm_plan.uc" "$payload/source/"
 cp "$base/root/usr/libexec/podkopchik/fakedns_guard.sh" "$base/tests/fakedns_guard_smoke.uc" "$payload/source/"
+cp "$base/root/usr/libexec/podkopchik/universal_selection.uc" "$base/tests/universal_selection_smoke.uc" "$payload/source/"
+cp "$base/tools/ax6000-fakedns-guard-trial-vm-test.sh" "$payload/"
+sh "$base/tools/pack-ax6000-fakedns-guard-trial.sh" "$payload/guard-trial.tar"
 cp "$base/tools/native-dns-vm-test.sh" "$base/tools/setup-native-dns-guest.sh" "$payload/"
 for f in native-vm-only.sh native-vm-watchdog.sh native-vm-detached-test.sh ax6000-recovery-vm-test.sh ax6000-virtual-watch-vm-test.sh virtual-pilot-vm-test.sh fakedns-egress-vm-test.sh install-native-vm-boot.sh native-vm-boot.init native-vm-boot.sh; do
 	cp "$base/tools/$f" "$payload/"
@@ -41,7 +44,7 @@ for f in native_pool awg fakedns_guard; do cp "$base/root/usr/libexec/podkopchik
 regression="$payload/regression"
 mkdir -p "$regression/tests" "$regression/root/usr/libexec/podkopchik" "$regression/root/etc/init.d"
 cp "$base/tests/"generate_*_smoke.sh "$base/tests/xray_udp_session_smoke.sh" "$regression/tests/"
-for f in awg awg_network generate vless interception; do
+for f in awg awg_network generate vless interception universal_plan universal_selection native_pool fakedns_guard; do
 	cp "$base/root/usr/libexec/podkopchik/$f.uc" "$regression/root/usr/libexec/podkopchik/"
 done
 cp "$base/root/etc/init.d/podkopchik" "$regression/root/etc/init.d/"

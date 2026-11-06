@@ -29,6 +29,7 @@ type config struct {
 	Upstream      string   `json:"upstream"`
 	Pools         []string `json:"pools"`
 	PrivatePool   string   `json:"private_pool,omitempty"`
+	RetiredPools  []string `json:"retired_pools,omitempty"`
 	Exclusions    []string `json:"exclusions"`
 	Groups        []group  `json:"groups"`
 }
@@ -39,10 +40,12 @@ type policy struct {
 	names    map[string]int
 	pools    map[bool]netip.Prefix
 	excluded []netip.Prefix
+	retired  []netip.Prefix
 }
 
 func compile(c config) (*policy, error) {
-	if !epochRE.MatchString(c.Epoch) || len(c.Groups) > 512 || len(c.Pools) == 0 || len(c.Pools) > 2 || len(c.Exclusions) > 1024 {
+	if !epochRE.MatchString(c.Epoch) || len(c.Groups) > 512 || len(c.Pools) == 0 || len(c.Pools) > 2 ||
+		len(c.Exclusions) > 1024 || len(c.RetiredPools) > 80 {
 		return nil, errors.New("invalid DNS policy bounds")
 	}
 	for _, raw := range []string{c.Listen, c.Upstream} {
@@ -89,6 +92,18 @@ func compile(c config) (*policy, error) {
 	}
 	if approved.IsValid() && p.pools[true] != approved {
 		return nil, errors.New("unused private pool approval")
+	}
+	for _, raw := range c.RetiredPools {
+		n, err := netip.ParsePrefix(raw)
+		if err != nil || n.Bits() == 0 || n != n.Masked() || n.Addr().Is4In6() {
+			return nil, errors.New("invalid retired synthetic prefix")
+		}
+		for _, pool := range p.pools {
+			if pool.Overlaps(n) {
+				return nil, errors.New("active pool overlaps retired synthetic prefix")
+			}
+		}
+		p.retired = append(p.retired, n)
 	}
 	for _, raw := range c.Exclusions {
 		n, err := netip.ParsePrefix(raw)
@@ -162,6 +177,20 @@ func (p *policy) group(name string) int {
 	}
 }
 
+func (p *policy) syntheticAddress(a netip.Addr) bool {
+	for _, n := range p.pools {
+		if n.Contains(a) {
+			return true
+		}
+	}
+	for _, n := range p.retired {
+		if n.Contains(a) {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *policy) safeReal(a netip.Addr) bool {
 	if !a.IsGlobalUnicast() || a.IsPrivate() || a.Is4In6() || a.IsLoopback() || a.Zone() != "" {
 		return false
@@ -171,10 +200,8 @@ func (p *policy) safeReal(a netip.Addr) bool {
 			return false
 		}
 	}
-	for _, n := range p.pools {
-		if n.Contains(a) {
-			return false
-		}
+	if p.syntheticAddress(a) {
+		return false
 	}
 	for _, n := range p.excluded {
 		if n.Contains(a) {

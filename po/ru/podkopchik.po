@@ -1449,3 +1449,27 @@ msgstr "Стандартный кэш Xray"
 
 msgid "Installing a stock core removes the local UDP reply-cache patch."
 msgstr "Установка стандартного ядра удалит локальное исправление кэша UDP-сокетов."
+
+msgid "Routing engine"
+msgstr "Движок маршрутизации"
+
+msgid "Legacy routing through Xray"
+msgstr "Текущая маршрутизация через Xray"
+
+msgid "LAN traffic is handled by the active routing engine."
+msgstr "Трафик LAN обрабатывает действующий движок маршрутизации."
+
+msgid "Synthetic IP protection"
+msgstr "Защита синтетических IP"
+
+msgid "Protection is installed"
+msgstr "Защита установлена"
+
+msgid "Protection is incomplete"
+msgstr "Защита настроена не полностью"
+
+msgid "No synthetic pools are registered"
+msgstr "Синтетические пулы не зарегистрированы"
+
+msgid "Protection could not be verified"
+msgstr "Не удалось проверить защиту"

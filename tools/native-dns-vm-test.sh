@@ -369,6 +369,8 @@ rn nft list chain inet podkopchik_native_gate output | grep -E 'ip6 saddr 2001:d
 echo 'PASS: locally generated tunnel-source packets are blocked on virtual WAN in both families'
 
 if [ "${PKC_VM_SOAK_SECONDS:-0}" != 0 ]; then
+	fd_count() { ls "/proc/$dnspid/fd" | wc -l; }
+	baseline_fd=$(fd_count)
 	sample() {
 		printf 'soak sample uptime=%s fd=%s ' "$(cut -d. -f1 /proc/uptime)" "$(ls "/proc/$dnspid/fd" | wc -l)"
 		awk '/^VmRSS:/ {printf "rss_kib=%s ", $2}' "/proc/$dnspid/status"
@@ -379,12 +381,15 @@ if [ "${PKC_VM_SOAK_SECONDS:-0}" != 0 ]; then
 	loadpid=$!; pids="$pids $loadpid"
 	for i in 1 2 3 4 5 6; do
 		sample
+		[ "$(fd_count)" -le "$((baseline_fd + 72))" ] || fail 'DNS descriptor budget exceeded'
 		rn nft -f "$work/backup"
 		sleep "$((PKC_VM_SOAK_SECONDS / 6))"
 		rn nft -f "$work/restore"
 	done
 	wait "$loadpid" || { cat "$work/soak.log"; fail 'DNS soak'; }
+	sleep 3
 	sample
+	[ "$(fd_count)" -le "$((baseline_fd + 4))" ] || fail 'DNS descriptors did not drain after the soak'
 	cat "$work/soak.log"
 	echo 'PASS: concurrent dual-stack DNS soak across repeated transport switches'
 fi

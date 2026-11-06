@@ -596,6 +596,125 @@ function build_config() {
 	return config;
 }
 
+function native_preview(path) {
+	let raw = readfile(path || '', 262145);
+	if (!raw || length(raw) > 262144) die('missing or oversized native preview inventory');
+	let spec = json(raw), planner = require('universal_plan'), policy = require('universal_selection');
+	let guard = require('fakedns_guard');
+	let main = first_section('settings') || {}, proxies = collect_proxies(true, true), groups = collect_groups();
+	let state = read_state(), ready = {}, adapters = [], now = time();
+	let legacy_lan = opt(main, 'lan_ifname', 'br-lan');
+	if (!spec.synthetic?.dns || !spec.synthetic?.inventory || !spec.upstream)
+		die('native preview requires synthetic DNS and a route inventory');
+	if (!match(spec.upstream, /^127\.0\.0\.1:[0-9]{1,5}$/) ||
+		+split(spec.upstream, ':')[1] < 1 || +split(spec.upstream, ':')[1] > 65535)
+		die('native preview requires an explicit local DNS upstream');
+	if (boolopt(main, 'routing_enabled', false) && index(spec.legacy_lans ?? [], legacy_lan) < 0)
+		die('native preview must keep the active legacy LAN separate');
+	for (let p in proxies.list) {
+		let usable = policy.fresh(state.proxies?.[p.tag], now);
+		if (p.protocol == 'amneziawg') {
+			let runtime = null;
+			try { runtime = awg_net.controller().inspect_status(p.resource.id); } catch (e) { }
+			let source_ips = [];
+			if (runtime?.running && runtime.guarded && runtime.addresses_assigned)
+				for (let address in split(runtime.addresses || '', ',')) {
+					let ip = split(trim(address), '/')[0];
+					if (ip) push(source_ips, ip);
+				}
+			usable = usable && length(source_ips) > 0;
+			push(adapters, { type: 'amneziawg', id: p.resource.id, source_ips, usable,
+				ipv4: length(filter(source_ips, ip => index(ip, ':') < 0)) > 0,
+				ipv6: length(filter(source_ips, ip => index(ip, ':') >= 0)) > 0 });
+		}
+		else {
+			let slot = length(filter(adapters, a => a.type == 'vless'));
+			push(adapters, { type: 'vless', tag: p.tag, port: 23000 + slot, usable, ipv4: true, ipv6: true });
+		}
+		ready[p.tag] = usable;
+	}
+	function ref(value) { return value ? vless.clean_tag(value, value) : ''; }
+	let auto = groups.by_tag.auto_proxy_group;
+	if (auto) auto = { ...auto, primary: ref(auto.primary), fixed_proxy: ref(auto.fixed_proxy),
+		manual_override_proxy: ref(auto.manual_override_proxy), backups: map(auto.backups, ref) };
+	let choice = policy.select(auto, ready, state.groups?.auto_proxy_group, now, intopt(main, 'switch_cooldown', 60));
+	function target(value) {
+		let tag = ref(value || 'direct');
+		if (tag == 'direct' || proxies.by_tag[tag] || tag == 'auto_proxy_group' && auto) return tag;
+		die('unavailable or unsupported native rule target');
+	}
+	let domains = [], domain_targets = {}, rows_by_target = {}, ips = [], clients = [];
+	function append_domains(names, tag) {
+		if (!length(names)) die('missing required value: domain');
+		for (let name in names) {
+			if (exists(domain_targets, name) && domain_targets[name] != tag)
+				die('conflicting native domain policies');
+			if (!exists(domain_targets, name)) {
+				domain_targets[name] = tag;
+				if (!rows_by_target[tag]) {
+					rows_by_target[tag] = { names: [], target: tag };
+					push(domains, rows_by_target[tag]);
+				}
+				push(rows_by_target[tag].names, name);
+			}
+		}
+	}
+	let bypass_names = bypass_domain_values();
+	if (length(bypass_names)) append_domains(bypass_names, 'direct');
+	for (let rule in sections('domain_rule', true)) append_domains(domain_values(rule), target(rule.target));
+	for (let name in keys(domain_targets)) {
+		let labels = split(name, '.');
+		for (let i = 1; i < length(labels) - 1; i++) {
+			let parent = join('.', slice(labels, i));
+			if (exists(domain_targets, parent) && domain_targets[parent] != domain_targets[name])
+				die('overlapping native domain policies require explicit migration');
+		}
+	}
+	for (let rule in sections('ip_rule', true))
+		push(ips, { cidr: require_value(rule.cidr, 'CIDR'), target: target(rule.target) });
+	for (let rule in sections('lan_device', true)) {
+		let mode = opt(rule, 'mode', 'rules_only');
+		if (mode == 'rules_only') continue;
+		if (mode != 'direct' && mode != 'full_proxy') die('unsupported native LAN rule mode');
+		push(clients, { cidr: require_value(rule.source_ip, 'LAN source IP'),
+			target: mode == 'direct' ? 'direct' : target(rule.target) });
+	}
+	let configured_targets = map([...domains, ...ips, ...clients], row => row.target);
+	let automatic_used = index(configured_targets, 'auto_proxy_group') >= 0;
+	if (!automatic_used) choice = { active: 'blocked', reason: 'automatic_group_unused' };
+	let adapter_tags = [...configured_targets, ...(automatic_used ?
+		[auto.primary, auto.fixed_proxy, auto.manual_override_proxy, ...auto.backups] : [])];
+	adapters = filter(adapters, a => index(adapter_tags, a.tag || awg_net.resources(a.id).tag) >= 0);
+	let selected = map(configured_targets, tag => tag == 'auto_proxy_group' ? choice.active : tag);
+	let fake_pools = [];
+	if (boolopt(main, 'fakedns_enabled', false)) {
+		push(fake_pools, opt(main, 'fakedns_pool_v4', '198.18.0.0/15'));
+		if (interception.settings(main).ipv6) push(fake_pools, '2001:2::/48');
+	}
+	// Resolved bypass and occupied routes must come from the candidate's
+	// preflight, not the output of a new DNS query during activation.
+	let bypass = spec.bypass ?? [];
+	if (type(bypass) != 'array') die('invalid native bypass inventory');
+	for (let r in sections('bypass_rule', true)) {
+		let host = trim(lc(opt(r, 'host', '')));
+		if (is_bypass_ip_value(host)) push(bypass, host);
+	}
+	let plan = planner.compile({ lan: spec.lan, legacy_lans: spec.legacy_lans, adapters,
+		automatic: choice.active, fake_pools, bypass, domains, ips, clients, synthetic: spec.synthetic });
+	let quarantine = guard.desired({ schema: 1, pools: [], lans: [] },
+		length(plan.fake) ? [{ fakedns: map(plan.fake, ipPool => ({ ipPool })) }] : [],
+		[plan.lan, ...plan.legacy_lans],
+		values(plan.synthetic.pools));
+	return { mode: 'preview-only', automatic: choice, requires_xray: length(filter(adapters, a => a.type == 'vless')) > 0,
+		xray_needed_now: length(filter(adapters, a => a.type == 'vless' && a.usable && index(selected, a.tag) >= 0)) > 0,
+		adapters: values(plan.adapters), dns: planner.dns_policy(plan, '', spec.upstream, []),
+		rules: { domains: length(keys(domain_targets)), ips: length(ips), clients: length(clients) },
+		nft: { quarantine: guard.batch(quarantine, false), routing: planner.batch(plan), protection: planner.dns_gate(plan),
+			dns_redirect: planner.dns_edge(plan), fw4_forward: planner.fw4_forward(plan) },
+		warnings: length(filter(clients, c => c.target == 'direct')) ?
+			['synthetic_addresses_for_direct_clients_are_blocked'] : [] };
+}
+
 function health_config(outbound, port) {
 	let config = {
 		log: { loglevel: 'warning' },
@@ -889,6 +1008,10 @@ else if (mode == 'state') {
 else if (mode == 'config-state') {
 	state_file = ARGV[1] || STATE_FILE;
 	obj = build_config();
+}
+else if (mode == 'native-preview') {
+	state_file = ARGV[2] || STATE_FILE;
+	obj = native_preview(ARGV[1]);
 }
 else {
 	obj = build_config();

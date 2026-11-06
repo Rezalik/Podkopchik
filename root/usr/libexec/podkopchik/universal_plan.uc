@@ -229,7 +229,8 @@ function batch(plan) { return render(plan, false); }
 function dns_policy(plan, listen, upstream, excluded) {
 	if (!plan.synthetic) die('native DNS requires synthetic mode');
 	let result = { epoch: plan.synthetic.epoch, listen, upstream,
-		pools: values(plan.synthetic.pools), exclusions: [...plan.fake, ...plan.bypass, ...map(excluded, network_value)],
+		pools: values(plan.synthetic.pools), retired_pools: plan.fake,
+		exclusions: [...plan.fake, ...plan.bypass, ...map(excluded, network_value)],
 		groups: map(plan.domains, g => ({ names: g.names, protected: g.target != 'direct' })) };
 	if (plan.synthetic.private_pool) result.private_pool = plan.synthetic.private_pool;
 	let dns = plan.synthetic.dns;

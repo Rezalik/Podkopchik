@@ -69,6 +69,29 @@ func TestVirtualAllocationWindowExhaustion(t *testing.T) {
 	}
 }
 
+func TestRetiredPoolNeverReturnedByDirectDNS(t *testing.T) {
+	c := testConfig()
+	c.RetiredPools = []string{"172.31.253.0/24"}
+	p, err := compile(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := testResolver(t, p, func(context.Context, []binding, time.Time) error {
+		t.Fatal("direct or rejected query must not publish")
+		return nil
+	}, func(_ context.Context, q dns.Question) (*dns.Msg, error) {
+		ip := "192.168.1.20"
+		if q.Name != "ordinary.direct.example." {
+			ip = "172.31.253.32"
+		}
+		return fixture(q, q.Name+" 90 IN A "+ip), nil
+	})
+	addr := startTestDNS(t, r)
+	requireAnswer(t, addr, "tcp", "stale.direct.example.", dns.TypeA, dns.RcodeServerFailure, 0)
+	requireAnswer(t, addr, "udp", "stale.unmatched.example.", dns.TypeA, dns.RcodeServerFailure, 0)
+	requireAnswer(t, addr, "udp", "ordinary.direct.example.", dns.TypeA, dns.RcodeSuccess, 1)
+}
+
 func testLedger(t *testing.T, p *policy) *ledger {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "state")

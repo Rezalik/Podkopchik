@@ -398,7 +398,15 @@ function controller(options) {
 			lock.close(); return result;
 		} catch (e) { lock.close(); die(e.message); }
 	}
-	return { run: locked };
+	function inspect_status(id) {
+		let parent = fs.lstat(fs.dirname(root)), dir = fs.lstat(root);
+		if (!dir) return { running: false, status: 'unknown', reason: 'stopped', guarded: false };
+		if (!parent || parent.type != 'directory' || parent.uid != (options.owner || 0) || (parent.mode & 0o022) ||
+			dir.type != 'directory' || dir.uid != (options.owner || 0) || (dir.mode & 0o077))
+			awg.fail('storage');
+		return status(id);
+	}
+	return { run: locked, inspect_status: inspect_status };
 }
 
 return { resources: resources, controller: controller, outbound: outbound, block_active: block_active, probe_settings: probe_settings };
