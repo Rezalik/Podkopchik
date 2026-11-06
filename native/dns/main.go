@@ -51,22 +51,28 @@ func run() error {
 	}
 	r := &resolver{policy: p, writer: &publisher{policy: p, ledger: l, leases: make(map[bindingKey]binding), commit: nftCommit(p.Epoch)},
 		upstream: makeUpstream(p.Upstream), slots: make(chan struct{}, 64), cache: make(map[questionKey]result)}
-	// Open both sockets before serving on either.
-	tcp, err := net.Listen("tcp", p.Listen)
-	if err != nil {
-		return errors.New("cannot bind DNS TCP socket")
+	// A failed bind must not leave a partial UDP/TCP or IPv4/IPv6 service.
+	var servers []*dns.Server
+	for _, listen := range []string{p.Listen, p.Listen6} {
+		if listen == "" {
+			continue
+		}
+		tcp, err := net.Listen("tcp", listen)
+		if err != nil {
+			return errors.New("cannot bind DNS TCP socket")
+		}
+		defer tcp.Close()
+		udp, err := net.ListenPacket("udp", listen)
+		if err != nil {
+			return errors.New("cannot bind DNS UDP socket")
+		}
+		defer udp.Close()
+		servers = append(servers,
+			&dns.Server{Listener: tcp, Handler: r, ReadTimeout: 3 * time.Second, WriteTimeout: 6 * time.Second, MaxTCPQueries: 32},
+			&dns.Server{PacketConn: udp, Handler: r, UDPSize: 1232})
 	}
-	defer tcp.Close()
-	udp, err := net.ListenPacket("udp", p.Listen)
-	if err != nil {
-		return errors.New("cannot bind DNS UDP socket")
-	}
-	defer udp.Close()
-	ends := make(chan error, 2)
-	for _, s := range []*dns.Server{
-		{Listener: tcp, Handler: r, ReadTimeout: 3 * time.Second, WriteTimeout: 6 * time.Second, MaxTCPQueries: 32},
-		{PacketConn: udp, Handler: r, UDPSize: 1232},
-	} {
+	ends := make(chan error, len(servers))
+	for _, s := range servers {
 		go func() { ends <- s.ActivateAndServe() }()
 	}
 	<-ends

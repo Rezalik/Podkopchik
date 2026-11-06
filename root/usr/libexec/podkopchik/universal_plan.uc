@@ -70,7 +70,21 @@ function compile(input) {
 			pools[family] = cidr;
 		}
 		if (!length(keys(pools))) die('missing native synthetic prefix');
-		synthetic = { epoch, pools };
+		let dns = null;
+		if (input.synthetic.dns != null) {
+			let port = input.synthetic.dns.port, ipv4 = input.synthetic.dns.ipv4, ipv6 = input.synthetic.dns.ipv6;
+			if (type(port) != 'int' || port < 1024 || port > 65535 || (!ipv4 && !ipv6)) die('invalid LAN DNS listener');
+			let endpoints = {};
+			for (let family, ip in { '4': ipv4, '6': ipv6 }) if (ip) {
+				if (type(ip) != 'string' || index(ip, '/') >= 0 || (index(ip, ':') >= 0) != (family == '6'))
+					die('invalid LAN DNS address family');
+				let host = network_value(ip);
+				guard.check_conflicts([host], [], [], [...fake, ...values(pools)]);
+				endpoints[family] = split(host, '/')[0];
+			}
+			dns = { port, endpoints };
+		}
+		synthetic = { epoch, pools, dns };
 	}
 	return { schema: 1, lan, automatic: input.automatic, adapters, fake, bypass, domains, synthetic,
 		clients: rules(input.clients, 'client policies'), ips: rules(input.ips, 'CIDR policies') };
@@ -159,9 +173,25 @@ function batch(plan) { return render(plan, false); }
 
 function dns_policy(plan, listen, upstream, excluded) {
 	if (!plan.synthetic) die('native DNS requires synthetic mode');
-	return { epoch: plan.synthetic.epoch, listen, upstream,
+	let result = { epoch: plan.synthetic.epoch, listen, upstream,
 		pools: values(plan.synthetic.pools), exclusions: [...plan.fake, ...plan.bypass, ...map(excluded, network_value)],
 		groups: map(plan.domains, g => ({ names: g.names, protected: g.target != 'direct' })) };
+	let dns = plan.synthetic.dns;
+	if (dns) {
+		let v4 = dns.endpoints['4'], v6 = dns.endpoints['6'];
+		result.listen = v4 ? v4 + ':' + dns.port : '[' + v6 + ']:' + dns.port;
+		if (v4 && v6) result.listen6 = '[' + v6 + ']:' + dns.port;
+	}
+	return result;
+}
+
+function fw4_forward(plan) {
+	if (!plan.synthetic) die('native firewall4 forwarding requires synthetic mode');
+	let lines = [];
+	for (let _, a in plan.adapters)
+		push(lines, 'iifname "' + plan.lan + '" oifname "' + a.interface + '" meta mark ' + a.mark +
+			' ct state { new, established, related } counter accept comment "Podkopchik native marked tunnel"');
+	return join('\n', lines) + '\n';
 }
 
 function dns_gate(plan) {
@@ -191,7 +221,35 @@ function dns_gate(plan) {
 		}
 		rule('postrouting', proto + ' saddr ' + pool + ' oifname != { "lo", "' + plan.lan + '" } counter drop');
 	}
+	let dns = plan.synthetic.dns;
+	if (dns) {
+		let lan = 'iifname "' + plan.lan + '" ', transport = 'meta l4proto { tcp, udp } ';
+		// Before classification: even a client forced to a down adapter can
+		// reach the local DNS listener. Original-destination checks are at filter hooks.
+		push(lines, 'add chain inet ' + GATE + ' dns_lan { type nat hook prerouting priority -155; policy accept; }');
+		for (let hook in ['input', 'forward'])
+			push(lines, 'add chain inet ' + GATE + ' dns_' + hook + ' { type filter hook ' + hook + ' priority -11; policy accept; }');
+		for (let family, addr in dns.endpoints) {
+			let proto = family == '4' ? 'ip' : 'ip6';
+			let target = (family == '4' ? addr : '[' + addr + ']') + ':' + dns.port;
+			rule('dns_lan', lan + 'meta nfproto ipv' + family + ' ' + transport + 'th dport 53 dnat ' + proto + ' to ' + target);
+			let socket = proto + ' daddr ' + addr + ' ' + transport + 'th dport ' + dns.port;
+			rule('dns_input', lan + socket + ' ct status dnat ct direction original ct original proto-dst 53 return');
+			rule('dns_input', socket + ' counter drop');
+		}
+		// These remain effective if the NAT chain fails or is removed. Do not
+		// silently send client queries to stock dnsmasq or a WAN resolver.
+		rule('dns_input', lan + transport + 'th dport 53 counter drop');
+		rule('dns_forward', lan + transport + 'th dport 53 counter drop');
+		rule('dns_forward', lan + transport + 'ct direction original ct original proto-dst 53 counter drop');
+	}
 	return join('\n', lines) + '\n';
+}
+
+function dns_release(plan) {
+	if (!plan.synthetic?.dns) die('no managed LAN DNS in native plan');
+	// The caller must check table ownership and restore the prior resolver.
+	return join('\n', map(['dns_lan', 'dns_input', 'dns_forward'], c => 'delete chain inet ' + GATE + ' ' + c)) + '\n';
 }
 
 function switch_batch(previous, next) {
@@ -204,4 +262,4 @@ function switch_batch(previous, next) {
 	return render(next, true);
 }
 
-return { compile, batch, switch_batch, dns_policy, dns_gate };
+return { compile, batch, switch_batch, dns_policy, dns_gate, dns_release, fw4_forward };

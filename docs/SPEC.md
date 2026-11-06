@@ -566,6 +566,16 @@ is absent or the packet uses the wrong egress. Expired and unknown synthetic
 addresses are never classified as ordinary direct destinations. See the
 [DNS preview evidence and remaining deployment gates](UNIVERSAL-DNS-20261106.md).
 
+An optional, explicitly configured managed LAN DNS plan redirects UDP/TCP
+port 53 to concrete IPv4/IPv6 listener addresses before native route selection.
+Stock dnsmasq remains the local upstream on loopback. Separate input and forward
+rules block plaintext bypass if redirection is lost; a stopped listener does
+not fall back to an external resolver. The firewall4 fragment accepts only LAN
+ingress with the expected Podkopchik mark and tunnel egress, appended after
+existing forwarding rules. Explicit DNS rollback removes only managed DNS
+chains and retains the guard for previously issued addresses. These blocks
+are not enabled by the installer.
+
 The earlier cone-disabling mitigation was withdrawn before deployment. The
 main process must preserve full-cone behavior. The reviewed source-core
 candidate instead limits each dokodemo transparent reply cache to 128 sockets,

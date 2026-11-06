@@ -9,7 +9,8 @@ function plan(active) {
 		adapters: [{ id: a, type: 'amneziawg', usable: active == ar.tag, ipv4: true, ipv6: true },
 			{ id: b, type: 'amneziawg', usable: active != 'blocked', ipv4: true, ipv6: true }],
 		fake_pools: ['198.19.0.0/16'], bypass: ['192.0.2.2'],
-		synthetic: { epoch: '0011223344556677', pools: ['198.18.0.0/16', '2001:2::/48'] },
+		synthetic: { epoch: '0011223344556677', pools: ['198.18.0.0/16', '2001:2::/48'],
+			dns: { port: 1058, ipv4: '10.19.0.1', ipv6: 'fd19::1' } },
 		clients: [{ cidr: '10.19.0.3', target: br.tag }],
 		domains: [{ names: ['protected.example'], target: 'auto_proxy_group' },
 			{ names: ['direct.example'], target: 'direct' }],
@@ -19,11 +20,13 @@ function plan(active) {
 let primary = plan(ar.tag), backup = plan(br.tag), down = plan('blocked');
 switch (ARGV[0]) {
 	case 'gate': print(native.dns_gate(primary)); break;
+	case 'release': print(native.dns_release(primary)); break;
+	case 'forward': print(native.fw4_forward(primary)); break;
 	case 'primary': print(native.batch(primary)); break;
 	case 'backup': print(native.switch_batch(primary, backup)); break;
 	case 'down': print(native.switch_batch(backup, down)); break;
 	case 'restore': print(native.switch_batch(down, primary)); break;
-	case 'dns': printf('%J\n', native.dns_policy(primary, '10.19.0.1:1058', '127.0.0.1:1059', [])); break;
+	case 'dns': printf('%J\n', native.dns_policy(primary, '10.19.0.1:1058', '127.0.0.1:53', [])); break;
 	case 'resources':
 		for (let x in [ar, br]) printf('%s %d %d %d\n', x.interface, x.mark, x.table, x.priority);
 		break;

@@ -23,6 +23,7 @@ type group struct {
 type config struct {
 	Epoch      string   `json:"epoch"`
 	Listen     string   `json:"listen"`
+	Listen6    string   `json:"listen6,omitempty"`
 	Upstream   string   `json:"upstream"`
 	Pools      []string `json:"pools"`
 	Exclusions []string `json:"exclusions"`
@@ -43,12 +44,21 @@ func compile(c config) (*policy, error) {
 	}
 	for _, raw := range []string{c.Listen, c.Upstream} {
 		a, err := netip.ParseAddrPort(raw)
-		if err != nil || a.Port() == 0 || a.Addr().Zone() != "" || a.Addr().IsUnspecified() || a.Addr().IsMulticast() {
+		if err != nil || a.Port() == 0 || a.Addr().Zone() != "" || a.Addr().Is4In6() || a.Addr().IsUnspecified() || a.Addr().IsMulticast() {
 			return nil, errors.New("listener/upstream must be a concrete numeric address and port")
 		}
 	}
-	if c.Listen == c.Upstream {
+	listen := netip.MustParseAddrPort(c.Listen)
+	upstream := netip.MustParseAddrPort(c.Upstream)
+	if listen == upstream {
 		return nil, errors.New("DNS upstream loops to listener")
+	}
+	if c.Listen6 != "" {
+		v6, err := netip.ParseAddrPort(c.Listen6)
+		if err != nil || !listen.Addr().Is4() || !v6.Addr().Is6() || v6.Addr().Is4In6() || v6.Addr().Zone() != "" ||
+			v6.Addr().IsUnspecified() || v6.Addr().IsMulticast() || v6.Port() != listen.Port() || v6 == upstream {
+			return nil, errors.New("invalid second DNS listener")
+		}
 	}
 	p := &policy{config: c, names: map[string]int{}, pools: map[bool]netip.Prefix{}}
 	for _, raw := range c.Pools {

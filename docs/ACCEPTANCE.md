@@ -475,6 +475,13 @@ classification removed. Virtual-WAN captures must have a positive direct
 control. Native forwarding without Xray and a separate Xray/VLESS test are
 necessary but do not replace physical AWG, fw4 and mixed-adapter acceptance.
 
+With firewall4 active in the VM, verify that an otherwise rejected tunnel
+route works only with the scoped marked-egress include and that a firewall4
+rule reapply retains DNS mappings. Test LAN UDP/TCP port 53 using both the
+router and an alternate IPv4/IPv6 DNS address. Stop the managed listener and
+remove just its redirect; neither case may fall back to stock or WAN DNS.
+An explicit DNS rollback must restore dnsmasq without releasing old pools.
+
 ## Required commands
 
 FD capacity regression: the shared main Xray instance must request

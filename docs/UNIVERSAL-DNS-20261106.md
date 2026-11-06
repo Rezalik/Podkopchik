@@ -43,6 +43,15 @@ returns SERVFAIL. Rotation, disk endurance and real traffic load remain release
 gates. The current preview intentionally favors correctness over flash writes
 or DNS transaction throughput.
 
+The managed LAN plan rewrites plaintext UDP/TCP 53 to concrete IPv4/IPv6
+listener sockets before route selection. Stock dnsmasq is left running and
+serves as the helper's upstream on loopback. A client cannot query the private
+listener port directly, reach stock port 53, or forward port 53 to the WAN
+while the guard is active. When the helper is stopped, managed plaintext DNS
+is unavailable until recovery; direct HTTP to a known address still works.
+The firewall4 forwarding fragment is appended after existing forwarding rules
+and only accepts packets matching the LAN interface, native mark and tunnel.
+
 ## Reproduce the Offline VM
 
 The host uses the existing UTM 4.7.5 QEMU library via a small local launcher,
@@ -81,26 +90,31 @@ runtime package is needed on the guest to run the cross-built executables.
 | --- | --- | --- |
 | UDP/TCP queries, cache, CNAME, TTL, rebinds, truncated UDP and TCP retry | PASS | DNS protocol tests on Mac loopback and OpenWrt; 24 concurrent clients and 10 race-enabled Mac runs |
 | Actual DNS reply after nft commit | PASS | OpenWrt UDP/TCP with `nft` 1.1.6, both address families, eight concurrent clients |
+| Managed LAN DNS, alternate resolver and private listener | PASS | Port 53 over IPv4 and IPv6, UDP and TCP; a direct query to the private listener is blocked |
+| Listener stop and redirect loss | PASS | Stock dnsmasq and alternate resolvers did not receive a client fallback; direct HTTP stayed up |
+| Actual firewall4 rules and reapply | PASS | Marked tunnel traffic was blocked without the include, passed with it, and retained leases on reapply. An explicit LAN reject still won. |
+| Explicit DNS rollback | PASS | Stock dnsmasq returned DNS again; old native IPv4/IPv6 synthetic addresses still dropped |
 | nft failure and direct DNS | PASS | Missing group set produced empty SERVFAIL for a cached query and a two-address reply; ordinary direct DNS kept working |
 | Kernel transaction rollback | PASS | Duplicate `create element` rejected with EEXIST and the first map entry in the batch was absent |
 | TTL expiry and guard after table loss | PASS | Actual map timeout and no address reuse; unknown pools, stale addresses and an established DNAT flow were blocked |
 | Native forwarding and failover | PASS | IPv4/IPv6 TCP/UDP, primary and backup veth adapters, missing policy rule, all-down and recovery |
 | Separate VLESS and endpoint bypass | PASS | Local Xray 26.3.27 client/server returned HTTP 200 while native selection was all-down |
-| Virtual-WAN egress | PASS | Final run: 0 protected packets; 24 direct, 5 endpoint, 54 primary and 16 backup packets |
+| Virtual-WAN egress | PASS | Final run: 0 protected, 0 plaintext DNS, 32 direct, 6 endpoint, 86 primary and 16 backup packets |
 | Xray 26.10.31 in the initial VM | FAIL | ARM64 runtime unwind fault in the two-vCPU TCG run; final fixture uses Xray 26.3.27 and single-thread TCG |
 | Hardware AWG 3.1, physical WAN, REALITY, mixed adapter and rollout | SKIPPED | Not exercised; neither router was contacted |
 
 Local smoke suites: 51 PASS; the five skipped on the host for missing native
 OpenWrt tooling also passed in the guest. `go vet`, shell syntax, `git diff --check` and independent
 byte-for-byte rebuild checks passed. The ARM64 helper SHA256 is
-`d4a4e6e7b0a05b9e4d60b6fd65c2fd4c33def5cc984c760cc9bc693fc7c27b47`.
+`be95cd5a4146e9f3c545dff715f98edacba083ddbd00170b53cba3815eccee33`.
 
 ## Deployment and Recovery Gates
 
 There is no production installer or selectable native mode in this preview.
-Before an approved real-device canary, finish and test ownership of the DNS
-entrypoint and procd lifecycle, firewall4 forwarding and reload, offload
-exclusion, and the runtime controller that switches or rolls back generations.
+Before an approved real-device canary, finish the persistent procd lifecycle,
+firewall4 service and include ownership, offload preflight, and the runtime
+controller that switches or rolls back generations. The VM exercises firewall4
+render and nft reapply, not restart or stop of the system firewall service.
 The native pool must not overlap any LAN, WAN, local route, tunnel endpoint,
 exclusion or *previously issued* FakeDNS pool. Do not reuse the current Xray
 pool or assume that RFC6598/ULA space is unused. Validate the actual routes,
@@ -109,6 +123,10 @@ LAN DNS, and validate the existing Xray configuration before any rollback.
 Keep the old pool ledger and guard active while stale answers or conntrack
 translations may still exist. Restore the previous DNS and matching last-known
 working transport/runtime before removing new owned classification state.
+The fixture's explicit rollback removes only three owned DNS chains and the
+scoped fw4 include; it keeps the address quarantine. On a live system, existing
+DNS conntrack entries can retain translation temporarily, so verify both new
+and reused client connections without flushing unrelated conntrack state.
 
 This experiment protects traffic using answers from its managed listener. It
 does not claim control over literal-IP connections, old real-address caches,

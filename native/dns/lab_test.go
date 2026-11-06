@@ -60,6 +60,11 @@ func TestGuestFixture(t *testing.T) {
 				t.Fatal("unflattened DNS response")
 			}
 		}
+	case "no-dns":
+		c := dns.Client{Net: a[1], Timeout: time.Second}
+		if m, _, err := c.Exchange(new(dns.Msg).SetQuestion(a[2], dns.TypeA), a[0]); err == nil {
+			t.Fatalf("unexpected DNS reply: %v", m)
+		}
 	case "serve":
 		ln, err := net.Listen("tcp", a[0])
 		if err != nil {

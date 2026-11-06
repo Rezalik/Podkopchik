@@ -57,7 +57,7 @@ ip -n "$w" addr add 203.0.113.81/32 dev lo
 ip -n "$w" -6 addr add 2001:db8:80::1/128 dev lo nodad
 rn sysctl -w net.ipv4.ip_forward=1 >/dev/null
 rn sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null
-for mode in gate primary backup down restore dns resources; do
+for mode in gate release forward primary backup down restore dns resources; do
 	ucode -L "$lib" "$lib/native_dns_vm_plan.uc" "$mode" > "$work/$mode"
 done
 i=0
@@ -67,6 +67,11 @@ while read -r dev mark table prio; do
 	ip -n "$w" addr add "198.51.$i.2/24" dev "$peer"
 	ip -n "$r" -6 addr add "2001:db8:$i::1/64" dev "$dev" nodad
 	ip -n "$w" -6 addr add "2001:db8:$i::2/64" dev "$peer" nodad
+	# These Ethernet stand-ins need neighbours; an AWG L3 device does not.
+	peer_mac=$(ip -n "$w" link show "$peer" | awk '/link\/ether/ {print $2}')
+	local_mac=$(ip -n "$r" link show "$dev" | awk '/link\/ether/ {print $2}')
+	ip -n "$r" -6 neigh replace "2001:db8:$i::2" lladdr "$peer_mac" nud permanent dev "$dev"
+	ip -n "$w" -6 neigh replace "2001:db8:$i::1" lladdr "$local_mac" nud permanent dev "$peer"
 	ip -n "$r" rule add fwmark "$mark" table "$table" priority "$prio"
 	ip -n "$r" -6 rule add fwmark "$mark" table "$table" priority "$prio"
 	ip -n "$r" route add default via "198.51.$i.2" dev "$dev" table "$table" metric 100
@@ -74,27 +79,99 @@ while read -r dev mark table prio; do
 	ip -n "$r" route add unreachable default table "$table" metric 42760
 	ip -n "$r" -6 route add unreachable default table "$table" metric 42760
 done < "$work/resources"
-rn nft -f "$work/gate"
+cat > "$work/firewall" <<'EOF'
+config defaults
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+	option flow_offloading '0'
+	option flow_offloading_hw '0'
+config zone
+	option name 'lan'
+	list device 'br-lan'
+	option input 'ACCEPT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+config zone
+	option name 'wan'
+	list device 'wan'
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+config forwarding
+	option src 'lan'
+	option dest 'wan'
+config rule
+	option name 'WAN IPv6 neighbor discovery'
+	option src 'wan'
+	option family 'ipv6'
+	option proto 'icmp'
+	list icmp_type 'neighbour-solicitation'
+	list icmp_type 'neighbour-advertisement'
+	option target 'ACCEPT'
+EOF
+cp "$work/firewall" "$work/firewall-base"
+cat >> "$work/firewall" <<EOF
+config include
+	option type 'nftables'
+	option path '$work/forward'
+	option position 'chain-append'
+	option chain 'forward'
+EOF
+cp "$work/firewall" "$work/firewall-deny"
+cat >> "$work/firewall-deny" <<'EOF'
+config rule
+	option name 'Existing LAN deny takes precedence'
+	option src 'lan'
+	option dest '*'
+	option dest_ip '203.0.113.81'
+	option proto 'tcp'
+	option dest_port '18081'
+	option target 'REJECT'
+EOF
+load_fw4() {
+	rn sh -c 'mount --bind "$1" /etc/config/firewall && fw4 print' fw4 "$1" > "$work/fw4.nft"
+	rn nft -c -f "$work/fw4.nft"
+	rn nft -f "$work/fw4.nft"
+}
+load_fw4 "$work/firewall-base"
 rn nft -c -f "$work/primary"
 rn nft -f "$work/primary"
 
 for net in udp tcp; do
 	PKC_NATIVE_LAB=dns ip netns exec "$r" "$bin" -test.run='^TestGuestFixture$' -- 127.0.0.1:1059 "$net" >"$work/dns-$net.log" 2>&1 & pids="$pids $!"
 done
+for addr in 192.0.2.2:53 '[2001:db8::2]:53'; do
+	for net in udp tcp; do
+		PKC_NATIVE_LAB=dns ip netns exec "$w" "$bin" -test.run='^TestGuestFixture$' -- "$addr" "$net" >"$work/external-$addr-$net.log" 2>&1 & pids="$pids $!"
+	done
+done
+ip netns exec "$r" dnsmasq --no-daemon --conf-file=/dev/null --no-hosts --no-resolv --bind-interfaces \
+	--listen-address=127.0.0.1,10.19.0.1 --server=127.0.0.1#1059 --pid-file="$work/dnsmasq.pid" \
+	>"$work/dnsmasq.log" 2>&1 & pids="$pids $!"
 for addr in '203.0.113.80:18080' '203.0.113.80:18081' '203.0.113.81:18081' '[2001:db8:80::1]:18081'; do
 	PKC_NATIVE_LAB=serve ip netns exec "$w" "$bin" -test.run='^TestGuestFixture$' -- "$addr" >"$work/peer-$addr.log" 2>&1 & pids="$pids $!"
 done
 rn "$daemon" -config "$work/dns" -ledger "$work/ledger" -init-ledger
 ip netns exec "$r" "$daemon" -config "$work/dns" -ledger "$work/ledger" >"$work/classifier.log" 2>&1 &
 dnspid=$!; pids="$pids $dnspid"
+query_at() { PKC_NATIVE_LAB=query ln "$bin" -test.run='^TestGuestFixture$' -- "$@"; }
+no_dns() { PKC_NATIVE_LAB=no-dns ln "$bin" -test.run='^TestGuestFixture$' -- "$@"; }
+sleep 1
+# Positive control before interception: these resolvers really return real IPs.
+for addr in 10.19.0.1:53 192.0.2.2:53 '[2001:db8::2]:53'; do
+	answer=$(query_at "$addr" udp probe.protected.example. A NOERROR 1) || fail "initial resolver unavailable at $addr: $answer"
+	printf '%s\n' "$answer" | grep -qx 'address=203.0.113.80'
+done
+rn nft -f "$work/gate"
 for iface in external0 tunnel0 tunnel1; do
 	ip netns exec "$w" tcpdump -i "$iface" -Q in -nn -s 96 -c 1024 -w "$work/$iface.pcap" \
-		'net 198.18.0.0/15 or net 2001:2::/48 or port 18080 or port 18081 or port 18443' >"$work/cap-$iface.log" 2>&1 &
+		'net 198.18.0.0/15 or net 2001:2::/48 or port 53 or port 18080 or port 18081 or port 18443' >"$work/cap-$iface.log" 2>&1 &
 	caps="$caps $!"
 done
 sleep 1
 kill -0 "$dnspid"
-query() { PKC_NATIVE_LAB=query ln "$bin" -test.run='^TestGuestFixture$' -- 10.19.0.1:1058 "$@"; }
+query() { query_at 10.19.0.1:53 "$@"; }
 answer() { query "$@" | sed -n 's/^address=//p'; }
 http() { "$1" wget -q -T 2 -O - "$2"; }
 ok() { [ "$(http "$1" "$2")" = isolated-http-ok ]; }
@@ -105,10 +182,23 @@ v4=$(answer udp protected.example. A NOERROR 1); case "$v4" in 198.18.*) ;; *) f
 v6=$(answer tcp protected.example. AAAA NOERROR 1); case "$v6" in 2001:2:*) ;; *) fail 'no synthetic IPv6 answer' ;; esac
 [ "$(answer tcp protected.example. A NOERROR 1)" = "$v4" ]
 [ "$(answer udp direct.example. A NOERROR 1)" = 203.0.113.80 ]
+for addr in 192.0.2.2:53 '[fd19::1]:53' '[2001:db8::2]:53'; do
+	for net in udp tcp; do query_at "$addr" "$net" protected.example. A NOERROR 1 | grep -qx "address=$v4"; done
+done
+no_dns 10.19.0.1:1058 udp protected.example.
+no_dns '[fd19::1]:1058' tcp protected.example.
+blocked ln "http://$v4:18081/"
+ok ln 'http://203.0.113.80:18080/'
+load_fw4 "$work/firewall"
+ok ln "http://$v4:18081/"
+load_fw4 "$work/firewall"
+rn nft get element inet podkopchik_native s_0011223344556677_m4 "{ $v4 }" >/dev/null
+ok ln "http://$v4:18081/"
+echo 'PASS: managed LAN DNS on port 53, listener isolation, real fw4 default policy and include reload'
 clients=""
 for i in 1 2 3 4 5 6 7 8; do
 	net=udp; [ "$((i % 2))" != 0 ] || net=tcp
-	PKC_NATIVE_LAB=query ip netns exec "$l" "$bin" -test.run='^TestGuestFixture$' -- 10.19.0.1:1058 "$net" \
+	PKC_NATIVE_LAB=query ip netns exec "$l" "$bin" -test.run='^TestGuestFixture$' -- 10.19.0.1:53 "$net" \
 		protected.example. A NOERROR 1 >"$work/concurrent-$i.log" 2>&1 & clients="$clients $!"
 done
 client_error=0
@@ -118,6 +208,12 @@ for i in 1 2 3 4 5 6 7 8; do grep -qx "address=$v4" "$work/concurrent-$i.log"; d
 ok ln "http://$v4:18081/"
 ok ln "http://[$v6]:18081/"
 ok ln 'http://203.0.113.81:18081/'
+load_fw4 "$work/firewall-deny"
+blocked ln 'http://203.0.113.81:18081/'
+ok ln "http://$v4:18081/"
+load_fw4 "$work/firewall"
+ok ln 'http://203.0.113.81:18081/'
+echo 'PASS: an existing firewall4 deny still takes precedence over the native include'
 ok ln 'http://203.0.113.80:18080/'
 udp ln "$v4:18081"
 udp ln "[$v6]:18081"
@@ -207,6 +303,17 @@ blocked ln "http://$v4:18081/"
 blocked rn 'http://198.19.255.254:18081/'
 echo 'PASS: missing nft set/table => SERVFAIL and stale addresses blocked; direct remains available'
 
+kill -TERM "$dnspid"; wait "$dnspid" || true
+for addr in 10.19.0.1:53 192.0.2.2:53 '[2001:db8::2]:53'; do
+	for net in udp tcp; do no_dns "$addr" "$net" protected.example.; done
+done
+rn nft flush chain inet podkopchik_native_gate dns_lan
+for addr in 10.19.0.1:53 192.0.2.2:53 '[2001:db8::2]:53'; do
+	for net in udp tcp; do no_dns "$addr" "$net" protected.example.; done
+done
+ok ln 'http://203.0.113.80:18080/'
+echo 'PASS: stopped listener and lost redirect do not fall back to stock or WAN DNS'
+
 for pid in $caps; do kill -INT "$pid"; wait "$pid" || true; done
 caps=""
 for iface in external0 tunnel0 tunnel1; do grep -q '^0 packets dropped by kernel' "$work/cap-$iface.log"; done
@@ -216,6 +323,13 @@ direct=$(count external0 'dst port 18080')
 endpoint=$(count external0 'dst port 18443')
 primary=$(count tunnel0 'dst port 18081')
 backup=$(count tunnel1 'dst port 18081')
-printf 'WAN capture: protected=%s direct=%s endpoint=%s primary=%s backup=%s\n' "$leak" "$direct" "$endpoint" "$primary" "$backup"
-[ "$leak" -eq 0 ] && [ "$direct" -gt 0 ] && [ "$endpoint" -gt 0 ] && [ "$primary" -gt 0 ] && [ "$backup" -gt 0 ]
+plaintext_dns=$(count external0 'port 53')
+printf 'WAN capture: protected=%s plaintext_dns=%s direct=%s endpoint=%s primary=%s backup=%s\n' "$leak" "$plaintext_dns" "$direct" "$endpoint" "$primary" "$backup"
+[ "$leak" -eq 0 ] && [ "$plaintext_dns" -eq 0 ] && [ "$direct" -gt 0 ] && [ "$endpoint" -gt 0 ] && [ "$primary" -gt 0 ] && [ "$backup" -gt 0 ]
+load_fw4 "$work/firewall-base"
+rn nft -f "$work/release"
+query_at 10.19.0.1:53 tcp probe.protected.example. A NOERROR 1 | grep -qx 'address=203.0.113.80'
+blocked ln "http://$v4:18081/"
+blocked ln "http://[$newv6]:18081/"
+echo 'PASS: explicit DNS rollback restores the old listener without unblocking old synthetic addresses'
 echo 'PASS: native DNS VM acceptance (veth stand-ins, synthetic VLESS; not a router rollout)'

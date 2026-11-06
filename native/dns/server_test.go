@@ -295,6 +295,10 @@ func TestPolicyRejectsOverlapsAndInjection(t *testing.T) {
 		func(c *config) { c.Exclusions = []string{"198.18.3.9/32"} },
 		func(c *config) { c.Groups[1].Names = c.Groups[0].Names },
 		func(c *config) { c.Groups[1].Names = []string{"other\\.example"} },
+		func(c *config) { c.Listen6 = "[::ffff:127.0.0.1]:1058" },
+		func(c *config) { c.Listen6 = "[::1]:1059" },
+		func(c *config) { c.Listen6 = "[::]:1058" },
+		func(c *config) { c.Listen6, c.Upstream = "[::1]:1058", "[0:0:0:0:0:0:0:1]:1058" },
 	} {
 		c := testConfig()
 		modify(&c)
