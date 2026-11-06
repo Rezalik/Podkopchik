@@ -19,7 +19,7 @@ epoch=${root#/tmp/pkc-fake-guard.}
 [ "$root" = "/tmp/pkc-fake-guard.$epoch" ] && [ "${#epoch}" = 16 ] || exit 2
 case "$epoch" in *[!a-f0-9]*) exit 2 ;; esac
 cd "$root"
-manifest='ax6000-fakedns-guard-trial.sh trial-state.uc fakedns_guard.uc fakedns_guard.sh native_pool.uc podkopchik-fakedns podkopchik-fakedns.keep'
+manifest='ax6000-fakedns-guard-trial.sh trial-state.uc fakedns_guard.uc fakedns_guard.sh native_pool.uc podkopchik-fakedns podkopchik-fakedns-hotplug.sh podkopchik-fakedns.keep'
 ucode -e 'import { lstat } from "fs";
 	const d=lstat(ARGV[0]); if(d?.type!="directory"||d.uid!=0||d.gid!=0||d.mode!=0o700) die("unsafe trial directory");
 	for(let f in slice(ARGV,1)){let s=lstat(f);if(s?.type!="file"||s.uid!=0||s.gid!=0||s.mode!=0o600||s.nlink!=1)die("unsafe trial file");}' \
@@ -30,6 +30,7 @@ target=
 [ -z "$outer" ] || target="$root/vm"
 lib="$target/usr/libexec/podkopchik"
 init="$target/etc/init.d/podkopchik-fakedns"
+hotplug="$target/etc/hotplug.d/iface/95-podkopchik-fakedns"
 rc="$target/etc/rc.d/S18podkopchik-fakedns"
 keep="$target/lib/upgrade/keep.d/podkopchik-fakedns"
 ledger=/etc/podkopchik-fakedns-guard.json
@@ -67,6 +68,7 @@ files() {
 	"$1" fakedns_guard.sh "$lib/fakedns_guard.sh" 644 &&
 	"$1" native_pool.uc "$lib/native_pool.uc" 644 &&
 	"$1" podkopchik-fakedns "$init" 755 &&
+	"$1" podkopchik-fakedns-hotplug.sh "$hotplug" 644 &&
 	"$1" podkopchik-fakedns.keep "$keep" 644
 }
 absent() { ! present "$2" && ! present "$2.pkc-$epoch"; }
@@ -104,7 +106,7 @@ rollback() {
 case "$action" in
 	arm)
 		empty_service && ! present "$rc" && ! present "$ledger" && ! present "$ledger.new" && files absent
-		[ -d "$lib" ] && [ -d "${keep%/*}" ] && [ -d "${rc%/*}" ] && [ -f "$lib/awg.uc" ]
+		[ -d "$lib" ] && [ -d "${keep%/*}" ] && [ -d "${rc%/*}" ] && [ -d "${hotplug%/*}" ] && [ -f "$lib/awg.uc" ]
 		guard preview-native "$pool" | grep -qx 'preview=ok'
 		seconds=150
 		[ -z "$outer" ] || seconds=25

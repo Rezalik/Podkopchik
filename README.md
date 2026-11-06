@@ -465,6 +465,9 @@ offline OpenWrt VM on the workstation and does not access a router.
 The [release qualification report](docs/UNIVERSAL-RELEASE-VM-20261106.md)
 documents procd, reboot, offload rejection and DNS rollback. Its ARM64 review
 archive is not an installer and does not enable native routing.
+The [scoped Native Apply checkpoint](docs/UNIVERSAL-NATIVE-APPLY.md)
+exercises actual activation and rollback for one isolated IPv4 AWG client.
+It does not switch the household LAN or replace the existing Apply command.
 The [mixed transport canary](docs/UNIVERSAL-MIXED-CANARY-20261106.md)
 documents the separate pools, independent native AWG and Xray/VLESS paths,
 and the strict migration boundary for cached addresses.

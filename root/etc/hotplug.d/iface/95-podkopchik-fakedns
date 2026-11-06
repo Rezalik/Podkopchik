@@ -1,0 +1,6 @@
+#!/bin/sh
+# netifd can replace policy rules after the early boot guard has run.
+if [ "${ACTION:-}" = ifup ] && [ -s /etc/podkopchik-fakedns-guard.json ]; then
+	sh /usr/libexec/podkopchik/fakedns_guard.sh sync-registered ||
+		logger -t podkopchik 'could not restore FakeDNS quarantine after interface setup'
+fi

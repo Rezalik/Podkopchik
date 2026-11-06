@@ -267,7 +267,7 @@ function xray_config(plan, outbounds) {
 	return config;
 }
 
-function dns_gate(plan) {
+function dns_gate(plan, scoped) {
 	if (!plan.synthetic) die('native DNS gate requires synthetic mode');
 	let lines = ['add table inet ' + GATE + ' { comment "podkopchik-native-dns-' + plan.synthetic.epoch + '"; }'];
 	function rule(chain, expression) { push(lines, 'add rule inet ' + GATE + ' ' + chain + ' ' + expression); }
@@ -288,7 +288,7 @@ function dns_gate(plan) {
 		for (let addr in a.sources) push(owners[addr] ??= [], a.interface);
 	// A late TCP reply can elicit a local RST without the original conntrack mark.
 	// Never let a tunnel-source packet escape to a different egress via main.
-	for (let addr, ifaces in owners) {
+	for (let addr, ifaces in (scoped ? {} : owners)) {
 		let proto = index(addr, ':') < 0 ? 'ip' : 'ip6';
 		let safe = join(', ', map(['lo', ...ifaces], n => '"' + n + '"'));
 		for (let hook in ['output', 'postrouting'])
@@ -316,11 +316,11 @@ function dns_gate(plan) {
 		let legacy = ['lo', ...plan.legacy_lans], lan_set = '{ ' + join(', ', map(legacy, x => '"' + x + '"')) + ' }';
 		for (let hook in ['input', 'forward', 'output', 'postrouting']) {
 			// Only the existing LAN may keep its old local transparent delivery.
-			let scope = hook == 'input' ? 'iifname != ' + lan_set + ' ' : '';
+			let scope = scoped ? lan : hook == 'input' ? 'iifname != ' + lan_set + ' ' : '';
 			rule(hook, scope + proto + ' daddr ' + pool + ' counter drop');
 			rule(hook, scope + 'meta nfproto ipv' + family + ' ct direction original ct original ' + proto + ' daddr ' + pool + ' counter drop');
 		}
-		rule('postrouting', proto + ' saddr ' + pool + ' oifname != ' + lan_set + ' counter drop');
+		if (!scoped) rule('postrouting', proto + ' saddr ' + pool + ' oifname != ' + lan_set + ' counter drop');
 	}
 	return join('\n', lines) + '\n';
 }
@@ -332,6 +332,22 @@ function canary_guard(plan) {
 	for (let a in values(plan.adapters)) if (a.type == 'amneziawg')
 		push(lines, 'add rule ' + table + ' canary ' + lan + ' meta mark ' + a.mark + ' ct mark & 0xff000000 ' + a.pin + ' oifname "' + a.interface + '" return');
 	push(lines, 'add rule ' + table + ' canary ' + lan + ' counter drop');
+	return join('\n', lines) + '\n';
+}
+
+function canary_reply_guard(plan) {
+	// Same table as the per-group timed lease sets. Recheck reply packets
+	// after DNAT and before fw4's general established/related allow.
+	let table = 'inet ' + TABLE, dst = 'oifname "' + plan.lan + '" ';
+	let lines = ['add chain ' + table + ' canary_reply { type filter hook forward priority -11; policy accept; }'];
+	let reply = dst + 'ip daddr 172.31.252.2 ct direction reply ct state established ct status dnat ct original ip saddr 172.31.252.2 ';
+	for (let i = 0; i < length(plan.domains); i++) if (plan.domains[i].target != 'direct') {
+		let lease = 'ct original ip daddr @s_' + plan.synthetic.epoch + '_g' + i + '_4 ';
+		for (let a in values(plan.adapters)) if (a.type == 'amneziawg' && a.ipv4)
+			push(lines, 'add rule ' + table + ' canary_reply ' + reply + lease + 'iifname "' + a.interface +
+				'" ct mark & 0xff000000 ' + a.pin + ' return');
+	}
+	push(lines, 'add rule ' + table + ' canary_reply ' + dst + 'counter drop');
 	return join('\n', lines) + '\n';
 }
 
@@ -375,4 +391,4 @@ function switch_batch(previous, next) {
 	return render(next, true);
 }
 
-return { compile, batch, switch_batch, check_pool_inventory, dns_policy, dns_gate, dns_edge, dns_release, fw4_forward, canary_guard, xray_config };
+return { compile, batch, switch_batch, check_pool_inventory, dns_policy, dns_gate, dns_edge, dns_release, fw4_forward, canary_guard, canary_reply_guard, xray_config };

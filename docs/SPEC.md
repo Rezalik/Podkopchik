@@ -993,6 +993,12 @@ the explicit deployment acceptance in [AWG-STAGE23.md](AWG-STAGE23.md).
 
 Required CLI
 
+Experimental `native-apply` is limited to the isolated AX6000 canary scope.
+It requires an already active Core FakeDNS guard, uses a fixed procd deadline,
+and never confirms a permanent configuration. The Core rechecks persisted
+FakeDNS quarantine after netifd interface setup, without a guard daemon.
+See [the scoped transaction and its release gates](UNIVERSAL-NATIVE-APPLY.md).
+
 podkopchikctl must support:
 podkopchikctl status
 podkopchikctl generate

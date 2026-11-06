@@ -705,12 +705,13 @@ function native_preview(path) {
 		length(plan.fake) ? [{ fakedns: map(plan.fake, ipPool => ({ ipPool })) }] : [],
 		[plan.lan, ...plan.legacy_lans],
 		values(plan.synthetic.pools));
-	return { mode: 'preview-only', automatic: choice, requires_xray: length(filter(adapters, a => a.type == 'vless')) > 0,
+	return { mode: 'preview-only', lan: plan.lan, epoch: plan.synthetic.epoch, automatic: choice, requires_xray: length(filter(adapters, a => a.type == 'vless')) > 0,
 		xray_needed_now: length(filter(adapters, a => a.type == 'vless' && a.usable && index(selected, a.tag) >= 0)) > 0,
 		adapters: values(plan.adapters), dns: planner.dns_policy(plan, '', spec.upstream, []),
 		rules: { domains: length(keys(domain_targets)), ips: length(ips), clients: length(clients) },
-		nft: { quarantine: guard.batch(quarantine, false), routing: planner.batch(plan), protection: planner.dns_gate(plan),
-			dns_redirect: planner.dns_edge(plan), fw4_forward: planner.fw4_forward(plan) },
+		nft: { quarantine: guard.batch(quarantine, false), routing: planner.batch(plan), protection: planner.dns_gate(plan, true),
+			dns_redirect: planner.dns_edge(plan), fw4_forward: planner.fw4_forward(plan), canary: planner.canary_guard(plan),
+			canary_reply: plan.synthetic.pools['4'] ? planner.canary_reply_guard(plan) : '' },
 		warnings: length(filter(clients, c => c.target == 'direct')) ?
 			['synthetic_addresses_for_direct_clients_are_blocked'] : [] };
 }

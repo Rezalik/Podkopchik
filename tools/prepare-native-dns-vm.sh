@@ -33,12 +33,16 @@ cp "$base/tests/native_dns_vm_plan.uc" "$payload/source/"
 cp "$base/root/usr/libexec/podkopchik/fakedns_guard.sh" "$base/tests/fakedns_guard_smoke.uc" "$payload/source/"
 cp "$base/root/usr/libexec/podkopchik/universal_selection.uc" "$base/tests/universal_selection_smoke.uc" "$payload/source/"
 cp "$base/tools/ax6000-fakedns-guard-trial-vm-test.sh" "$payload/"
+cp "$base/tools/native-apply-vm-test.sh" "$payload/"
+cp "$base/root/etc/init.d/podkopchik-fakedns" "$payload/"
+cp "$base/root/etc/hotplug.d/iface/95-podkopchik-fakedns" "$payload/podkopchik-fakedns-hotplug.sh"
+for f in native_apply.sh trial-state.uc routing_safety.sh cleanup_rules.sh; do cp "$base/root/usr/libexec/podkopchik/$f" "$payload/source/"; done
 sh "$base/tools/pack-ax6000-fakedns-guard-trial.sh" "$payload/guard-trial.tar"
 cp "$base/tools/native-dns-vm-test.sh" "$base/tools/setup-native-dns-guest.sh" "$payload/"
 for f in native-vm-only.sh native-vm-watchdog.sh native-vm-detached-test.sh ax6000-recovery-vm-test.sh ax6000-virtual-watch-vm-test.sh virtual-pilot-vm-test.sh fakedns-egress-vm-test.sh install-native-vm-boot.sh native-vm-boot.init native-vm-boot.sh; do
 	cp "$base/tools/$f" "$payload/"
 done
-cp "$base/native/runtime/check-offload.sh" "$base/native/runtime/procd-dns.sh" "$base/native/runtime/trial-state.uc" "$payload/"
+cp "$base/native/runtime/check-offload.sh" "$base/native/runtime/procd-dns.sh" "$base/root/usr/libexec/podkopchik/trial-state.uc" "$payload/"
 for f in ax6000-recovery.sh ax6000-recovery-data.uc ax6000-virtual-watch.sh virtual-trial-cleanup.uc virtual-pilot-plan.uc; do cp "$base/native/runtime/$f" "$payload/"; done
 for f in native_pool awg fakedns_guard; do cp "$base/root/usr/libexec/podkopchik/$f.uc" "$payload/"; done
 regression="$payload/regression"

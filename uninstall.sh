@@ -83,6 +83,7 @@ done
 
 rm -f "$(path /etc/init.d/podkopchik)"
 rm -f "$(path /etc/init.d/podkopchik-fakedns)"
+rm -f "$(path /etc/hotplug.d/iface/95-podkopchik-fakedns)"
 rm -f "$(path /usr/bin/podkopchikctl)"
 rm -rf "$(path /usr/libexec/podkopchik)"
 rm -f "$(path /usr/libexec/rpcd/podkopchik.awg)"

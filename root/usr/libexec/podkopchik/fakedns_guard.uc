@@ -159,10 +159,14 @@ function batch(value, replace_existing) {
 			// Reverse DNAT restores a fake source only at postrouting. The
 			// scoped client's dedicated veth is not a permanent LAN; its
 			// own later hook still checks lease and classifier liveness.
-			if (!v6 && native && hook == 'postrouting' && index(s.native_pools, '172.31.253.0/24') >= 0)
+			if (!v6 && native && hook == 'postrouting' && index(s.native_pools, '172.31.253.0/24') >= 0) {
 				push(lines, base + ' saddr 172.31.253.0/24 ip daddr 172.31.252.2 ' +
 					'oifname "pv*" meta oifkind "veth" ct direction reply ct status dnat ct mark 0x504b0901 ' +
 					'ct original ip saddr 172.31.252.2 ct original ip daddr @native4 counter return');
+				push(lines, base + ' saddr 172.31.253.0/24 ip daddr 172.31.252.2 ' +
+					'oifname "pkc-*" meta oifkind "veth" ct direction reply ct status dnat ct state established ' +
+					'ct mark & 0xff000000 != 0 ct original ip saddr 172.31.252.2 ct original ip daddr @native4 counter return');
+			}
 			push(lines, base + ' saddr @' + name + ' oifname != { ' + interfaces + ' } counter drop');
 			let original = 'add rule inet ' + TABLE + ' ' + hook + ' meta nfproto ipv' + family +
 				' ct direction original ct original ' + proto + ' daddr @';
@@ -239,7 +243,7 @@ function cli(args) {
 		return true;
 	}
 	function work() {
-		if (index(['sync', 'status', 'release', 'register-native', 'preview-native', 'rollback-first-install'], cmd) < 0)
+		if (index(['sync', 'sync-registered', 'status', 'release', 'register-native', 'preview-native', 'rollback-first-install'], cmd) < 0)
 			die('invalid FakeDNS guard action');
 		// LuCI diagnostics must neither initialize the guard nor write flash.
 		if (cmd != 'status') {
@@ -249,7 +253,9 @@ function cli(args) {
 			lock = fs.open(lockpath, 'a+', 0o600);
 			if (!lock || !lock.lock('x')) die('cannot lock FakeDNS guard');
 		}
-		let previous = private_file(path) ? state(json(fs.readfile(path))) : { schema: 1, pools: [], lans: [] };
+		let registered = private_file(path);
+		if (cmd == 'sync-registered' && !registered) return;
+		let previous = registered ? state(json(fs.readfile(path))) : { schema: 1, pools: [], lans: [] };
 		let uci = require('uci').cursor(), lan = uci.get('podkopchik', 'main', 'lan_ifname') || 'br-lan';
 		let configs = [config(conf + '/config.json', false)], lans = [lan];
 		let pointer = trim(fs.readfile(conf + '/working-state.name') || '');
@@ -291,6 +297,7 @@ function cli(args) {
 		let next = desired(previous, configs, lans, native);
 		if (!length(next.pools) && cmd != 'release') { if (cmd == 'status') print('state=inactive\n'); return; }
 		let live = kernel(previous);
+		if (cmd == 'sync-registered' && live.table && length(keys(live.rules)) == length(next.pools) && complete_table(next)) return;
 		if (cmd == 'status') {
 			let active = live.table && length(keys(live.rules)) == length(next.pools) && complete_table(next);
 			printf('state=%s\npools=%s\nnative_pools=%s\n', active ? 'active' : 'incomplete', join(' ', next.pools), join(' ', next.native_pools));

@@ -27,6 +27,7 @@ prepare() {
 	d="/tmp/pkc-fake-guard.$epoch"
 	dirs="$dirs $d"
 	mkdir -p "$d/vm/usr/libexec/podkopchik" "$d/vm/etc/init.d" "$d/vm/etc/rc.d" "$d/vm/etc/podkopchik" "$d/vm/lib/upgrade/keep.d"
+	mkdir -p "$d/vm/etc/hotplug.d/iface"
 	tar -xf /mnt/lab/guard-trial.tar -C "$d"
 	cp source/awg.uc "$d/vm/usr/libexec/podkopchik/"
 	printf '%s\n' '{"fakedns":{"ipPool":"198.18.0.0/15"}}' > "$d/vm/etc/podkopchik/config.json"
@@ -52,6 +53,7 @@ rn nft delete table inet podkopchik_fake_guard
 act arm
 await active
 check_active
+[ -f "$d/vm/etc/hotplug.d/iface/95-podkopchik-fakedns" ]
 ! [ -e "$d/vm/etc/rc.d/S18podkopchik-fakedns" ]
 rn fw4 reload
 check_active
@@ -63,6 +65,7 @@ await restored
 ! [ -e "$d/vm/etc/podkopchik/fakedns-guard.json" ]
 ! [ -e "$d/vm/usr/libexec/podkopchik/fakedns_guard.uc" ]
 ! [ -e "$d/vm/etc/init.d/podkopchik-fakedns" ]
+[ ! -e "$d/vm/etc/hotplug.d/iface/95-podkopchik-fakedns" ]
 echo 'PASS: staged install, fw4 reload, watchdog SIGKILL/respawn and automatic removal without SSH'
 prepare
 act arm

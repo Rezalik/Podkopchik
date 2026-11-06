@@ -56,11 +56,12 @@ func compile(c config) (*policy, error) {
 	}
 	listen := netip.MustParseAddrPort(c.Listen)
 	upstream := netip.MustParseAddrPort(c.Upstream)
-	if c.Virtual && (c.Listen != "172.31.252.1:24053" || c.Listen6 != "" || len(c.Pools) != 1 ||
-		c.Pools[0] != "172.31.253.0/24" || c.PrivatePool != c.Pools[0]) {
+	scopedIPv4 := c.Listen == "172.31.252.1:24053" && c.Listen6 == "" && len(c.Pools) == 1 &&
+		c.Pools[0] == "172.31.253.0/24" && c.PrivatePool == c.Pools[0]
+	if c.Virtual && !scopedIPv4 {
 		return nil, errors.New("virtual DNS requires the dedicated IPv4 listener and pool")
 	}
-	if len(c.VirtualWindow) != 0 && (!c.Virtual || len(c.VirtualWindow) != 2 ||
+	if len(c.VirtualWindow) != 0 && (!scopedIPv4 || len(c.VirtualWindow) != 2 ||
 		c.VirtualWindow[0] < 3 || c.VirtualWindow[0] > c.VirtualWindow[1] || c.VirtualWindow[1] > 254) {
 		return nil, errors.New("invalid virtual address allocation window")
 	}

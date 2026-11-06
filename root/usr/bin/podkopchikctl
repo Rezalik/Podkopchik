@@ -934,6 +934,10 @@ case "${1:-}" in
 	validate) cmd_validate ;;
 	validate-active) cmd_validate_active ;;
 	native-preview) [ "$#" = 2 ] || die "usage: podkopchikctl native-preview INVENTORY.json"; ucode_run "$LIB/generate.uc" native-preview "$2" ;;
+	native-apply) shift; sh "$LIB/native_apply.sh" start "$@" ;;
+	native-trial)
+		[ "$#" = 2 ] || die 'usage: podkopchikctl native-trial status|verify|abort|clear'
+		case "$2" in status|verify|abort|clear) sh "$LIB/native_apply.sh" "$2" ;; *) die 'invalid native-trial action' ;; esac ;;
 	fakedns-guard-status) sh "$LIB/fakedns_guard.sh" status ;;
 	prepare-connections) cmd_prepare_connections ;;
 	apply) cmd_apply ;;
@@ -961,7 +965,7 @@ case "${1:-}" in
 		exec sh "$LIB/xray_jobs.sh" start "xray-$job" "${1:-package}"
 		;;
 	*)
-		echo "Usage: podkopchikctl {status|generate|validate|apply|restart|cleanup|health|native-preview INVENTORY.json|fakedns-guard-status|shaping-status|awg-list|awg-start ID|awg-stop ID|awg-restart ID|awg-check ID|awg-recover|update-check|update-install|rollback|xray-status|xray-check [package|official]|xray-install [package|official]|xray-install local SHA256|xray-rollback}" >&2
+		echo "Usage: podkopchikctl {status|generate|validate|apply|restart|cleanup|health|native-preview INVENTORY.json|native-apply INVENTORY.json|native-trial status|verify|abort|clear|fakedns-guard-status|shaping-status|awg-list|awg-start ID|awg-stop ID|awg-restart ID|awg-check ID|awg-recover|update-check|update-install|rollback|xray-status|xray-check [package|official]|xray-install [package|official]|xray-install local SHA256|xray-rollback}" >&2
 		exit 2
 		;;
 esac

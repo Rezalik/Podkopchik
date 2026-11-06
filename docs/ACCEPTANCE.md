@@ -533,6 +533,10 @@ coverage: `tests/xray_instance_restart_smoke.sh` and
 live FD/UDP turnover and EMFILE checks are recorded in
 [the AX6000 FD report](XRAY-FD-20261105.md).
 
+Native routing is a separate experimental acceptance track. Follow the
+[scoped Native Apply checks](UNIVERSAL-NATIVE-APPLY.md); an isolated pass
+does not qualify the home LAN for migration.
+
 These commands must exist:
 
 ```sh

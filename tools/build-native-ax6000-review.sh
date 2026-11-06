@@ -18,8 +18,10 @@ for f in universal_plan universal_selection native_pool awg awg_network fakedns_
 	cp "$base/root/usr/libexec/podkopchik/$f.uc" "$root/"
 done
 cp "$base/root/usr/libexec/podkopchik/fakedns_guard.sh" "$root/"
+cp "$base/root/usr/libexec/podkopchik/native_apply.sh" "$root/"
 cp "$base/root/etc/init.d/podkopchik-fakedns" "$root/podkopchik-fakedns.init"
-cp "$base/native/runtime/trial-state.uc" "$root/"
+cp "$base/root/etc/hotplug.d/iface/95-podkopchik-fakedns" "$root/podkopchik-fakedns-hotplug.sh"
+cp "$base/root/usr/libexec/podkopchik/trial-state.uc" "$root/"
 cp "$base/native/runtime/pool-review.uc" "$root/"
 for f in ax6000-recovery.sh ax6000-recovery-data.uc pkc-ax6000-recovery.init ax6000-virtual-watch.sh virtual-trial-cleanup.uc virtual-pilot-plan.uc; do cp "$base/native/runtime/$f" "$root/"; done
 for f in ax6000-scoped-pilot-arm.sh ax6000-scoped-pilot-exercise.sh pack-ax6000-scoped-pilot.sh ax6000-awg-udp-control.sh; do
@@ -31,6 +33,7 @@ cp "$base/docs/UNIVERSAL-AX6000-ACCEPTANCE.md" "$root/AX6000.md"
 cp "$base/docs/UNIVERSAL-AX6000-PILOT.md" "$root/PILOT.md"
 cp "$base/docs/UNIVERSAL-AX6000-VIRTUAL-PILOT.md" "$root/VIRTUAL-PILOT.md"
 cp "$base/docs/UNIVERSAL-AX6000-FAKEDNS-UDP.md" "$root/FAKEDNS-UDP.md"
+cp "$base/docs/UNIVERSAL-NATIVE-APPLY.md" "$root/NATIVE-APPLY.md"
 printf '%s\n' 'board=xiaomi,redmi-router-ax6000-stock' 'openwrt=25.12.6' 'kernel=6.12.112' \
 	'architecture=aarch64_cortex-a53' 'mode=review-only-no-installer' > "$root/TARGET"
 chmod 755 "$root/podkopchik-native-dns"

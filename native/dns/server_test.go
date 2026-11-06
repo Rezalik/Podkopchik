@@ -69,6 +69,26 @@ func TestVirtualAllocationWindowExhaustion(t *testing.T) {
 	}
 }
 
+func TestCanaryAllocationWindowRequiresDedicatedScope(t *testing.T) {
+	c := testConfig()
+	c.VirtualWindow = []uint32{32, 63}
+	if _, err := compile(c); err == nil {
+		t.Fatal("allocation window accepted on the ordinary listener")
+	}
+	c.Listen = "172.31.252.1:24053"
+	c.Pools, c.PrivatePool = []string{"172.31.253.0/24"}, "172.31.253.0/24"
+	p, err := compile(c)
+	if err != nil || p.Virtual {
+		t.Fatalf("scoped canary must use the native routing table: %v", err)
+	}
+	pub := publisher{policy: p, ledger: testLedger(t, p), leases: map[bindingKey]binding{},
+		commit: func(context.Context, []binding, time.Time) error { return nil }}
+	addresses, err := pub.publish(context.Background(), 0, []netip.Addr{netip.MustParseAddr("203.0.113.80")}, 60)
+	if err != nil || len(addresses) != 1 || addresses[0].String() != "172.31.253.32" {
+		t.Fatal("canary allocation did not reserve the addresses issued by older pilots", addresses, err)
+	}
+}
+
 func TestRetiredPoolNeverReturnedByDirectDNS(t *testing.T) {
 	c := testConfig()
 	c.RetiredPools = []string{"172.31.253.0/24"}
