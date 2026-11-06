@@ -514,6 +514,10 @@ For [release qualification](UNIVERSAL-RELEASE-VM-20261106.md), also verify:
   and recovery after owner loss, procd worker failure and VM reboot. Compare
   home UCI, DNS/Xray PIDs and routes before and after restoring lan4. Physical
   DSA, firewall reload behavior and WAN capture remain separate gates.
+- The [AX6000 virtual canary](UNIVERSAL-AX6000-VIRTUAL-PILOT.md) must use only
+  owned veth/namespace state. Verify deadline cleanup after owner loss,
+  watchdog respawn and refusal to delete a mis-scoped firewall4 rule. Do not
+  reuse a shared AWG/FakeDNS guard unscoped on the physical router.
 
 ## Required commands
 

@@ -27,4 +27,5 @@ modprobe veth
 	XRAY_TEST_BIN=/mnt/lab/xray sh tests/xray_udp_session_smoke.sh
 )
 sh ./ax6000-recovery-vm-test.sh
+sh ./ax6000-virtual-watch-vm-test.sh
 sh ./native-dns-vm-test.sh
