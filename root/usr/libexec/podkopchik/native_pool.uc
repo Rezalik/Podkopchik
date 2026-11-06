@@ -23,7 +23,13 @@ function capacity(cidr) {
 	return host < 3 ? 0 : host >= 17 ? 65536 : (1 << host) - 2;
 }
 
-function allowed(cidr) {
+function private_v4(cidr) {
+	return family(cidr) == '4' && +split(cidr, '/')[1] == 24 &&
+		length(filter(['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'], x => awg.overlap(cidr, x))) != 0;
+}
+
+function allowed(cidr, private_pool) {
+	if (cidr == private_pool && private_v4(cidr)) return true;
 	let bits = +split(cidr, '/')[1];
 	return capacity(cidr) && length(filter(ranges[family(cidr)], x => bits >= +split(x, '/')[1] && awg.overlap(cidr, x)));
 }
@@ -65,14 +71,18 @@ function overlaps(cidr, occupied) {
 	return length(filter(occupied, p => awg.overlap(cidr, p))) != 0;
 }
 
-function select(candidates, snapshot, required) {
+function select(candidates, snapshot, required, private_pool) {
 	let occupied = inventory(snapshot, true), result = {};
+	if (private_pool != null) {
+		private_pool = prefix(private_pool);
+		if (!private_v4(private_pool)) die('private native pool requires one explicit RFC1918 /24');
+	}
 	if (type(required) != 'object' || !length(keys(required))) die('missing native pool capacity requirements');
 	for (let f, size in required) if (!ranges[f] || type(size) != 'int' || size < 1 || size > 65536)
 		die('invalid native pool capacity requirement');
 	for (let item in bounded(candidates, 256)) {
 		let cidr = prefix(item), f = family(cidr);
-		if (!allowed(cidr)) die('candidate outside permitted native pool ranges');
+		if (!allowed(cidr, private_pool)) die('candidate outside permitted native pool ranges');
 		if (!result[f] && required[f] && capacity(cidr) >= required[f] && !overlaps(cidr, occupied))
 			result[f] = { cidr, capacity: capacity(cidr) };
 	}
@@ -80,4 +90,4 @@ function select(candidates, snapshot, required) {
 	return result;
 }
 
-return { inventory, prefix, family, allowed, capacity, overlaps, select };
+return { inventory, prefix, family, private_v4, allowed, capacity, overlaps, select };

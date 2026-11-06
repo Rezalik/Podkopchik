@@ -600,6 +600,11 @@ reserved conntrack mark byte pins a protected tuple to its first transport;
 transport changes require a new tuple instead of migrating the old NAT state.
 The independent output guard also blocks locally generated packets with an
 owned AWG inner source on any non-owning egress, including TCP resets.
+An explicitly approved RFC1918 /24 is eligible for the isolated trial only;
+the default candidate set and protected destination validation are unchanged.
+The [wired AX6000 pilot](UNIVERSAL-AX6000-PILOT.md) uses a separate runtime-only
+recovery service. It preserves home services and persistent configuration and
+keeps both synthetic pool generations in quarantine after rollback.
 
 The earlier cone-disabling mitigation was withdrawn before deployment. The
 main process must preserve full-cone behavior. The reviewed source-core

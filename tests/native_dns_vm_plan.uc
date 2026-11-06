@@ -11,7 +11,7 @@ function plan(active) {
 			{ id: b, type: 'amneziawg', usable: active == ar.tag || active == br.tag, ipv4: true, ipv6: true, source_ips: ['198.51.2.1', '2001:db8:2::1'] },
 			{ tag: 'lab_vless', type: 'vless', usable: true, port: 23000, ipv4: true, ipv6: true }],
 		fake_pools: ['198.18.0.0/15'], bypass: ['192.0.2.2'],
-		synthetic: { epoch: '0011223344556677', pools: ['100.127.253.0/24', '2001:2::/48'],
+		synthetic: { epoch: '0011223344556677', private_pool: '172.31.253.0/24', pools: ['172.31.253.0/24', '2001:2::/48'],
 			inventory: { addresses: [{ addr_info: [{ local: '10.19.0.1', prefixlen: 24 }, { local: 'fd19::1', prefixlen: 64 }] }],
 				routes: map(['192.0.2.0/24', '198.51.1.0/24', '198.51.2.0/24', '203.0.113.0/24', '2001:db8::/32'], dst => ({ dst })),
 				issued: ['198.18.0.0/15'] },
@@ -44,7 +44,7 @@ switch (ARGV[0]) {
 	case 'live-inventory':
 		native.check_pool_inventory(values(primary.synthetic.pools), { addresses: json(readfile(ARGV[1])),
 			routes: [...json(readfile(ARGV[2])), ...json(readfile(ARGV[3]))], issued: primary.fake,
-			rules: [...json(readfile(ARGV[4])), ...json(readfile(ARGV[5]))] });
+			rules: [...json(readfile(ARGV[4])), ...json(readfile(ARGV[5]))] }, primary.synthetic.private_pool);
 		break;
 	case 'resources':
 		for (let x in [ar, br]) printf('%s %d %d %d\n', x.interface, x.mark, x.table, x.priority);

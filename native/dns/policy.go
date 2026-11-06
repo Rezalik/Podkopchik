@@ -21,13 +21,14 @@ type group struct {
 }
 
 type config struct {
-	Epoch      string   `json:"epoch"`
-	Listen     string   `json:"listen"`
-	Listen6    string   `json:"listen6,omitempty"`
-	Upstream   string   `json:"upstream"`
-	Pools      []string `json:"pools"`
-	Exclusions []string `json:"exclusions"`
-	Groups     []group  `json:"groups"`
+	Epoch       string   `json:"epoch"`
+	Listen      string   `json:"listen"`
+	Listen6     string   `json:"listen6,omitempty"`
+	Upstream    string   `json:"upstream"`
+	Pools       []string `json:"pools"`
+	PrivatePool string   `json:"private_pool,omitempty"`
+	Exclusions  []string `json:"exclusions"`
+	Groups      []group  `json:"groups"`
 }
 
 type policy struct {
@@ -61,12 +62,23 @@ func compile(c config) (*policy, error) {
 		}
 	}
 	p := &policy{config: c, names: map[string]int{}, pools: map[bool]netip.Prefix{}}
+	var approved netip.Prefix
+	if c.PrivatePool != "" {
+		n, err := netip.ParsePrefix(c.PrivatePool)
+		if err != nil || n != n.Masked() || !n.Addr().Is4() || !n.Addr().IsPrivate() || n.Bits() != 24 {
+			return nil, errors.New("private pool must be an explicit RFC1918 /24")
+		}
+		approved = n
+	}
 	for _, raw := range c.Pools {
 		n, err := netip.ParsePrefix(raw)
-		if err != nil || n != n.Masked() || !allowedPool(n) || n.Bits() > n.Addr().BitLen()-3 || p.pools[n.Addr().Is4()].IsValid() {
+		if err != nil || n != n.Masked() || (!allowedPool(n) && n != approved) || n.Bits() > n.Addr().BitLen()-3 || p.pools[n.Addr().Is4()].IsValid() {
 			return nil, errors.New("invalid synthetic prefix")
 		}
 		p.pools[n.Addr().Is4()] = n
+	}
+	if approved.IsValid() && p.pools[true] != approved {
+		return nil, errors.New("unused private pool approval")
 	}
 	for _, raw := range c.Exclusions {
 		n, err := netip.ParsePrefix(raw)

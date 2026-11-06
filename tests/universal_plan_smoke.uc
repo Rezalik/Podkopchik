@@ -66,6 +66,14 @@ rejects(() => pool.select(['fe80::/112'], inventory, { '6': 100 }), 'IPv6 link-l
 rejects(() => pool.select(candidates, { ...inventory, rules: null }, { '4': 240 }), 'require complete rule snapshot');
 rejects(() => pool.select(candidates, { ...inventory, routes: [{ dst: 'malformed' }] }, { '4': 240 }), 'invalid inventory must not be ignored');
 rejects(() => pool.select(candidates, inventory, { '4': 255 }), 'no silent capacity downgrade');
+let private_pool = '172.31.253.0/24';
+rejects(() => pool.select([private_pool], inventory, { '4': 254 }), 'private pool requires explicit consent');
+ok(pool.select([private_pool], inventory, { '4': 254 }, private_pool)['4'].capacity == 254,
+	'opted-in /24 has 254 leases despite the default route');
+rejects(() => pool.select([private_pool], { ...inventory, routes: [...inventory.routes, { dst: '172.31.0.0/16' }] },
+	{ '4': 254 }, private_pool), 'reject larger remote private route');
+rejects(() => pool.select([private_pool], inventory, { '4': 255 }, private_pool), 'reject pool undersizing');
+rejects(() => pool.select(['172.31.0.0/16'], inventory, { '4': 254 }, '172.31.0.0/16'), 'reject broad RFC1918 approval');
 if (ARGV[0] == 'initial') print(initial);
 else if (ARGV[0] == 'failover') print(failover);
 else if (ARGV[0] == 'down') print(failed);

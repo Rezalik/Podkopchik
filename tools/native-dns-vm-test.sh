@@ -15,7 +15,7 @@ r="pkc-router-$$"; l="pkc-client-$$"; w="pkc-wan-$$"
 pids=""; caps=""; namespaces=""
 dns_service="pkc-vm-dns-$$"; guard_service="pkc-vm-watchdog-$$"
 stock_service="pkc-vm-stock-$$"; xray_server="pkc-vm-xray-server-$$"; xray_client="pkc-vm-xray-client-$$"; xray_mixed="pkc-vm-xray-mixed-$$"
-pools='net 198.18.0.0/15 or net 100.127.253.0/24 or net 2001:2::/48'
+pools='net 198.18.0.0/15 or net 172.31.253.0/24 or net 2001:2::/48'
 tunnel_src='src host 198.51.1.1 or src host 198.51.2.1 or src host 2001:db8:1::1 or src host 2001:db8:2::1'
 initscript="$0"
 service_triggers() { :; }
@@ -245,7 +245,7 @@ ip netns exec "$w" tcpdump --immediate-mode -U -i external0 -Q in -nn -s 96 -w "
 	"$pools or port 53" >"$work/boot-cap.log" 2>&1 &
 bootcap=$!; caps="$bootcap"
 sleep 1
-old4=100.127.253.254; old6=2001:2::dead
+old4=172.31.253.254; old6=2001:2::dead
 if [ "${PKC_VM_REBOOTED:-0}" = 1 ]; then read -r old4 old6 < "$PKC_VM_PERSIST/last-fake"; fi
 if ln wget -q -T 1 -O - "http://$old4:18081/" || ln wget -q -T 1 -O - "http://[$old6]:18081/"; then
 	fail 'old synthetic IP escaped before DNS activation'
@@ -281,7 +281,7 @@ ok() { [ "$(http "$1" "$2")" = isolated-http-ok ]; }
 blocked() { if http "$1" "$2" >/dev/null 2>&1; then fail 'protected HTTP succeeded unexpectedly'; fi; }
 udp() { PKC_NATIVE_LAB=udp "$1" "$bin" -test.run='^TestGuestFixture$' -- "$2"; }
 
-v4=$(answer udp protected.example. A NOERROR 1); case "$v4" in 100.127.253.*) ;; *) fail 'no synthetic IPv4 answer' ;; esac
+v4=$(answer udp protected.example. A NOERROR 1); case "$v4" in 172.31.253.*) ;; *) fail 'no synthetic IPv4 answer' ;; esac
 v6=$(answer tcp protected.example. AAAA NOERROR 1); case "$v6" in 2001:2:*) ;; *) fail 'no synthetic IPv6 answer' ;; esac
 if [ -n "${PKC_VM_PERSIST:-}" ]; then
 	if [ "${PKC_VM_REBOOTED:-0}" = 1 ]; then
@@ -535,12 +535,12 @@ blocked ln 'http://[2001:2::dead]:18081/'
 # Kernel rejection of the final operation must also undo the first operation.
 v4=$(answer tcp protected.example. A NOERROR 1)
 cat >"$work/rejected.nft" <<EOF
-add element inet podkopchik_native s_0011223344556677_m4 { 100.127.253.250 timeout 90s : 203.0.113.80 }
+add element inet podkopchik_native s_0011223344556677_m4 { 172.31.253.250 timeout 90s : 203.0.113.80 }
 create element inet podkopchik_native s_0011223344556677_g0_4 { $v4 timeout 90s }
 EOF
 if rn nft -f "$work/rejected.nft" >"$work/rejected.log" 2>&1; then fail 'duplicate element unexpectedly committed'; fi
 grep -qi 'File exists' "$work/rejected.log"
-if rn nft get element inet podkopchik_native s_0011223344556677_m4 '{ 100.127.253.250 }' >/dev/null 2>&1; then fail 'partial kernel commit'; fi
+if rn nft get element inet podkopchik_native s_0011223344556677_m4 '{ 172.31.253.250 }' >/dev/null 2>&1; then fail 'partial kernel commit'; fi
 echo 'PASS: rejected real nft batch left no partial map entry'
 
 # Keep a real conntrack entry open past the untouched lease's TTL plus grace.
@@ -582,7 +582,7 @@ ok ln 'http://203.0.113.80:18080/'
 rn nft delete table inet podkopchik_native
 blocked ln "http://$v4:18081/"
 blocked rn 'http://198.19.255.254:18081/'
-if udp ln '100.127.253.254:18081' >"$work/stale-udp4.log" 2>&1 ||
+if udp ln '172.31.253.254:18081' >"$work/stale-udp4.log" 2>&1 ||
 	udp rn '[2001:2::dead]:18081' >"$work/stale-udp6.log" 2>&1; then fail 'unknown UDP bypassed the pool guard'; fi
 echo 'PASS: missing nft set/table => SERVFAIL and stale addresses blocked; direct remains available'
 

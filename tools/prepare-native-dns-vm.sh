@@ -31,10 +31,12 @@ for f in podkopchik-native-dns native-dns.test SHA256SUMS; do cp "$base/.build/n
 for f in universal_plan native_pool awg awg_network fakedns_guard; do cp "$base/root/usr/libexec/podkopchik/$f.uc" "$payload/source/"; done
 cp "$base/tests/native_dns_vm_plan.uc" "$payload/source/"
 cp "$base/tools/native-dns-vm-test.sh" "$base/tools/setup-native-dns-guest.sh" "$payload/"
-for f in native-vm-only.sh native-vm-watchdog.sh native-vm-detached-test.sh install-native-vm-boot.sh native-vm-boot.init native-vm-boot.sh; do
+for f in native-vm-only.sh native-vm-watchdog.sh native-vm-detached-test.sh ax6000-recovery-vm-test.sh install-native-vm-boot.sh native-vm-boot.init native-vm-boot.sh; do
 	cp "$base/tools/$f" "$payload/"
 done
 cp "$base/native/runtime/check-offload.sh" "$base/native/runtime/procd-dns.sh" "$base/native/runtime/trial-state.uc" "$payload/"
+for f in ax6000-recovery.sh ax6000-recovery-data.uc; do cp "$base/native/runtime/$f" "$payload/"; done
+for f in native_pool awg fakedns_guard; do cp "$base/root/usr/libexec/podkopchik/$f.uc" "$payload/"; done
 regression="$payload/regression"
 mkdir -p "$regression/tests" "$regression/root/usr/libexec/podkopchik" "$regression/root/etc/init.d"
 cp "$base/tests/"generate_*_smoke.sh "$base/tests/xray_udp_session_smoke.sh" "$regression/tests/"

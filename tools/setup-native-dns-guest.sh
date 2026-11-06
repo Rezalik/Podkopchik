@@ -26,4 +26,5 @@ modprobe veth
 	for t in tests/generate_*_smoke.sh; do ( . "./$t" ); done
 	XRAY_TEST_BIN=/mnt/lab/xray sh tests/xray_udp_session_smoke.sh
 )
+sh ./ax6000-recovery-vm-test.sh
 sh ./native-dns-vm-test.sh

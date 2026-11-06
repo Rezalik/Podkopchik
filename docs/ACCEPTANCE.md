@@ -509,6 +509,11 @@ For [release qualification](UNIVERSAL-RELEASE-VM-20261106.md), also verify:
   is rejected. WAN capture must exclude all synthetic and inner tunnel-source
   packets, including locally generated TCP resets. Hardware acceptance and
   physical rollout are separate gates.
+- For the [AX6000 wired canary](UNIVERSAL-AX6000-PILOT.md), verify explicit
+  private /24 admission, no leakage or real DNS answer on lease exhaustion,
+  and recovery after owner loss, procd worker failure and VM reboot. Compare
+  home UCI, DNS/Xray PIDs and routes before and after restoring lan4. Physical
+  DSA, firewall reload behavior and WAN capture remain separate gates.
 
 ## Required commands
 

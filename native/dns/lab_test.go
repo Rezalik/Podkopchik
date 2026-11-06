@@ -84,7 +84,7 @@ func TestGuestFixture(t *testing.T) {
 					}
 					switch rr := m.Answer[0].(type) {
 					case *dns.A:
-						if v := rr.A.To4(); v == nil || v[0] != 100 || v[1] != 127 || v[2] != 253 {
+						if v := rr.A.To4(); v == nil || v[0] != 172 || v[1] != 31 || v[2] != 253 {
 							t.Error("unexpected IPv4 during soak")
 							return
 						}

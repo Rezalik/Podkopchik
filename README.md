@@ -470,6 +470,8 @@ documents the separate pools, independent native AWG and Xray/VLESS paths,
 and the strict migration boundary for cached addresses.
 The [AX6000 acceptance plan](docs/UNIVERSAL-AX6000-ACCEPTANCE.md) adds offline
 pool admission, conntrack transport pinning and the physical rollout gates.
+The [wired canary and recovery review](docs/UNIVERSAL-AX6000-PILOT.md) records
+the offline pool selection and the separate, timed lan4 recovery procedure.
 
 An invalid Apply leaves existing interception and the saved routing intention
 unchanged. Runtime failures attempt recovery from a private last-working

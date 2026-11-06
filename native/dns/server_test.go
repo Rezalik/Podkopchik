@@ -144,6 +144,59 @@ func TestExpireFreesLeaseButDoesNotReuseAddress(t *testing.T) {
 	}
 }
 
+func TestPrivatePoolAdmissionAndExhaustion(t *testing.T) {
+	c := testConfig()
+	c.Pools = []string{"172.31.253.0/24"}
+	if _, err := compile(c); err == nil {
+		t.Fatal("private pool admitted without an exact opt-in")
+	}
+	c.PrivatePool = c.Pools[0]
+	p, err := compile(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := uint32(1); n <= 254; n++ {
+		a, err := addressAt(p.pools[true], n)
+		if err != nil || a.As4()[3] != byte(n) {
+			t.Fatal("unexpected private lease capacity", n, err)
+		}
+	}
+	if p.safeReal(netip.MustParseAddr("172.31.254.1")) {
+		t.Fatal("private target incorrectly admitted for DNAT")
+	}
+	c.Exclusions = append(c.Exclusions, "172.31.0.0/16")
+	if _, err := compile(c); err == nil {
+		t.Fatal("overlapping remote private network admitted")
+	}
+	var commits atomic.Int32
+	r := testResolver(t, p, func(context.Context, []binding, time.Time) error { commits.Add(1); return nil },
+		func(_ context.Context, q dns.Question) (*dns.Msg, error) {
+			ip := "203.0.113.80"
+			if q.Name == "new.protected.example." {
+				ip = "203.0.113.81"
+			}
+			return fixture(q, q.Name+" 90 IN A "+ip), nil
+		})
+	next := r.writer.ledger.data
+	next.Next4 = 254
+	if err := r.writer.ledger.save(next); err != nil {
+		t.Fatal(err)
+	}
+	addr := startTestDNS(t, r)
+	m := requireAnswer(t, addr, "udp", "protected.example.", dns.TypeA, dns.RcodeSuccess, 1)
+	if m.Answer[0].(*dns.A).A.String() != "172.31.253.254" {
+		t.Fatal("final address incorrect")
+	}
+	requireAnswer(t, addr, "tcp", "new.protected.example.", dns.TypeA, dns.RcodeServerFailure, 0)
+	requireAnswer(t, addr, "tcp", "protected.example.", dns.TypeA, dns.RcodeSuccess, 1)
+	r.writer.mu.Lock()
+	watermark := r.writer.ledger.data.Next4
+	r.writer.mu.Unlock()
+	if commits.Load() != 2 || watermark != 255 {
+		t.Fatal("pool exhaustion recycled or published an address")
+	}
+}
+
 func TestNoReplyBeforeKernelAckAndNoRealIPOnFailure(t *testing.T) {
 	p, _ := compile(testConfig())
 	entered, allow := make(chan struct{}), make(chan struct{})

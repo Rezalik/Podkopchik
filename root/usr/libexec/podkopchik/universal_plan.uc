@@ -25,10 +25,10 @@ function domain_value(value) {
 	return value;
 }
 
-function check_pool_inventory(pools, inventory) {
+function check_pool_inventory(pools, inventory, private_pool) {
 	let issued = map(list(inventory?.issued, 'previous pool inventory', 64), network_value);
 	let occupied = pool_admission.inventory(inventory, false);
-	for (let p in pools) if (!pool_admission.allowed(p) || pool_admission.overlaps(p, occupied))
+	for (let p in pools) if (!pool_admission.allowed(p, private_pool) || pool_admission.overlaps(p, occupied))
 		die('native synthetic pool overlaps inventory or is outside permitted ranges');
 	return issued;
 }
@@ -91,16 +91,19 @@ function compile(input) {
 	let synthetic = null;
 	if (input.synthetic != null) {
 		let epoch = input.synthetic.epoch, pools = {};
+		let private_pool = input.synthetic.private_pool == null ? null : network_value(input.synthetic.private_pool);
+		if (private_pool && !pool_admission.private_v4(private_pool)) die('private native pool requires an explicit RFC1918 /24');
 		if (type(epoch) != 'string' || !match(epoch, /^[a-f0-9]{16}$/)) die('invalid native DNS generation');
 		for (let prefix in list(input.synthetic.pools, 'synthetic pools', 2)) {
 			let cidr = network_value(prefix), family = index(cidr, ':') < 0 ? '4' : '6';
-			if (pools[family] || !pool_admission.allowed(cidr))
+			if (pools[family] || !pool_admission.allowed(cidr, private_pool))
 				die('invalid native synthetic prefix');
 			for (let x in [...fake, ...bypass]) if (awg.overlap(cidr, x)) die('native synthetic prefix overlaps an existing pool or bypass');
 			pools[family] = cidr;
 		}
 		if (!length(keys(pools))) die('missing native synthetic prefix');
-		for (let previous in check_pool_inventory(values(pools), input.synthetic.inventory)) {
+		if (private_pool && pools['4'] != private_pool) die('unused private native pool approval');
+		for (let previous in check_pool_inventory(values(pools), input.synthetic.inventory, private_pool)) {
 			if (index(fake, previous) < 0) push(fake, previous);
 			for (let b in bypass) if (awg.overlap(previous, b)) die('native bypass overlaps a previously issued pool');
 		}
@@ -118,14 +121,15 @@ function compile(input) {
 			}
 			dns = { port, endpoints };
 		}
-		synthetic = { epoch, pools, dns };
+		synthetic = { epoch, pools, dns, private_pool };
 	}
 	return { schema: 1, lan, legacy_lans, automatic: input.automatic, adapters, fake, bypass, domains, synthetic,
 		clients: rules(input.clients, 'client policies'), ips: rules(input.ips, 'CIDR policies') };
 }
 
 function render(plan, switching) {
-	let lines = switching ? [] : ['add table inet ' + TABLE + ' { comment "podkopchik-native-preview-v1"; }'];
+	let owner = plan.synthetic ? 'podkopchik-native-' + plan.synthetic.epoch : 'podkopchik-native-preview-v1';
+	let lines = switching ? [] : ['add table inet ' + TABLE + ' { comment "' + owner + '"; }'];
 	function chain(name, type, hook, priority) {
 		push(lines, switching ? 'flush chain inet ' + TABLE + ' ' + name :
 			'add chain inet ' + TABLE + ' ' + name + ' { type ' + type + ' hook ' + hook + ' priority ' + priority + '; policy accept; }');
@@ -227,6 +231,7 @@ function dns_policy(plan, listen, upstream, excluded) {
 	let result = { epoch: plan.synthetic.epoch, listen, upstream,
 		pools: values(plan.synthetic.pools), exclusions: [...plan.fake, ...plan.bypass, ...map(excluded, network_value)],
 		groups: map(plan.domains, g => ({ names: g.names, protected: g.target != 'direct' })) };
+	if (plan.synthetic.private_pool) result.private_pool = plan.synthetic.private_pool;
 	let dns = plan.synthetic.dns;
 	if (dns) {
 		let v4 = dns.endpoints['4'], v6 = dns.endpoints['6'];
