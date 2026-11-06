@@ -468,6 +468,8 @@ archive is not an installer and does not enable native routing.
 The [mixed transport canary](docs/UNIVERSAL-MIXED-CANARY-20261106.md)
 documents the separate pools, independent native AWG and Xray/VLESS paths,
 and the strict migration boundary for cached addresses.
+The [AX6000 acceptance plan](docs/UNIVERSAL-AX6000-ACCEPTANCE.md) adds offline
+pool admission, conntrack transport pinning and the physical rollout gates.
 
 An invalid Apply leaves existing interception and the saved routing intention
 unchanged. Runtime failures attempt recovery from a private last-working

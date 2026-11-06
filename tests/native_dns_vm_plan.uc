@@ -7,8 +7,8 @@ const ar = network.resources(a), br = network.resources(b);
 
 function plan(active) {
 	return native.compile({ lan: 'br-lan', legacy_lans: ['legacy0'], automatic: active,
-		adapters: [{ id: a, type: 'amneziawg', usable: active == ar.tag, ipv4: true, ipv6: true },
-			{ id: b, type: 'amneziawg', usable: active == ar.tag || active == br.tag, ipv4: true, ipv6: true },
+		adapters: [{ id: a, type: 'amneziawg', usable: active == ar.tag, ipv4: true, ipv6: true, source_ips: ['198.51.1.1', '2001:db8:1::1'] },
+			{ id: b, type: 'amneziawg', usable: active == ar.tag || active == br.tag, ipv4: true, ipv6: true, source_ips: ['198.51.2.1', '2001:db8:2::1'] },
 			{ tag: 'lab_vless', type: 'vless', usable: true, port: 23000, ipv4: true, ipv6: true }],
 		fake_pools: ['198.18.0.0/15'], bypass: ['192.0.2.2'],
 		synthetic: { epoch: '0011223344556677', pools: ['100.127.253.0/24', '2001:2::/48'],
@@ -43,7 +43,8 @@ switch (ARGV[0]) {
 	case 'xray-route': let x = primary.adapters.lab_vless; printf('%d %d %d\n', x.delivery, x.table, x.priority); break;
 	case 'live-inventory':
 		native.check_pool_inventory(values(primary.synthetic.pools), { addresses: json(readfile(ARGV[1])),
-			routes: [...json(readfile(ARGV[2])), ...json(readfile(ARGV[3]))], issued: primary.fake });
+			routes: [...json(readfile(ARGV[2])), ...json(readfile(ARGV[3]))], issued: primary.fake,
+			rules: [...json(readfile(ARGV[4])), ...json(readfile(ARGV[5]))] });
 		break;
 	case 'resources':
 		for (let x in [ar, br]) printf('%s %d %d %d\n', x.interface, x.mark, x.table, x.priority);

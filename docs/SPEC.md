@@ -594,6 +594,12 @@ VLESS fallback does not forward unsupported UDP. The strict canary denies
 unclassified forwarding, including real IPs cached before migration. Pool
 admission rejects live-network and previously issued ranges; neither a new
 production pool nor the canary is enabled by default.
+The [AX6000 acceptance plan](UNIVERSAL-AX6000-ACCEPTANCE.md) adds offline
+selection from explicitly approved pools against complete inventory. A
+reserved conntrack mark byte pins a protected tuple to its first transport;
+transport changes require a new tuple instead of migrating the old NAT state.
+The independent output guard also blocks locally generated packets with an
+owned AWG inner source on any non-owning egress, including TCP resets.
 
 The earlier cone-disabling mitigation was withdrawn before deployment. The
 main process must preserve full-cone behavior. The reviewed source-core

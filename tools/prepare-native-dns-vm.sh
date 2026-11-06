@@ -28,10 +28,10 @@ xray="$base/.build/native-stock-xray/xray"
 printf '%s  %s\n' b07ac0b0bc7c8ae09fefa5d93e3623ee32f0d52bba26cb809da82fede794461d "$xray" | shasum -a 256 -c
 cp "$xray" "$payload/xray"
 for f in podkopchik-native-dns native-dns.test SHA256SUMS; do cp "$base/.build/native-dns/$f" "$payload/"; done
-for f in universal_plan awg awg_network fakedns_guard; do cp "$base/root/usr/libexec/podkopchik/$f.uc" "$payload/source/"; done
+for f in universal_plan native_pool awg awg_network fakedns_guard; do cp "$base/root/usr/libexec/podkopchik/$f.uc" "$payload/source/"; done
 cp "$base/tests/native_dns_vm_plan.uc" "$payload/source/"
 cp "$base/tools/native-dns-vm-test.sh" "$base/tools/setup-native-dns-guest.sh" "$payload/"
-for f in native-vm-only.sh native-vm-watchdog.sh install-native-vm-boot.sh native-vm-boot.init native-vm-boot.sh; do
+for f in native-vm-only.sh native-vm-watchdog.sh native-vm-detached-test.sh install-native-vm-boot.sh native-vm-boot.init native-vm-boot.sh; do
 	cp "$base/tools/$f" "$payload/"
 done
 cp "$base/native/runtime/check-offload.sh" "$base/native/runtime/procd-dns.sh" "$base/native/runtime/trial-state.uc" "$payload/"

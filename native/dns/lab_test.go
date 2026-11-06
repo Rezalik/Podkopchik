@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"testing"
@@ -62,6 +64,49 @@ func TestGuestFixture(t *testing.T) {
 				t.Fatal("unflattened DNS response")
 			}
 		}
+	case "soak":
+		seconds, err := strconv.Atoi(a[1])
+		if err != nil || seconds < 10 || seconds > 600 {
+			t.Fatal("invalid soak duration")
+		}
+		until := time.Now().Add(time.Duration(seconds) * time.Second)
+		var wg sync.WaitGroup
+		var count atomic.Int64
+		for worker := range 4 {
+			wg.Go(func() {
+				proto := []string{"udp", "tcp"}[worker%2]
+				qt := []uint16{dns.TypeA, dns.TypeAAAA}[worker/2]
+				for time.Now().Before(until) {
+					m, err := exchange(a[0], proto, "protected.example.", qt)
+					if err != nil || m.Rcode != dns.RcodeSuccess || len(m.Answer) != 1 {
+						t.Error("protected DNS failed during soak", err)
+						return
+					}
+					switch rr := m.Answer[0].(type) {
+					case *dns.A:
+						if v := rr.A.To4(); v == nil || v[0] != 100 || v[1] != 127 || v[2] != 253 {
+							t.Error("unexpected IPv4 during soak")
+							return
+						}
+					case *dns.AAAA:
+						if v := rr.AAAA; len(v) != 16 || v[0] != 0x20 || v[1] != 1 || v[2] != 0 || v[3] != 2 {
+							t.Error("unexpected IPv6 during soak")
+							return
+						}
+					default:
+						t.Error("unexpected RR type during soak")
+						return
+					}
+					count.Add(1)
+					time.Sleep(250 * time.Millisecond)
+				}
+			})
+		}
+		wg.Wait()
+		if count.Load() < int64(seconds)*4 {
+			t.Fatal("insufficient queries during soak", count.Load())
+		}
+		fmt.Printf("soak_seconds=%d successful_queries=%d\n", seconds, count.Load())
 	case "no-dns":
 		c := dns.Client{Net: a[1], Timeout: time.Second}
 		if m, _, err := c.Exchange(new(dns.Msg).SetQuestion(a[2], dns.TypeA), a[0]); err == nil {
@@ -105,7 +150,15 @@ func TestGuestFixture(t *testing.T) {
 			t.Fatal("UDP echo missing", err)
 		}
 	case "dial":
-		c, err := net.DialTimeout("tcp", a[0], time.Second)
+		d := net.Dialer{Timeout: time.Second}
+		if len(a) > 1 {
+			ip := net.ParseIP(a[1])
+			if ip == nil {
+				t.Fatal("invalid source address")
+			}
+			d.LocalAddr = &net.TCPAddr{IP: ip}
+		}
+		c, err := d.Dial("tcp", a[0])
 		if err != nil {
 			t.Fatal("TCP connect failed", err)
 		}
@@ -159,7 +212,21 @@ func TestGuestFixture(t *testing.T) {
 		if e := os.WriteFile(a[1], []byte("ready"), 0600); e != nil {
 			t.Fatal(e)
 		}
-		for i := 0; i < 100; i++ {
+		wait := 10 * time.Second
+		if len(a) > 3 && a[3] == "expire" {
+			wait = 45 * time.Second
+		}
+		for until := time.Now().Add(wait); time.Now().Before(until); {
+			if _, e := os.Stat(a[2] + ".again"); e == nil {
+				if _, e := os.Stat(a[2] + ".replied"); os.IsNotExist(e) {
+					if e := get(); e != nil {
+						t.Fatal("established flow failed without changing its transport", e)
+					}
+					if e := os.WriteFile(a[2]+".replied", nil, 0600); e != nil {
+						t.Fatal(e)
+					}
+				}
+			}
 			if _, e := os.Stat(a[2]); e == nil {
 				if e := get(); e == nil {
 					t.Fatal("established flow escaped after classifier disappeared")

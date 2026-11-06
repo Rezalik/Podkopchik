@@ -5,6 +5,7 @@
 const awg = require('awg');
 const network = require('awg_network');
 const guard = require('fakedns_guard');
+const pool_admission = require('native_pool');
 const TABLE = 'podkopchik_native';
 const GATE = 'podkopchik_native_gate';
 
@@ -25,11 +26,10 @@ function domain_value(value) {
 }
 
 function check_pool_inventory(pools, inventory) {
-	let addresses = list(inventory?.addresses, 'address inventory', 512);
-	let routes = list(inventory?.routes, 'route inventory', 8192);
 	let issued = map(list(inventory?.issued, 'previous pool inventory', 64), network_value);
-	if (!length(addresses) || !length(routes)) die('empty native network inventory');
-	guard.check_conflicts(pools, addresses, routes, issued);
+	let occupied = pool_admission.inventory(inventory, false);
+	for (let p in pools) if (!pool_admission.allowed(p) || pool_admission.overlaps(p, occupied))
+		die('native synthetic pool overlaps inventory or is outside permitted ranges');
 	return issued;
 }
 
@@ -55,9 +55,19 @@ function compile(input) {
 		else die('unsupported native adapter');
 		if (index(['direct', 'blocked', 'auto_proxy_group'], r.tag) >= 0 || adapters[r.tag] || marks[r.mark] ||
 			(r.interface && interfaces[r.interface])) die('colliding native adapter resources');
+		let sources = [];
+		if (a.type == 'amneziawg' && input.synthetic) {
+			for (let ip in list(a.source_ips, 'AWG source addresses', 32)) {
+				if (type(ip) != 'string' || index(ip, '/') >= 0) die('invalid AWG source address');
+				push(sources, split(pool_admission.prefix(ip), '/')[0]);
+			}
+			if ((a.ipv4 == true && !length(filter(sources, x => index(x, ':') < 0))) ||
+				(a.ipv6 == true && !length(filter(sources, x => index(x, ':') >= 0)))) die('missing AWG source address family');
+		}
 		marks[r.mark] = true;
 		if (r.interface) interfaces[r.interface] = true;
-		adapters[r.tag] = { ...r, type: a.type, usable: a.usable == true, ipv4: a.ipv4 == true, ipv6: a.ipv6 == true };
+		adapters[r.tag] = { ...r, sources, pin: (length(keys(adapters)) + 1) * 16777216,
+			type: a.type, usable: a.usable == true, ipv4: a.ipv4 == true, ipv6: a.ipv6 == true };
 	}
 	// Runtime health/threshold/cooldown selection supplies resolved automatic
 	// targets. The planner does not probe or treat unknown health as available.
@@ -84,10 +94,7 @@ function compile(input) {
 		if (type(epoch) != 'string' || !match(epoch, /^[a-f0-9]{16}$/)) die('invalid native DNS generation');
 		for (let prefix in list(input.synthetic.pools, 'synthetic pools', 2)) {
 			let cidr = network_value(prefix), family = index(cidr, ':') < 0 ? '4' : '6';
-			let allowed = family == '4' ? ['198.18.0.0/15', '100.64.0.0/10'] : ['2001:2::/48', 'fd00::/8'];
-			let bits = +split(cidr, '/')[1];
-			if (pools[family] || bits > (family == '4' ? 29 : 125) ||
-				!length(filter(allowed, p => bits >= +split(p, '/')[1] && awg.overlap(cidr, p))))
+			if (pools[family] || !pool_admission.allowed(cidr))
 				die('invalid native synthetic prefix');
 			for (let x in [...fake, ...bypass]) if (awg.overlap(cidr, x)) die('native synthetic prefix overlaps an existing pool or bypass');
 			pools[family] = cidr;
@@ -258,14 +265,35 @@ function dns_gate(plan) {
 	if (!plan.synthetic) die('native DNS gate requires synthetic mode');
 	let lines = ['add table inet ' + GATE + ' { comment "podkopchik-native-dns-' + plan.synthetic.epoch + '"; }'];
 	function rule(chain, expression) { push(lines, 'add rule inet ' + GATE + ' ' + chain + ' ' + expression); }
+	let lan = 'iifname "' + plan.lan + '" ', pin = 'ct mark & 0xff000000 ';
+	// Reclassify every packet but never move an existing NAT tuple to a new adapter.
+	push(lines, 'add chain inet ' + GATE + ' flow_pin { type filter hook prerouting priority -149; policy accept; }');
+	for (let a in values(plan.adapters)) {
+		let selected = lan + 'meta mark ' + a.mark + ' ';
+		rule('flow_pin', selected + 'ct state new ' + pin + '0 ct mark set (ct mark & 0x00ffffff) | ' + a.pin);
+		rule('flow_pin', selected + pin + a.pin + ' return');
+		rule('flow_pin', selected + 'counter drop');
+	}
+	rule('flow_pin', lan + pin + '!= 0 counter drop');
 	for (let hook in ['input', 'forward', 'output', 'postrouting'])
 		push(lines, 'add chain inet ' + GATE + ' ' + hook + ' { type filter hook ' + hook + ' priority ' + (hook == 'postrouting' ? 300 : -10) + '; policy accept; }');
+	let owners = {};
+	for (let a in values(plan.adapters)) if (a.type == 'amneziawg')
+		for (let addr in a.sources) push(owners[addr] ??= [], a.interface);
+	// A late TCP reply can elicit a local RST without the original conntrack mark.
+	// Never let a tunnel-source packet escape to a different egress via main.
+	for (let addr, ifaces in owners) {
+		let proto = index(addr, ':') < 0 ? 'ip' : 'ip6';
+		let safe = join(', ', map(['lo', ...ifaces], n => '"' + n + '"'));
+		for (let hook in ['output', 'postrouting'])
+			rule(hook, proto + ' saddr ' + addr + ' oifname != { ' + safe + ' } counter drop');
+	}
 	push(lines, 'add chain inet ' + GATE + ' allowed');
 	for (let _, a in plan.adapters) if (a.type == 'amneziawg')
-		rule('allowed', 'iifname "' + plan.lan + '" meta mark ' + a.mark + ' oifname "' + a.interface + '" return');
+		rule('allowed', lan + 'meta mark ' + a.mark + ' ' + pin + a.pin + ' oifname "' + a.interface + '" return');
 	rule('allowed', 'counter drop');
 	for (let a in values(plan.adapters)) if (a.type == 'vless') {
-		rule('input', 'iifname "' + plan.lan + '" meta mark ' + a.delivery + ' meta l4proto tcp return');
+		rule('input', lan + 'meta mark ' + a.delivery + ' ' + pin + a.pin + ' meta l4proto tcp return');
 		rule('input', 'tcp dport ' + a.port + ' counter drop');
 	}
 	for (let family, pool in plan.synthetic.pools) {
@@ -296,7 +324,7 @@ function canary_guard(plan) {
 	let table = 'inet ' + GATE, lan = 'iifname "' + plan.lan + '"';
 	let lines = ['add chain ' + table + ' canary { type filter hook forward priority -12; policy accept; }'];
 	for (let a in values(plan.adapters)) if (a.type == 'amneziawg')
-		push(lines, 'add rule ' + table + ' canary ' + lan + ' meta mark ' + a.mark + ' oifname "' + a.interface + '" return');
+		push(lines, 'add rule ' + table + ' canary ' + lan + ' meta mark ' + a.mark + ' ct mark & 0xff000000 ' + a.pin + ' oifname "' + a.interface + '" return');
 	push(lines, 'add rule ' + table + ' canary ' + lan + ' counter drop');
 	return join('\n', lines) + '\n';
 }
@@ -328,13 +356,13 @@ function dns_edge(plan) {
 function dns_release(plan) {
 	if (!plan.synthetic?.dns) die('no managed LAN DNS in native plan');
 	// The caller must check table ownership and restore the prior resolver.
-	return join('\n', map(['dns_lan', 'dns_input', 'dns_forward'], c => 'delete chain inet ' + GATE + ' ' + c)) + '\n';
+	return join('\n', map(['dns_lan', 'dns_input', 'dns_forward'], c => 'destroy chain inet ' + GATE + ' ' + c)) + '\n';
 }
 
 function switch_batch(previous, next) {
 	function layout(p) {
 		return { lan: p.lan, legacy_lans: p.legacy_lans, fake: p.fake, bypass: p.bypass, domains: p.domains, clients: p.clients, ips: p.ips, synthetic: p.synthetic,
-			adapters: map(keys(p.adapters), tag => [tag, p.adapters[tag].type, p.adapters[tag].interface, p.adapters[tag].mark, p.adapters[tag].port]) };
+			adapters: map(keys(p.adapters), tag => [tag, p.adapters[tag].type, p.adapters[tag].interface, p.adapters[tag].mark, p.adapters[tag].port, p.adapters[tag].sources]) };
 	}
 	// A health transition must keep every DNS set and its leases intact.
 	if (sprintf('%J', layout(previous)) != sprintf('%J', layout(next))) die('native layout changed during selection');

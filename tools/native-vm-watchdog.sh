@@ -15,12 +15,16 @@ while :; do
 		*) exit 1 ;;
 	esac
 done
-# Re-validate the old DNS path before releasing managed interception.
-sha256sum -c backup.sha256 >/dev/null
-PKC_NATIVE_LAB=query ip netns exec "$ns" /mnt/lab/native-dns.test -test.run='^TestGuestFixture$' -- \
-	127.0.0.1:53 tcp probe.protected.example. A NOERROR 1 | grep -qx 'address=203.0.113.80'
-ip netns exec "$ns" nft -f old-fw4.nft
-ip netns exec "$ns" nft -f release
+# A failed restore never removes DNS interception. Both operations commit together.
+while :; do
+	if sha256sum -c backup.sha256 >/dev/null 2>&1 &&
+		PKC_NATIVE_LAB=query ip netns exec "$ns" /mnt/lab/native-dns.test -test.run='^TestGuestFixture$' -- \
+		127.0.0.1:53 tcp probe.protected.example. A NOERROR 1 | grep -qx 'address=203.0.113.80'; then
+		if cat old-fw4.nft release | ip netns exec "$ns" nft -f - >/dev/null 2>&1; then break; fi
+		: > rollback-rejected
+	fi
+	sleep 1
+done
 ubus call service delete "{\"name\":\"$service\"}" >/dev/null 2>&1 || true
 ucode /mnt/lab/trial-state.uc restored "$dir"
 : > rollback-done

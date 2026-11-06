@@ -46,5 +46,6 @@ if (action == 'poll') {
 }
 else if (action == 'verify' && s.state == 'armed' && !expired) { s.state = 'verified'; save(s); }
 else if (action == 'confirm' && s.state == 'verified' && !expired) { s.state = 'confirmed'; save(s); }
+else if (action == 'abort' && index(['armed', 'verified'], s.state) >= 0) { s.state = 'rollback'; save(s); }
 else if (action == 'restored' && s.state == 'rollback') { s.state = 'restored'; save(s); }
 else die('trial transition refused\n');

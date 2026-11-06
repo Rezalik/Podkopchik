@@ -1,5 +1,6 @@
 'use strict';
 const native = require('universal_plan');
+const pool = require('native_pool');
 const awg = require('awg_network');
 const a = '11111111111111111111111111111111', b = '22222222222222222222222222222222';
 const ra = awg.resources(a), rb = awg.resources(b);
@@ -33,6 +34,8 @@ rejects(() => native.compile(bad), 'do not fake native VLESS support');
 bad = fixture(ra.tag); bad.domains[0].names = ['other.pkc.invalid'];
 rejects(() => native.switch_batch(up, native.compile(bad)), 'do not reuse DNS leases for changed names');
 bad = fixture(ra.tag);
+bad.adapters[0].source_ips = ['192.0.2.101'];
+bad.adapters[1].source_ips = ['192.0.2.102', '2001:db8:1::2'];
 bad.synthetic = { epoch: '0011223344556677', pools: ['198.18.0.0/16'], inventory: {
 	addresses: [{ addr_info: [{ local: '10.19.0.1', prefixlen: 24 }] }], routes: [{ dst: '192.0.2.0/24' }], issued: [] } };
 rejects(() => native.compile(bad), 'legacy FakeDNS /15 overlaps native /16');
@@ -49,6 +52,20 @@ bad.synthetic.inventory.addresses = [{ addr_info: [{ local: '100.127.253.1', pre
 rejects(() => native.compile(bad), 'address overlapping pool rejected');
 bad = fixture(ra.tag); bad.legacy_lans = ['br-lan'];
 rejects(() => native.compile(bad), 'legacy TPROXY cannot share the canary LAN');
+let inventory = { addresses: [{ addr_info: [{ local: 'fd12::1', prefixlen: 64 }] }],
+	routes: [{ dst: 'default', gateway: '100.127.250.1' }, { dst: '100.127.251.0/24' }],
+	rules: [{ priority: 100, dst: '100.127.252.7' }], issued: ['198.18.0.0/15'],
+	endpoints: ['100.127.253.7'], exclusions: ['100.127.254.0/24'] };
+let candidates = ['198.18.0.0/16', '100.127.250.0/24', '100.127.251.0/24', '100.127.252.0/24',
+	'100.127.253.0/24', '100.127.254.0/24', '100.127.255.0/28', '100.127.255.0/24', 'fd12::/112', 'fd13::/112'];
+let choice = pool.select(candidates, inventory, { '4': 240, '6': 240 });
+ok(choice['4'].cidr == '100.127.255.0/24' && choice['4'].capacity == 254 &&
+	choice['6'].cidr == pool.prefix('fd13::/112'), 'deterministic choice checks old pool, gateways, routes, selectors, exclusions and capacity');
+rejects(() => pool.select(['8.8.8.0/24'], inventory, { '4': 100 }), 'public IPv4 pool is not eligible');
+rejects(() => pool.select(['fe80::/112'], inventory, { '6': 100 }), 'IPv6 link-local pool is not eligible');
+rejects(() => pool.select(candidates, { ...inventory, rules: null }, { '4': 240 }), 'require complete rule snapshot');
+rejects(() => pool.select(candidates, { ...inventory, routes: [{ dst: 'malformed' }] }, { '4': 240 }), 'invalid inventory must not be ignored');
+rejects(() => pool.select(candidates, inventory, { '4': 255 }), 'no silent capacity downgrade');
 if (ARGV[0] == 'initial') print(initial);
 else if (ARGV[0] == 'failover') print(failover);
 else if (ARGV[0] == 'down') print(failed);

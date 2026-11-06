@@ -7,10 +7,12 @@ state=/etc/pkc-native-vm-state
 export PKC_VM_PERSIST="$state"
 boot=$(cat /proc/sys/kernel/random/boot_id)
 phase=first
+export PKC_VM_SOAK_SECONDS=180
 if [ -s "$state/first-boot" ]; then
 	[ "$boot" != "$(cat "$state/first-boot")" ] || exit 1
 	phase=second
 	export PKC_VM_REBOOTED=1
+	export PKC_VM_SOAK_SECONDS=0
 fi
 exec >"$state/$phase.log" 2>&1
 echo "VM boot phase=$phase kernel=$(uname -r)"

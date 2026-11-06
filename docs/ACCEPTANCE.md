@@ -502,6 +502,13 @@ For [release qualification](UNIVERSAL-RELEASE-VM-20261106.md), also verify:
   failover to stock Xray, unsupported VLESS UDP drop, and a strict canary that
   denies cached real-IP forwarding. Never use the lab prefixes on a router
   without a separate approved inventory and ownership check.
+- For [AX6000 acceptance](UNIVERSAL-AX6000-ACCEPTANCE.md), prove a held TCP
+  connection survives unchanged Apply but does not cross to another adapter,
+  and an expired lease cannot use its still-existing conntrack entry. The
+  recovery watchdog must keep quarantine and DNS interception if an nft restore
+  is rejected. WAN capture must exclude all synthetic and inner tunnel-source
+  packets, including locally generated TCP resets. Hardware acceptance and
+  physical rollout are separate gates.
 
 ## Required commands
 

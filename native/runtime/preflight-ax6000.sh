@@ -13,5 +13,8 @@ base="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 (cd "$base" && sha256sum -c SHA256SUMS) || fail 'candidate payload mismatch'
 sh "$base/check-offload.sh"
 free=$(df -Pk /overlay | awk 'END {print $4}')
-[ "$free" -ge 12288 ] || fail 'less than 12 MiB free; measure space for the real backup and rollout separately'
+[ "$free" -ge 13312 ] || fail 'less than 13 MiB free on overlay'
+tmp=$(df -Pk /tmp | awk 'END {print $4}')
+[ "$tmp" -ge 12288 ] || fail 'less than 12 MiB free in /tmp'
+echo 'Space floors passed; account for the exact candidate and recovery bundle before staging.'
 echo 'Read-only candidate checks passed. This does not authorize or perform activation.'
