@@ -576,6 +576,16 @@ existing forwarding rules. Explicit DNS rollback removes only managed DNS
 chains and retains the guard for previously issued addresses. These blocks
 are not enabled by the installer.
 
+The boot fixture installs the synthetic-pool guard before creating WAN routes;
+the LAN DNS redirect is a separate transaction once the previous resolver and
+firewall are ready. A listener crash must not release the guard or permit
+plaintext DNS fallback. The preview refuses software/hardware flow offload and
+live flowtables. An independent procd watchdog restores tested stock DNS and
+firewall state on timeout, retaining the quarantine. The private trial journal
+uses a monotonic deadline and refuses to confirm an unfinished prior-boot
+trial. See [release qualification](UNIVERSAL-RELEASE-VM-20261106.md) for the VM
+evidence, encrypted-DNS limits, and outstanding physical deployment gates.
+
 The earlier cone-disabling mitigation was withdrawn before deployment. The
 main process must preserve full-cone behavior. The reviewed source-core
 candidate instead limits each dokodemo transparent reply cache to 128 sockets,

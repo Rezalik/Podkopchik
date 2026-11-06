@@ -288,6 +288,34 @@ func TestLedgerNoReuseOnErrorRestartAndExpiry(t *testing.T) {
 	}
 }
 
+func TestDNSDestinationChangeKeepsOldLeaseIdentity(t *testing.T) {
+	p, err := compile(testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldIP := netip.MustParseAddr("203.0.113.80")
+	newIP := netip.MustParseAddr("203.0.113.81")
+	seen := map[netip.Addr]netip.Addr{}
+	w := publisher{policy: p, ledger: testLedger(t, p), leases: map[bindingKey]binding{},
+		commit: func(_ context.Context, b []binding, _ time.Time) error {
+			for _, v := range b {
+				if old, ok := seen[v.fake]; ok && old != v.real {
+					return errors.New("changed the destination of a previously issued address")
+				}
+				seen[v.fake] = v.real
+			}
+			return nil
+		}}
+	first, err := w.publish(context.Background(), 0, []netip.Addr{oldIP}, 15)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := w.publish(context.Background(), 0, []netip.Addr{newIP}, 15)
+	if err != nil || len(second) != 1 || first[0] == second[0] || seen[first[0]] != oldIP || seen[second[0]] != newIP {
+		t.Fatal("DNS destination change reused or rewrote an active lease", first, second, err)
+	}
+}
+
 func TestPolicyRejectsOverlapsAndInjection(t *testing.T) {
 	for _, modify := range []func(*config){
 		func(c *config) { c.Epoch = "00000000; flush ruleset" },

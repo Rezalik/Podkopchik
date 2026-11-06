@@ -482,6 +482,21 @@ router and an alternate IPv4/IPv6 DNS address. Stop the managed listener and
 remove just its redirect; neither case may fall back to stock or WAN DNS.
 An explicit DNS rollback must restore dnsmasq without releasing old pools.
 
+For [release qualification](UNIVERSAL-RELEASE-VM-20261106.md), also verify:
+
+- Automatic procd startup after an actual VM reboot; stale IPv4 and IPv6 must
+  remain quarantined even before managed DNS starts.
+- Stop/start and SIGKILL recovery without a DNS fallback; no reuse of previously
+  issued synthetic addresses after reboot. Concurrent DNS requests must keep
+  working during repeated policy changes.
+- Read-only admission rejects both configured offload and a live flowtable.
+  MediaTek PPE behavior and real netifd WAN hotplug require physical tests.
+- An independent watchdog restores verified stock DNS without SSH, retaining
+  the quarantine. Early, expired and prior-boot confirmation must be rejected.
+- Rebuild the ARM64 review archive twice and compare bytes. The archive does
+  not install or activate native routing; physical canary and rollback tests
+  are required before production promotion.
+
 ## Required commands
 
 FD capacity regression: the shared main Xray instance must request

@@ -2,8 +2,7 @@
 # Install signed dependencies only in the NIC-free disposable QEMU guest.
 set -eu
 umask 077
-[ "$(tr -d '\000' </proc/device-tree/model)" = linux,dummy-virt ]
-[ "$(ls /sys/class/net)" = lo ]
+. /mnt/lab/native-vm-only.sh
 [ "$(uname -r)" = 6.12.112 ]
 cd /mnt/lab
 sha256sum -c SHA256SUMS

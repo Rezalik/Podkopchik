@@ -221,28 +221,30 @@ function dns_gate(plan) {
 		}
 		rule('postrouting', proto + ' saddr ' + pool + ' oifname != { "lo", "' + plan.lan + '" } counter drop');
 	}
-	let dns = plan.synthetic.dns;
-	if (dns) {
-		let lan = 'iifname "' + plan.lan + '" ', transport = 'meta l4proto { tcp, udp } ';
-		// Before classification: even a client forced to a down adapter can
-		// reach the local DNS listener. Original-destination checks are at filter hooks.
-		push(lines, 'add chain inet ' + GATE + ' dns_lan { type nat hook prerouting priority -155; policy accept; }');
-		for (let hook in ['input', 'forward'])
-			push(lines, 'add chain inet ' + GATE + ' dns_' + hook + ' { type filter hook ' + hook + ' priority -11; policy accept; }');
-		for (let family, addr in dns.endpoints) {
-			let proto = family == '4' ? 'ip' : 'ip6';
-			let target = (family == '4' ? addr : '[' + addr + ']') + ':' + dns.port;
-			rule('dns_lan', lan + 'meta nfproto ipv' + family + ' ' + transport + 'th dport 53 dnat ' + proto + ' to ' + target);
-			let socket = proto + ' daddr ' + addr + ' ' + transport + 'th dport ' + dns.port;
-			rule('dns_input', lan + socket + ' ct status dnat ct direction original ct original proto-dst 53 return');
-			rule('dns_input', socket + ' counter drop');
-		}
-		// These remain effective if the NAT chain fails or is removed. Do not
-		// silently send client queries to stock dnsmasq or a WAN resolver.
-		rule('dns_input', lan + transport + 'th dport 53 counter drop');
-		rule('dns_forward', lan + transport + 'th dport 53 counter drop');
-		rule('dns_forward', lan + transport + 'ct direction original ct original proto-dst 53 counter drop');
+	return join('\n', lines) + '\n';
+}
+
+function dns_edge(plan) {
+	let dns = plan.synthetic?.dns;
+	if (!dns) die('no managed LAN DNS in native plan');
+	// Install only after the standalone pool guard and prior resolver are ready.
+	let lines = ['add chain inet ' + GATE + ' dns_lan { type nat hook prerouting priority -155; policy accept; }'];
+	function rule(chain, expression) { push(lines, 'add rule inet ' + GATE + ' ' + chain + ' ' + expression); }
+	let lan = 'iifname "' + plan.lan + '" ', transport = 'meta l4proto { tcp, udp } ';
+	for (let hook in ['input', 'forward'])
+		push(lines, 'add chain inet ' + GATE + ' dns_' + hook + ' { type filter hook ' + hook + ' priority -11; policy accept; }');
+	for (let family, addr in dns.endpoints) {
+		let proto = family == '4' ? 'ip' : 'ip6';
+		let target = (family == '4' ? addr : '[' + addr + ']') + ':' + dns.port;
+		rule('dns_lan', lan + 'meta nfproto ipv' + family + ' ' + transport + 'th dport 53 dnat ' + proto + ' to ' + target);
+		let socket = proto + ' daddr ' + addr + ' ' + transport + 'th dport ' + dns.port;
+		rule('dns_input', lan + socket + ' ct status dnat ct direction original ct original proto-dst 53 return');
+		rule('dns_input', socket + ' counter drop');
 	}
+	// These filter chains stay in place if the NAT redirect is lost.
+	rule('dns_input', lan + transport + 'th dport 53 counter drop');
+	rule('dns_forward', lan + transport + 'th dport 53 counter drop');
+	rule('dns_forward', lan + transport + 'ct direction original ct original proto-dst 53 counter drop');
 	return join('\n', lines) + '\n';
 }
 
@@ -262,4 +264,4 @@ function switch_batch(previous, next) {
 	return render(next, true);
 }
 
-return { compile, batch, switch_batch, dns_policy, dns_gate, dns_release, fw4_forward };
+return { compile, batch, switch_batch, dns_policy, dns_gate, dns_edge, dns_release, fw4_forward };

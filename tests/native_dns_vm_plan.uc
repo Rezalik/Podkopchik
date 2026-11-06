@@ -20,6 +20,7 @@ function plan(active) {
 let primary = plan(ar.tag), backup = plan(br.tag), down = plan('blocked');
 switch (ARGV[0]) {
 	case 'gate': print(native.dns_gate(primary)); break;
+	case 'edge': print(native.dns_edge(primary)); break;
 	case 'release': print(native.dns_release(primary)); break;
 	case 'forward': print(native.fw4_forward(primary)); break;
 	case 'primary': print(native.batch(primary)); break;

@@ -1,0 +1,18 @@
+#!/bin/sh /etc/rc.common
+
+START=98
+STOP=10
+USE_PROCD=1
+
+start_service() {
+	[ "$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null)" = QEMU ] || return 1
+	[ "$(cat /tmp/sysinfo/board_name 2>/dev/null)" = qemu-qemu-virtual-machine ] || return 1
+	[ "$(ls /sys/class/net)" = lo ] || return 1
+	mkdir -p /mnt/lab
+	grep -q ' /mnt/lab 9p ' /proc/mounts || mount -t 9p -o trans=virtio,version=9p2000.L,ro pkclab /mnt/lab || return 1
+	procd_open_instance suite
+	procd_set_param command /bin/sh /mnt/lab/native-vm-boot.sh
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+}

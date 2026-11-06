@@ -3,8 +3,7 @@
 set -eu
 umask 077
 fail() { echo "FAIL: $*" >&2; exit 1; }
-[ "$(tr -d '\000' </proc/device-tree/model)" = 'linux,dummy-virt' ] || fail 'not the QEMU virt lab'
-[ "$(ls /sys/class/net)" = lo ] || fail 'unexpected guest network device'
+. /mnt/lab/native-vm-only.sh
 [ "$(uname -r)" = 6.12.112 ] || fail 'unexpected guest kernel'
 [ -z "$(ip route show default)$(ip -6 route show default)" ] || fail 'guest has a default route'
 lib=/mnt/lab/source
@@ -14,7 +13,38 @@ xray=/mnt/lab/xray
 work=$(mktemp -d /tmp/native-dns-vm.XXXXXX)
 r="pkc-router-$$"; l="pkc-client-$$"; w="pkc-wan-$$"
 pids=""; caps=""; namespaces=""
+dns_service="pkc-vm-dns-$$"; guard_service="pkc-vm-watchdog-$$"
+stock_service="pkc-vm-stock-$$"; xray_server="pkc-vm-xray-server-$$"; xray_client="pkc-vm-xray-client-$$"
+initscript="$0"
+service_triggers() { :; }
+set +eu
+. /lib/functions/procd.sh
+set -eu
+. /mnt/lab/procd-dns.sh
+stop_service() { ubus call service delete "{\"name\":\"$1\"}" >/dev/null 2>&1 || true; }
+vm_process() (
+	set +eu
+	name="$1"; shift
+	procd_open_service "$name"
+	native_dns_instance "$@"
+	procd_close_service >/dev/null
+)
+service_pid() { ubus call service list "{\"name\":\"$1\"}" | jsonfilter -q -e '@.*.instances.main.pid'; }
+wait_pid() {
+	old="${2:-0}"
+	for i in 1 2 3 4 5 6 7 8 9 10; do
+		pid=$(service_pid "$1" || true)
+		if [ -n "$pid" ] && [ "$pid" != "$old" ] && kill -0 "$pid" 2>/dev/null; then printf '%s\n' "$pid"; return; fi
+		sleep 1
+	done
+	return 1
+}
 cleanup() {
+	stop_service "$guard_service"
+	stop_service "$dns_service"
+	stop_service "$xray_client"
+	stop_service "$xray_server"
+	stop_service "$stock_service"
 	for pid in $pids $caps; do kill -TERM "$pid" 2>/dev/null || true; done
 	for pid in $pids $caps; do wait "$pid" 2>/dev/null || true; done
 	for ns in $namespaces; do ip netns del "$ns"; done
@@ -27,6 +57,10 @@ wn() { ip netns exec "$w" "$@"; }
 for ns in "$r" "$l" "$w"; do
 	ip netns add "$ns"; namespaces="$namespaces $ns"; ip -n "$ns" link set lo up
 done
+for mode in gate edge release forward primary backup down restore dns resources; do
+	ucode -L "$lib" "$lib/native_dns_vm_plan.uc" "$mode" > "$work/$mode"
+done
+rn nft -f "$work/gate"
 pair() {
 	ip -n "$r" link add "$1" type veth peer name "$2"
 	ip -n "$r" link set "$2" netns "$3"
@@ -57,9 +91,6 @@ ip -n "$w" addr add 203.0.113.81/32 dev lo
 ip -n "$w" -6 addr add 2001:db8:80::1/128 dev lo nodad
 rn sysctl -w net.ipv4.ip_forward=1 >/dev/null
 rn sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null
-for mode in gate release forward primary backup down restore dns resources; do
-	ucode -L "$lib" "$lib/native_dns_vm_plan.uc" "$mode" > "$work/$mode"
-done
 i=0
 while read -r dev mark table prio; do
 	i=$((i+1)); peer="tunnel$((i-1))"
@@ -135,6 +166,24 @@ load_fw4() {
 	rn nft -f "$work/fw4.nft"
 }
 load_fw4 "$work/firewall-base"
+cp "$work/fw4.nft" "$work/old-fw4.nft"
+offload_check() {
+	rn sh -c 'mount --bind "$1" /etc/config/firewall && sh /mnt/lab/check-offload.sh' preflight "$1"
+}
+offload_check "$work/firewall-base"
+sed "s/option flow_offloading '0'/option flow_offloading '1'/" "$work/firewall-base" > "$work/firewall-sw"
+sed "s/option flow_offloading_hw '0'/option flow_offloading_hw '1'/" "$work/firewall-base" > "$work/firewall-hw"
+for config in "$work/firewall-sw" "$work/firewall-hw"; do
+	if offload_check "$config" > "$work/offload.log" 2>&1; then fail 'configured offload passed preflight'; fi
+	grep -q 'offloading must be disabled' "$work/offload.log"
+done
+rn nft add table inet pkc_test_offload
+rn nft 'add flowtable inet pkc_test_offload ft { hook ingress priority 0; devices = { br-lan, wan }; }'
+if offload_check "$work/firewall-base" > "$work/offload.log" 2>&1; then fail 'live software flowtable passed preflight'; fi
+grep -q 'live flowtable' "$work/offload.log"
+rn nft delete table inet pkc_test_offload
+offload_check "$work/firewall-base"
+echo 'PASS: read-only preflight rejects configured software/hardware offload and a real software flowtable'
 rn nft -c -f "$work/primary"
 rn nft -f "$work/primary"
 
@@ -146,24 +195,50 @@ for addr in 192.0.2.2:53 '[2001:db8::2]:53'; do
 		PKC_NATIVE_LAB=dns ip netns exec "$w" "$bin" -test.run='^TestGuestFixture$' -- "$addr" "$net" >"$work/external-$addr-$net.log" 2>&1 & pids="$pids $!"
 	done
 done
-ip netns exec "$r" dnsmasq --no-daemon --conf-file=/dev/null --no-hosts --no-resolv --bind-interfaces \
+vm_process "$stock_service" /sbin/ip netns exec "$r" /usr/sbin/dnsmasq --no-daemon --conf-file=/dev/null --no-hosts --no-resolv --bind-interfaces \
 	--listen-address=127.0.0.1,10.19.0.1 --server=127.0.0.1#1059 --pid-file="$work/dnsmasq.pid" \
-	>"$work/dnsmasq.log" 2>&1 & pids="$pids $!"
+	|| fail 'could not register stock dnsmasq with procd'
 for addr in '203.0.113.80:18080' '203.0.113.80:18081' '203.0.113.81:18081' '[2001:db8:80::1]:18081'; do
 	PKC_NATIVE_LAB=serve ip netns exec "$w" "$bin" -test.run='^TestGuestFixture$' -- "$addr" >"$work/peer-$addr.log" 2>&1 & pids="$pids $!"
 done
-rn "$daemon" -config "$work/dns" -ledger "$work/ledger" -init-ledger
-ip netns exec "$r" "$daemon" -config "$work/dns" -ledger "$work/ledger" >"$work/classifier.log" 2>&1 &
-dnspid=$!; pids="$pids $dnspid"
+ledger="$work/ledger"
+if [ -n "${PKC_VM_PERSIST:-}" ]; then
+	[ "$PKC_VM_PERSIST" = /etc/pkc-native-vm-state ] || fail 'unexpected persistent fixture path'
+	ledger="$PKC_VM_PERSIST/ledger"
+fi
+[ -f "$ledger" ] || rn "$daemon" -config "$work/dns" -ledger "$ledger" -init-ledger
+start_dns() {
+	vm_process "$dns_service" /sbin/ip netns exec "$r" "$daemon" -config "$work/dns" -ledger "$ledger"
+}
 query_at() { PKC_NATIVE_LAB=query ln "$bin" -test.run='^TestGuestFixture$' -- "$@"; }
 no_dns() { PKC_NATIVE_LAB=no-dns ln "$bin" -test.run='^TestGuestFixture$' -- "$@"; }
 sleep 1
+ip netns exec "$w" tcpdump --immediate-mode -U -i external0 -Q in -nn -s 96 -w "$work/boot-wan.pcap" \
+	'net 198.18.0.0/15 or net 2001:2::/48 or port 53' >"$work/boot-cap.log" 2>&1 &
+bootcap=$!; caps="$bootcap"
+sleep 1
+old4=198.19.255.254; old6=2001:2::dead
+if [ "${PKC_VM_REBOOTED:-0}" = 1 ]; then read -r old4 old6 < "$PKC_VM_PERSIST/last-fake"; fi
+if ln wget -q -T 1 -O - "http://$old4:18081/" || ln wget -q -T 1 -O - "http://[$old6]:18081/"; then
+	fail 'old synthetic IP escaped before DNS activation'
+fi
 # Positive control before interception: these resolvers really return real IPs.
 for addr in 10.19.0.1:53 192.0.2.2:53 '[2001:db8::2]:53'; do
 	answer=$(query_at "$addr" udp probe.protected.example. A NOERROR 1) || fail "initial resolver unavailable at $addr: $answer"
 	printf '%s\n' "$answer" | grep -qx 'address=203.0.113.80'
 done
-rn nft -f "$work/gate"
+kill -INT "$bootcap"; wait "$bootcap" || true
+caps=""
+grep -q '^0 packets dropped by kernel' "$work/boot-cap.log"
+boot_leak=$(tcpdump -nn -r "$work/boot-wan.pcap" 'net 198.18.0.0/15 or net 2001:2::/48' 2>/dev/null | wc -l)
+boot_dns=$(tcpdump -nn -r "$work/boot-wan.pcap" 'dst port 53' 2>/dev/null | wc -l)
+echo "Early WAN capture: synthetic=$boot_leak direct_dns=$boot_dns"
+[ "$boot_leak" -eq 0 ] && [ "$boot_dns" -gt 0 ] || fail 'early WAN capture did not establish quarantine'
+echo 'PASS: early pool guard blocks stale/unknown IPv4 and IPv6 before managed DNS activation'
+rn nft -f "$work/edge"
+start_dns
+dnspid=$(wait_pid "$dns_service") || fail 'procd did not start DNS'
+echo 'PASS: stock DNS, fw4 and transport policy are ready before managed procd listener'
 for iface in external0 tunnel0 tunnel1; do
 	ip netns exec "$w" tcpdump -i "$iface" -Q in -nn -s 96 -c 1024 -w "$work/$iface.pcap" \
 		'net 198.18.0.0/15 or net 2001:2::/48 or port 53 or port 18080 or port 18081 or port 18443' >"$work/cap-$iface.log" 2>&1 &
@@ -180,6 +255,17 @@ udp() { PKC_NATIVE_LAB=udp "$1" "$bin" -test.run='^TestGuestFixture$' -- "$2"; }
 
 v4=$(answer udp protected.example. A NOERROR 1); case "$v4" in 198.18.*) ;; *) fail 'no synthetic IPv4 answer' ;; esac
 v6=$(answer tcp protected.example. AAAA NOERROR 1); case "$v6" in 2001:2:*) ;; *) fail 'no synthetic IPv6 answer' ;; esac
+if [ -n "${PKC_VM_PERSIST:-}" ]; then
+	if [ "${PKC_VM_REBOOTED:-0}" = 1 ]; then
+		read -r previous4 previous6 < "$PKC_VM_PERSIST/last-fake"
+		[ "$v4" != "$previous4" ] && [ "$v6" != "$previous6" ] || fail 'synthetic address reused after reboot'
+		blocked ln "http://$previous4:18081/"
+		blocked ln "http://[$previous6]:18081/"
+		echo 'PASS: pre-reboot synthetic addresses are blocked after procd boot'
+	else
+		printf '%s %s\n' "$v4" "$v6" > "$PKC_VM_PERSIST/last-fake"
+	fi
+fi
 [ "$(answer tcp protected.example. A NOERROR 1)" = "$v4" ]
 [ "$(answer udp direct.example. A NOERROR 1)" = 203.0.113.80 ]
 for addr in 192.0.2.2:53 '[fd19::1]:53' '[2001:db8::2]:53'; do
@@ -201,6 +287,9 @@ for i in 1 2 3 4 5 6 7 8; do
 	PKC_NATIVE_LAB=query ip netns exec "$l" "$bin" -test.run='^TestGuestFixture$' -- 10.19.0.1:53 "$net" \
 		protected.example. A NOERROR 1 >"$work/concurrent-$i.log" 2>&1 & clients="$clients $!"
 done
+rn nft -f "$work/backup"
+rn nft -f "$work/backup"
+rn nft -f "$work/restore"
 client_error=0
 for pid in $clients; do wait "$pid" || client_error=1; done
 [ "$client_error" = 0 ] || fail 'concurrent protected DNS query failed'
@@ -219,6 +308,24 @@ udp ln "$v4:18081"
 udp ln "[$v6]:18081"
 echo 'PASS: committed DNS UDP/TCP, native IPv4/IPv6 TCP/UDP, protected CIDR and ordinary direct'
 
+kill -KILL "$dnspid"
+dnspid=$(wait_pid "$dns_service" "$dnspid") || fail 'procd did not respawn DNS'
+sleep 1
+new4=$(answer tcp protected.example. A NOERROR 1)
+new6=$(answer udp protected.example. AAAA NOERROR 1)
+[ -n "$new4" ] && [ "$new4" != "$v4" ] && [ -n "$new6" ] && [ "$new6" != "$v6" ] || fail 'bad DNS recovery or recycled address'
+v4="$new4"; v6="$new6"
+ok ln "http://$v4:18081/"
+stop_service "$dns_service"
+no_dns 10.19.0.1:53 tcp protected.example.
+start_dns
+dnspid=$(wait_pid "$dns_service") || fail 'procd restart failed'
+sleep 1
+new4=$(answer udp protected.example. A NOERROR 1)
+[ -n "$new4" ] && [ "$new4" != "$v4" ] || fail 'restart reused a synthetic address'
+v4="$new4"
+echo 'PASS: procd stop/start and SIGKILL recovery without DNS fallback or address reuse'
+
 rn nft -f "$work/backup"
 [ "$(answer udp protected.example. A NOERROR 1)" = "$v4" ]
 ok ln "http://$v4:18081/"
@@ -229,6 +336,16 @@ blocked ln "http://[$v6]:18081/"
 ok ln 'http://203.0.113.80:18080/'
 echo 'PASS: existing lease survives failover; all-down fails closed while direct works'
 
+ip -n "$r" link set wan down
+blocked ln 'http://203.0.113.80:18080/'
+ip -n "$r" link set wan up
+ip -n "$r" addr replace 192.0.2.1/24 dev wan
+ip -n "$r" -6 addr replace 2001:db8:0::1/64 dev wan nodad
+ip -n "$r" route replace default via 192.0.2.2 dev wan
+ip -n "$r" -6 route replace default via 2001:db8:0::2 dev wan
+ok ln 'http://203.0.113.80:18080/'
+echo 'PASS: isolated WAN link loss and route restoration'
+
 cat >"$work/xray-server.json" <<'EOF'
 {"log":{"loglevel":"warning"},"inbounds":[{"listen":"192.0.2.2","port":18443,"protocol":"vless","settings":{"decryption":"none","clients":[{"id":"11111111-2222-4333-8444-555555555555"}]}}],"outbounds":[{"protocol":"freedom"}]}
 EOF
@@ -237,8 +354,14 @@ cat >"$work/xray-client.json" <<'EOF'
 EOF
 wn "$xray" run -test -config "$work/xray-server.json"
 ln "$xray" run -test -config "$work/xray-client.json"
-ip netns exec "$w" "$xray" run -config "$work/xray-server.json" >"$work/xray-server.log" 2>&1 & serverpid=$!; pids="$pids $serverpid"
-ip netns exec "$l" "$xray" run -config "$work/xray-client.json" >"$work/xray-client.log" 2>&1 & clientpid=$!; pids="$pids $clientpid"
+vm_xray() {
+	vm_process "$1" /bin/sh -c 'log="$1"; shift; exec "$@" >"$log" 2>&1' xray "$work/$3.log" \
+		/sbin/ip netns exec "$2" "$xray" run -config "$work/$3.json"
+}
+vm_xray "$xray_server" "$w" xray-server
+vm_xray "$xray_client" "$l" xray-client
+serverpid=$(wait_pid "$xray_server") || fail 'Xray server process not started'
+clientpid=$(wait_pid "$xray_client") || fail 'Xray client process not started'
 i=0
 until grep -q 'Xray .* started' "$work/xray-server.log" && grep -q 'Xray .* started' "$work/xray-client.log"; do
 	kill -0 "$serverpid" "$clientpid" && [ "$i" -lt 10 ] || { cat "$work/xray-server.log" "$work/xray-client.log"; fail 'Xray fixture not ready'; }
@@ -248,7 +371,12 @@ PKC_NATIVE_LAB=socks ln "$bin" -test.run='^TestGuestFixture$' -- 127.0.0.1:1080 
 echo 'PASS: separate Xray/VLESS connection and endpoint bypass with native selection all-down'
 
 rn nft -f "$work/restore"
+stop_service "$xray_client"
 ok ln "http://$v4:18081/"
+vm_xray "$xray_client" "$l" xray-client
+wait_pid "$xray_client" "$clientpid" >/dev/null || fail 'Xray client restart failed'
+ok ln "http://$v4:18081/"
+echo 'PASS: Xray procd stop/start did not interrupt native forwarding'
 read -r _ main_mark main_table main_prio < "$work/resources"
 ip -n "$r" rule del fwmark "$main_mark" table "$main_table" priority "$main_prio"
 blocked ln "http://$v4:18081/"
@@ -303,7 +431,27 @@ blocked ln "http://$v4:18081/"
 blocked rn 'http://198.19.255.254:18081/'
 echo 'PASS: missing nft set/table => SERVFAIL and stale addresses blocked; direct remains available'
 
-kill -TERM "$dnspid"; wait "$dnspid" || true
+(cd "$work" && sha256sum old-fw4.nft release > backup.sha256)
+mkdir -m 700 "$work/confirm-trial"
+ucode /mnt/lab/trial-state.uc arm "$work/confirm-trial" 30
+if ucode /mnt/lab/trial-state.uc confirm "$work/confirm-trial" >/dev/null 2>&1; then fail 'unverified trial confirmed'; fi
+ucode /mnt/lab/trial-state.uc verify "$work/confirm-trial"
+ucode /mnt/lab/trial-state.uc confirm "$work/confirm-trial"
+[ "$(ucode /mnt/lab/trial-state.uc poll "$work/confirm-trial")" = confirmed ]
+echo 'PASS: trial confirmation requires a separate verification transition'
+ucode /mnt/lab/trial-state.uc arm "$work" 25
+(
+	set +eu
+	procd_open_service "$guard_service"
+	procd_open_instance main
+	procd_set_param command /bin/sh /mnt/lab/native-vm-watchdog.sh "$r" "$work" "$dns_service"
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+	procd_close_service >/dev/null
+)
+wait_pid "$guard_service" >/dev/null || fail 'independent watchdog not running'
+stop_service "$dns_service"
 for addr in 10.19.0.1:53 192.0.2.2:53 '[2001:db8::2]:53'; do
 	for net in udp tcp; do no_dns "$addr" "$net" protected.example.; done
 done
@@ -326,10 +474,29 @@ backup=$(count tunnel1 'dst port 18081')
 plaintext_dns=$(count external0 'port 53')
 printf 'WAN capture: protected=%s plaintext_dns=%s direct=%s endpoint=%s primary=%s backup=%s\n' "$leak" "$plaintext_dns" "$direct" "$endpoint" "$primary" "$backup"
 [ "$leak" -eq 0 ] && [ "$plaintext_dns" -eq 0 ] && [ "$direct" -gt 0 ] && [ "$endpoint" -gt 0 ] && [ "$primary" -gt 0 ] && [ "$backup" -gt 0 ]
-load_fw4 "$work/firewall-base"
-rn nft -f "$work/release"
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25; do
+	[ ! -f "$work/rollback-done" ] || break
+	sleep 1
+done
+[ -f "$work/rollback-done" ] || fail 'independent watchdog did not restore DNS'
+[ "$(ucode /mnt/lab/trial-state.uc poll "$work")" = restored ]
+if ucode /mnt/lab/trial-state.uc confirm "$work" >/dev/null 2>&1; then fail 'late confirmation after rollback'; fi
+ip netns exec "$w" tcpdump --immediate-mode -U -i external0 -Q in -nn -s 96 -w "$work/rollback-wan.pcap" \
+	'net 198.18.0.0/15 or net 2001:2::/48 or port 18080' >"$work/rollback-cap.log" 2>&1 &
+rollbackcap=$!; caps="$rollbackcap"
+sleep 1
 query_at 10.19.0.1:53 tcp probe.protected.example. A NOERROR 1 | grep -qx 'address=203.0.113.80'
 blocked ln "http://$v4:18081/"
 blocked ln "http://[$newv6]:18081/"
-echo 'PASS: explicit DNS rollback restores the old listener without unblocking old synthetic addresses'
+blocked rn "http://$v4:18081/"
+blocked rn "http://[$newv6]:18081/"
+ok ln 'http://203.0.113.80:18080/'
+kill -INT "$rollbackcap"; wait "$rollbackcap" || true
+caps=""
+grep -q '^0 packets dropped by kernel' "$work/rollback-cap.log"
+rollback_leak=$(count rollback-wan 'net 198.18.0.0/15 or net 2001:2::/48')
+rollback_direct=$(count rollback-wan 'dst port 18080')
+echo "Rollback WAN capture: synthetic=$rollback_leak direct=$rollback_direct"
+[ "$rollback_leak" -eq 0 ] && [ "$rollback_direct" -gt 0 ] || fail 'rollback WAN capture did not establish quarantine'
+echo 'PASS: independent procd timeout restores stock DNS and preserves quarantine'
 echo 'PASS: native DNS VM acceptance (veth stand-ins, synthetic VLESS; not a router rollout)'
