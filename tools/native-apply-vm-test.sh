@@ -2,9 +2,10 @@
 set -eu
 umask 077
 . /mnt/lab/native-vm-only.sh
+. /mnt/lab/native-vm-binaries.sh
 lib=/mnt/lab/source
 lab=$(mktemp -d /tmp/pkc-native-apply-test.XXXXXX)
-bin=/mnt/lab/native-dns.test
+bin="$PKC_VM_BIN/native-dns.test"
 bootstate=/etc/pkc-native-apply-boot
 case "${1:-}" in
 	'') set -- timeout fault ;;
@@ -80,18 +81,19 @@ EOF
 	ucode -L "$lib" -e '
 		const c=require("universal_plan"), id="11111111111111111111111111111111", tag="awg_"+id;
 		const p=c.compile({lan:"pkc-test",legacy_lans:["br-lan"],
+			classification:{mode:"strict",migration_restrict_unknown:true,unknown_action:"block"},
 			adapters:[{id,type:"amneziawg",usable:true,ipv4:true,source_ips:["198.51.1.1"]}],automatic:tag,
 			fake_pools:["198.18.0.0/15"],bypass:[],clients:[],ips:[],
 			domains:[{names:["protected.example"],target:"auto_proxy_group"}],
 			synthetic:{epoch:ARGV[0],pools:["172.31.253.0/24"],private_pool:"172.31.253.0/24",
 			dns:{ipv4:"172.31.252.1",port:24053},
 			inventory:{issued:["198.18.0.0/15"],addresses:[{addr_info:[{local:"172.31.252.1",prefixlen:30}]}],routes:[{dst:"default"}]}}});
-		print(sprintf("%J",{mode:"preview-only",lan:p.lan,epoch:ARGV[0],requires_xray:false,automatic:{active:tag},adapters:values(p.adapters),
+		print(sprintf("%J",{mode:"preview-only",lan:p.lan,epoch:ARGV[0],classification:p.classification,requires_xray:false,automatic:{active:tag},adapters:values(p.adapters),
 			dns:c.dns_policy(p,"","127.0.0.1:1059",[]),nft:{routing:c.batch(p),protection:c.dns_gate(p,true),
 			dns_redirect:c.dns_edge(p),canary:c.canary_guard(p),canary_reply:c.canary_reply_guard(p)}}));' "$epoch" > "$work/plan.json"
 	PKC_NATIVE_LAB=dns ip netns exec "$r" "$bin" -test.run='^TestGuestFixture$' -- 127.0.0.1:1059 udp > "$work/dns.log" 2>&1 & pids="$pids $!"
 	PKC_NATIVE_LAB=serve ip netns exec "$w" "$bin" -test.run='^TestGuestFixture$' -- 203.0.113.80:18081 > "$work/origin.log" 2>&1 & pids="$pids $!"
-	export PKC_NATIVE_VM_NS="$r" PODKOPCHIK_NATIVE_DNS=/mnt/lab/podkopchik-native-dns
+	export PKC_NATIVE_VM_NS="$r" PODKOPCHIK_NATIVE_DNS="$PKC_VM_BIN/podkopchik-native-dns"
 	export PODKOPCHIK_LIB="$lib" PODKOPCHIK_CONFIG_DIR="$work/conf" PODKOPCHIK_TMP_DIR="$work/run"
 	act() { sh "$lib/native_apply.sh" "$@"; }
 	await() {
@@ -100,13 +102,17 @@ EOF
 		return 1
 	}
 	if [ "$scenario" = fault ]; then rn sh "$lib/fakedns_guard.sh" register-native 172.31.253.0/24; fi
+	ucode -e 'import {readfile} from "fs"; const p=json(readfile(ARGV[0]));p.dns.classification_mode="compatible";printf("%J",p);' "$work/plan.json" > "$work/mismatch.json"
+	if act start "$work/mismatch.json" > "$work/mismatch.log" 2>&1; then exit 1; fi
+	grep -Fq 'classification does not match' "$work/mismatch.log"
+	[ ! -e "$work/run/native-trial" ]
 	act start "$work/plan.json"
 	if act start "$work/plan.json" >/dev/null 2>&1; then exit 1; fi
 	await active
 	# The disposable guest has Ethernet stand-ins, not the AWG kernel module.
 	rn nft insert rule inet podkopchik_fake_guard native_original oifname "$awg" meta oifkind '"veth"' return
-	fake=$(cn /mnt/lab/pilot-probe lookup 172.31.252.1:53 udp protected.example)
-	[ "$(cn /mnt/lab/pilot-probe lookup 172.31.252.1:53 tcp protected.example)" = "$fake" ]
+	fake=$(cn "$PKC_VM_BIN/pilot-probe" lookup 172.31.252.1:53 udp protected.example)
+	[ "$(cn "$PKC_VM_BIN/pilot-probe" lookup 172.31.252.1:53 tcp protected.example)" = "$fake" ]
 	[ "$fake" = 172.31.253.32 ]
 	cn wget -T 3 -qO- "http://$fake:18081/" | grep -qx isolated-http-ok
 	if cn wget -T 1 -qO- 'http://203.0.113.80:18081/' >/dev/null 2>&1; then exit 1; fi

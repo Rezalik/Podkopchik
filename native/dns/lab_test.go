@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +18,31 @@ import (
 	"github.com/miekg/dns"
 	"golang.org/x/net/proxy"
 )
+
+func fixtureHTTP(t *testing.T, endpoint, host, source string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, "http://"+net.JoinHostPort(endpoint, "18080")+"/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = host
+	transport := &http.Transport{DisableKeepAlives: true}
+	if source != "" {
+		transport.DialContext = (&net.Dialer{Timeout: 2 * time.Second, LocalAddr: &net.TCPAddr{IP: net.ParseIP(source)}}).DialContext
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Timeout: 2 * time.Second, Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+	if err != nil || resp.StatusCode != http.StatusOK || string(body) != "isolated-http-ok" {
+		t.Fatal("unexpected fixture HTTP response", resp.StatusCode, err)
+	}
+}
 
 // Only the isolated VM shell harness invokes these synthetic network fixtures.
 func TestGuestFixture(t *testing.T) {
@@ -33,7 +59,11 @@ func TestGuestFixture(t *testing.T) {
 		h := dns.HandlerFunc(func(w dns.ResponseWriter, q *dns.Msg) {
 			m := new(dns.Msg).SetReply(q)
 			name := q.Question[0].Name
-			if q.Question[0].Qtype == dns.TypeAAAA {
+			if name == "approved.example." && q.Question[0].Qtype == dns.TypeAAAA {
+				m.Answer = []dns.RR{rr(name + " 90 IN AAAA 2001:db8:82::1")}
+			} else if name == "approved.example." {
+				m.Answer = []dns.RR{rr(name + " 90 IN A 203.0.113.82")}
+			} else if q.Question[0].Qtype == dns.TypeAAAA {
 				m.Answer = []dns.RR{rr(name + " 2 IN AAAA 2001:db8:80::1")}
 			} else if name == "protected.example." || name == "expire.protected.example." {
 				m.Answer = []dns.RR{rr(name + " 2 IN CNAME cdn.example."), rr("cdn.example. 90 IN A 203.0.113.80")}
@@ -111,6 +141,32 @@ func TestGuestFixture(t *testing.T) {
 		c := dns.Client{Net: a[1], Timeout: time.Second}
 		if m, _, err := c.Exchange(new(dns.Msg).SetQuestion(a[2], dns.TypeA), a[0]); err == nil {
 			t.Fatalf("unexpected DNS reply: %v", m)
+		}
+	case "cached-http":
+		fixtureHTTP(t, a[0], a[1], "")
+	case "direct-client":
+		local := net.ParseIP(a[1])
+		qt := uint16(dns.TypeA)
+		expected := "203.0.113.80"
+		server := a[0]
+		if local.To4() == nil {
+			qt = dns.TypeAAAA
+			expected = "2001:db8:80::1"
+			server = "[fd19::1]:53"
+		}
+		for _, proto := range []string{"udp", "tcp"} {
+			dialer := &net.Dialer{Timeout: 2 * time.Second}
+			if proto == "udp" {
+				dialer.LocalAddr = &net.UDPAddr{IP: local}
+			} else {
+				dialer.LocalAddr = &net.TCPAddr{IP: local}
+			}
+			c := dns.Client{Net: proto, Timeout: 3 * time.Second, Dialer: dialer}
+			m, _, err := c.Exchange(new(dns.Msg).SetQuestion("probe.protected.example.", qt), server)
+			if err != nil || m == nil || m.Rcode != dns.RcodeSuccess || len(m.Answer) != 1 || !strings.Contains(m.Answer[0].String(), expected) {
+				t.Fatal("direct device received wrong DNS policy", proto, m, err)
+			}
+			fixtureHTTP(t, expected, "approved-device.example", a[1])
 		}
 	case "serve":
 		ln, err := net.Listen("tcp", a[0])

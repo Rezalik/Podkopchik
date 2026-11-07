@@ -994,6 +994,14 @@ the explicit deployment acceptance in [AWG-STAGE23.md](AWG-STAGE23.md).
 Required CLI
 
 Experimental `native-apply` is limited to the isolated AX6000 canary scope.
+Native classification has explicit Strict/Compatible modes and a separate
+migration restriction. Direct IP/client exceptions require consent in a
+restricted plan; shared DNS answers do not create direct authorization.
+Strict defaults unknown connections to an available protocol/family-compatible
+Main/Backup transport, never implicit WAN. All-down or unsupported traffic is
+denied. Known DNS/synthetic policies remain exact; the unknown fallback is not
+domain identification. The optional unknown policy can instead block.
+See [the contract and precedence](NATIVE-CLASSIFICATION.md).
 It requires an already active Core FakeDNS guard, uses a fixed procd deadline,
 and never confirms a permanent configuration. The Core rechecks persisted
 FakeDNS quarantine after netifd interface setup, without a guard daemon.

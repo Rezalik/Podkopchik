@@ -4,12 +4,13 @@ set -eu
 umask 077
 fail() { echo "FAIL: $*" >&2; exit 1; }
 . /mnt/lab/native-vm-only.sh
+. /mnt/lab/native-vm-binaries.sh
 [ "$(uname -r)" = 6.12.112 ] || fail 'unexpected guest kernel'
 [ -z "$(ip route show default)$(ip -6 route show default)" ] || fail 'guest has a default route'
 lib=/mnt/lab/source
-bin=/mnt/lab/native-dns.test
-daemon=/mnt/lab/podkopchik-native-dns
-xray=/mnt/lab/xray
+bin="$PKC_VM_BIN/native-dns.test"
+daemon="$PKC_VM_BIN/podkopchik-native-dns"
+xray="$PKC_VM_BIN/xray"
 work=$(mktemp -d /tmp/native-dns-vm.XXXXXX)
 r="pkc-router-$$"; l="pkc-client-$$"; w="pkc-wan-$$"
 pids=""; caps=""; namespaces=""
@@ -60,10 +61,10 @@ wn() { ip netns exec "$w" "$@"; }
 for ns in "$r" "$l" "$w"; do
 	ip netns add "$ns"; namespaces="$namespaces $ns"; ip -n "$ns" link set lo up
 done
-for mode in gate edge release canary forward primary backup down restore to-vless from-vless dns resources xray xray-route; do
+for mode in bootstrap-gate gate edge release canary forward primary backup down restore to-vless from-vless dns resources xray xray-route; do
 	ucode -L "$lib" "$lib/native_dns_vm_plan.uc" "$mode" > "$work/$mode"
 done
-rn nft -f "$work/gate"
+rn nft -f "$work/bootstrap-gate"
 pair() {
 	ip -n "$r" link add "$1" type veth peer name "$2"
 	ip -n "$r" link set "$2" netns "$3"
@@ -75,14 +76,16 @@ pair legacy0 legacyclient "$l"
 pair wan external0 "$w"
 pair paw111111111111 tunnel0 "$w"
 pair paw222222222222 tunnel1 "$w"
-ip -n "$l" addr add 10.19.0.2/24 dev client0
+ip -n "$l" addr add 10.19.0.2/24 brd + dev client0
 ip -n "$l" addr add 10.19.0.3/24 dev client0
-ip -n "$r" addr add 10.19.0.1/24 dev br-lan
+ip -n "$l" addr add 10.19.0.4/24 dev client0
+ip -n "$r" addr add 10.19.0.1/24 brd + dev br-lan
 ip -n "$l" addr add 10.20.0.2/24 dev legacyclient
 ip -n "$r" addr add 10.20.0.1/24 dev legacy0
 ip -n "$r" addr add 198.19.0.1/32 dev lo
 ip -n "$l" route add 198.19.0.1/32 via 10.20.0.1
 ip -n "$l" -6 addr add fd19::2/64 dev client0 nodad
+ip -n "$l" -6 addr add fd19::4/64 dev client0 nodad preferred_lft 0
 ip -n "$r" -6 addr add fd19::1/64 dev br-lan nodad
 ip -n "$l" route add default via 10.19.0.1
 ip -n "$l" -6 route add default via fd19::1
@@ -96,7 +99,9 @@ ip -n "$w" route add 10.19.0.0/24 via 192.0.2.1
 ip -n "$w" -6 route add fd19::/64 via 2001:db8:0::1
 ip -n "$w" addr add 203.0.113.80/32 dev lo
 ip -n "$w" addr add 203.0.113.81/32 dev lo
+ip -n "$w" addr add 203.0.113.82/32 dev lo
 ip -n "$w" -6 addr add 2001:db8:80::1/128 dev lo nodad
+ip -n "$w" -6 addr add 2001:db8:82::1/128 dev lo nodad
 rn sysctl -w net.ipv4.ip_forward=1 >/dev/null
 rn sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null
 i=0
@@ -207,7 +212,6 @@ rn nft delete table inet pkc_test_offload
 offload_check "$work/firewall-base"
 echo 'PASS: read-only preflight rejects configured software/hardware offload and a real software flowtable'
 rn nft -c -f "$work/primary"
-rn nft -f "$work/primary"
 
 for net in udp tcp; do
 	PKC_NATIVE_LAB=dns ip netns exec "$r" "$bin" -test.run='^TestGuestFixture$' -- 127.0.0.1:1059 "$net" >"$work/dns-$net.log" 2>&1 & pids="$pids $!"
@@ -219,8 +223,9 @@ for addr in 192.0.2.2:53 '[2001:db8::2]:53'; do
 done
 vm_process "$stock_service" /sbin/ip netns exec "$r" /usr/sbin/dnsmasq --no-daemon --conf-file=/dev/null --no-hosts --no-resolv --bind-interfaces \
 	--listen-address=127.0.0.1,10.19.0.1 --server=127.0.0.1#1059 --host-record=printer,printer.lan,10.19.0.20 --pid-file="$work/dnsmasq.pid" \
+	--dhcp-range=10.19.0.64,10.19.0.79,255.255.255.0,2m --dhcp-leasefile="$work/dhcp.leases" \
 	|| fail 'could not register stock dnsmasq with procd'
-for addr in '203.0.113.80:18080' '203.0.113.80:18081' '203.0.113.81:18081' '[2001:db8:80::1]:18080' '[2001:db8:80::1]:18081'; do
+for addr in '203.0.113.80:18080' '203.0.113.80:18081' '203.0.113.81:18081' '[2001:db8:80::1]:18080' '[2001:db8:80::1]:18081' '203.0.113.82:18080' '[2001:db8:82::1]:18080'; do
 	PKC_NATIVE_LAB=serve ip netns exec "$w" "$bin" -test.run='^TestGuestFixture$' -- "$addr" >"$work/peer-$addr.log" 2>&1 & pids="$pids $!"
 done
 PKC_NATIVE_LAB=serve ip netns exec "$r" "$bin" -test.run='^TestGuestFixture$' -- \
@@ -241,6 +246,8 @@ start_dns() {
 query_at() { PKC_NATIVE_LAB=query ln "$bin" -test.run='^TestGuestFixture$' -- "$@"; }
 no_dns() { PKC_NATIVE_LAB=no-dns ln "$bin" -test.run='^TestGuestFixture$' -- "$@"; }
 sleep 1
+ln udhcpc -n -q -B -t 3 -T 1 -i client0 -s /bin/true >"$work/dhcp-baseline.log" 2>&1 || {
+	cat "$work/dhcp-baseline.log"; fail 'DHCP fixture cannot answer before native activation'; }
 ip netns exec "$w" tcpdump --immediate-mode -U -i external0 -Q in -nn -s 96 -w "$work/boot-wan.pcap" \
 	"$pools or port 53" >"$work/boot-cap.log" 2>&1 &
 bootcap=$!; caps="$bootcap"
@@ -251,6 +258,12 @@ if ln wget -q -T 1 -O - "http://$old4:18081/" || ln wget -q -T 1 -O - "http://[$
 	fail 'old synthetic IP escaped before DNS activation'
 fi
 # Positive control before interception: these resolvers really return real IPs.
+if [ "${PKC_VM_CHECK_MIGRATION:-0}" = 1 ]; then
+	cached=$(query_at 10.19.0.1:53 udp probe.protected.example. A NOERROR 1)
+	cached_v4=$(printf '%s\n' "$cached" | sed -n 's/^address=//p')
+	cached=$(query_at 10.19.0.1:53 tcp probe.protected.example. AAAA NOERROR 1)
+	cached_v6=$(printf '%s\n' "$cached" | sed -n 's/^address=//p')
+fi
 for addr in 10.19.0.1:53 192.0.2.2:53 '[2001:db8::2]:53'; do
 	answer=$(query_at "$addr" udp probe.protected.example. A NOERROR 1) || fail "initial resolver unavailable at $addr: $answer"
 	printf '%s\n' "$answer" | grep -qx 'address=203.0.113.80'
@@ -263,13 +276,190 @@ boot_dns=$(tcpdump -nn -r "$work/boot-wan.pcap" 'dst port 53' 2>/dev/null | wc -
 echo "Early WAN capture: synthetic=$boot_leak direct_dns=$boot_dns"
 [ "$boot_leak" -eq 0 ] && [ "$boot_dns" -gt 0 ] || fail 'early WAN capture did not establish quarantine'
 echo 'PASS: early pool guard blocks stale/unknown IPv4 and IPv6 before managed DNS activation'
-rn nft -f "$work/edge"
+{ printf '%s\n' 'delete table inet podkopchik_native_gate'; cat "$work/gate" "$work/primary" "$work/edge"; } | rn nft -f -
 start_dns
 dnspid=$(wait_pid "$dns_service") || fail 'procd did not start DNS'
 echo 'PASS: stock DNS, fw4 and transport policy are ready before managed procd listener'
+if [ "${PKC_VM_CHECK_CLASSIFICATION:-0}" = 1 ]; then
+	load_fw4 "$work/firewall"
+	ip netns exec "$w" tcpdump --immediate-mode -U -i external0 -Q in -nn -s 512 -w "$work/classification.pcap" \
+		"$pools or tcp dst port 18080" >"$work/classification-cap.log" 2>&1 &
+	classcap=$!; caps="$classcap"
+	for i in 1 2 3 4 5; do grep -q 'listening on' "$work/classification-cap.log" && break; sleep 1; done
+	grep -q 'listening on' "$work/classification-cap.log" || fail 'classification capture not started'
+	query_ip() {
+		out=$(query_at 10.19.0.1:53 "$1" "$2" "$3" NOERROR 1)
+		printf '%s\n' "$out" | sed -n 's/^address=//p'
+	}
+	proto_http() { PKC_NATIVE_LAB=cached-http ln "$bin" -test.run='^TestGuestFixture$' -- "$1" "$2"; }
+	get_ip4=$(query_ip udp probe.protected.example. A)
+	get_ip6=$(query_ip tcp probe.protected.example. AAAA)
+	[ "$(ln wget -q -T 3 -O - "http://$get_ip4:18081/")" = isolated-http-ok ]
+	[ "$(ln wget -q -T 3 -O - "http://[$get_ip6]:18081/")" = isolated-http-ok ]
+	for pair in 'udp A' 'tcp AAAA'; do
+		set -- $pair
+		grant=$(query_ip "$1" approved.example. "$2")
+		proto_http "$grant" approved.example >/dev/null || fail 'explicit direct grant failed'
+	done
+	restricted=1
+	if [ "${PKC_VM_CLASSIFICATION:-compatible}" = compatible ] && [ "${PKC_VM_MIGRATION:-0}" != 1 ]; then restricted=0; fi
+	for real in 203.0.113.80 2001:db8:80::1; do
+		for host in probe.protected.example direct.example; do
+			if proto_http "$real" "$host" >/dev/null 2>&1; then
+				[ "$restricted" = 0 ] || [ "${PKC_VM_UNKNOWN_ACTION:-protected}" = protected ] || fail 'unknown traffic bypassed explicit block policy'
+			else [ "$restricted" = 1 ] && [ "${PKC_VM_UNKNOWN_ACTION:-protected}" = block ] || fail 'available unknown protected fallback did not work'; fi
+		done
+	done
+	for source in 10.19.0.4 fd19::4; do
+		PKC_NATIVE_LAB=direct-client ln "$bin" -test.run='^TestGuestFixture$' -- 10.19.0.1:53 "$source" >/dev/null || fail 'whole-client direct grant not preserved'
+	done
+	if [ "$restricted" = 1 ]; then
+		# Model a connection established before restricted classification.
+		# Everything here remains in the disposable router namespace.
+		rn nft flush chain inet podkopchik_native classify
+		rn nft flush chain inet podkopchik_native_gate restricted_forward
+		PKC_NATIVE_LAB=hold ip netns exec "$l" "$bin" -test.run='^TestGuestFixture$' -- \
+			203.0.113.80:18081 "$work/old-ready" "$work/old-send" >"$work/old-flow.log" 2>&1 &
+		oldpid=$!; pids="$pids $oldpid"
+		for i in 1 2 3 4 5; do [ ! -f "$work/old-ready" ] || break; sleep 1; done
+		[ -f "$work/old-ready" ] || fail 'could not establish pre-migration connection'
+		{ cat "$work/restore"; printf '%s\n' 'delete table inet podkopchik_native_gate'; cat "$work/gate" "$work/edge"; } | rn nft -f -
+		touch "$work/old-send"
+		wait "$oldpid" || { cat "$work/old-flow.log"; fail 'old conntrack bypassed migration restriction'; }
+		echo 'PASS: pre-migration unmarked established conntrack cannot bypass the new policy'
+		rn nft delete table inet podkopchik_native
+		for real in 203.0.113.80 2001:db8:80::1; do
+			if proto_http "$real" probe.protected.example >/dev/null 2>&1; then fail 'missing classifier table exposed WAN'; fi
+		done
+		rn nft -f "$work/primary"
+		get_ip4=$(query_ip udp probe.protected.example. A)
+		get_ip6=$(query_ip tcp probe.protected.example. AAAA)
+		rn nft delete table inet podkopchik_native_gate
+		for real in 203.0.113.80 2001:db8:80::1; do
+			proto_http "$real" probe.protected.example >/dev/null 2>&1 || :
+		done
+		PKC_NATIVE_LAB=no-dns ln "$bin" -test.run='^TestGuestFixture$' -- 10.19.0.1:53 udp probe.protected.example. >/dev/null || fail 'missing gate fell back to stock DNS'
+		rn nft -f "$work/gate"
+		rn nft -f "$work/edge"
+		echo 'PASS: either native table can fail without unknown WAN or router-DNS fallback'
+	fi
+	rn nft -f "$work/backup"
+	[ "$(ln wget -q -T 3 -O - "http://$get_ip4:18081/")" = isolated-http-ok ]
+	if [ "$restricted" = 1 ] && [ "${PKC_VM_UNKNOWN_ACTION:-protected}" = protected ]; then
+		ip netns exec "$w" tcpdump --immediate-mode -U -i tunnel1 -Q in -nn -s 96 -w "$work/unknown-udp.pcap" \
+			'udp dst port 18081' >"$work/unknown-udp-cap.log" 2>&1 &
+		ucap=$!; caps="$caps $ucap"
+		for i in 1 2 3 4 5; do grep -q 'listening on' "$work/unknown-udp-cap.log" 2>/dev/null && break; sleep 1; done
+		rn nft -f "$work/to-vless"
+		for address in 203.0.113.80:18081 '[2001:db8:80::1]:18081'; do
+			PKC_NATIVE_LAB=udp ln "$bin" -test.run='^TestGuestFixture$' -- "$address" >/dev/null || fail 'unknown UDP did not select an AWG-capable backup'
+		done
+		if PKC_NATIVE_LAB=udp ln "$bin" -test.run='^TestGuestFixture$' -- "$get_ip4:18081" >/dev/null 2>&1; then fail 'known VLESS mapping silently switched its UDP policy'; fi
+		rn nft -f "$work/from-vless"
+		kill -INT "$ucap"; wait "$ucap" || true; caps="$classcap"
+		grep -qx '0 packets dropped by kernel' "$work/unknown-udp-cap.log"
+		for family in ip ip6; do
+			[ "$(tcpdump -nr "$work/unknown-udp.pcap" "$family" 2>/dev/null | wc -l)" -gt 0 ] || fail 'unknown UDP backup-interface capture missing'
+		done
+		echo 'PASS: unknown UDP selects native backup behind a TCP-only VLESS candidate; exact known DNS policy does not change'
+	fi
+	rn nft -f "$work/down"
+	if ln wget -q -T 1 -O - "http://$get_ip4:18081/" >/dev/null 2>&1; then fail 'all-down protected path escaped'; fi
+	if [ "$restricted" = 1 ]; then
+		for real in 203.0.113.80 2001:db8:80::1; do
+			if proto_http "$real" probe.protected.example >/dev/null 2>&1; then fail 'all-down unknown escaped'; fi
+		done
+	fi
+	proto_http 203.0.113.82 approved.example >/dev/null || fail 'all-down broke explicit direct'
+	rn nft -f "$work/restore"
+	[ "$(ln wget -q -T 3 -O - "http://$get_ip4:18081/")" = isolated-http-ok ]
+	kill -INT "$classcap"; wait "$classcap" || true; caps=""
+	grep -qx '0 packets dropped by kernel' "$work/classification-cap.log" || fail 'classification capture lost packets'
+	[ "$(tcpdump -nr "$work/classification.pcap" "$pools" 2>/dev/null | wc -l)" -eq 0 ] || fail 'synthetic address reached virtual WAN'
+	for family in ip ip6; do
+		payload=$(tcpdump -Anr "$work/classification.pcap" "$family" 2>/dev/null)
+		printf '%s\n' "$payload" | grep -Fq 'Host: approved.example' || fail "no $family explicit-direct WAN control"
+		if printf '%s\n' "$payload" | grep -Fq 'Host: probe.protected.example'; then
+			[ "$restricted" = 0 ] || fail "cached protected $family packet reached WAN"
+		else [ "$restricted" = 1 ] || fail "compatible $family control missing"; fi
+	done
+	echo "PASS: classification=${PKC_VM_CLASSIFICATION:-compatible} migration=${PKC_VM_MIGRATION:-0}; dual-stack explicit direct, protected, unknown/shared cache and failover"
+	[ "$restricted" = 0 ] || echo 'POLICY: unknown shared real IPs use the protected fallback (or explicit block); this is not domain identification'
+	exit 0
+fi
+if [ "${PKC_VM_CHECK_MIGRATION:-0}" = 1 ]; then
+	# Start with the same actual addresses the client learned before cutover.
+	# Both names share the origin, so IP/CIDR filters cannot distinguish them.
+	[ "$cached_v4" = 203.0.113.80 ] && [ "$cached_v6" = 2001:db8:80::1 ] || fail 'missing pre-cutover DNS answers'
+	load_fw4 "$work/firewall"
+	ip netns exec "$w" tcpdump --immediate-mode -U -i external0 -Q in -nn -s 512 -w "$work/migration.pcap" \
+		'tcp dst port 18080' >"$work/migration-cap.log" 2>&1 &
+	mcap=$!; caps="$mcap"
+	for i in 1 2 3 4 5; do grep -q 'listening on' "$work/migration-cap.log" && break; sleep 1; done
+	grep -q 'listening on' "$work/migration-cap.log" || fail 'migration capture did not start'
+	managed=$(query_at 10.19.0.1:53 udp probe.protected.example. A NOERROR 1)
+	managed4=$(printf '%s\n' "$managed" | sed -n 's/^address=//p')
+	managed=$(query_at 10.19.0.1:53 tcp probe.protected.example. AAAA NOERROR 1)
+	managed6=$(printf '%s\n' "$managed" | sed -n 's/^address=//p')
+	ordinary=$(query_at 10.19.0.1:53 udp direct.example. A NOERROR 1)
+	direct4=$(printf '%s\n' "$ordinary" | sed -n 's/^address=//p')
+	ordinary=$(query_at 10.19.0.1:53 tcp direct.example. AAAA NOERROR 1)
+	direct6=$(printf '%s\n' "$ordinary" | sed -n 's/^address=//p')
+	[ "$(ln wget -T 3 -qO- "http://$managed4:18080/")" = isolated-http-ok ]
+	[ "$(ln wget -T 3 -qO- "http://[$managed6]:18080/")" = isolated-http-ok ]
+	migration_http() {
+		PKC_NATIVE_LAB=cached-http ln "$bin" -test.run='^TestGuestFixture$' -- "$1" "$2"
+	}
+	for addr in "$direct4" "$direct6"; do
+		migration_http "$addr" direct.example || fail "managed direct control failed at $addr"
+	done
+	for addr in "$cached_v4" "$cached_v6"; do
+		migration_http "$addr" probe.protected.example >"$work/cached-$addr.log" 2>&1 || :
+	done
+	kill -INT "$mcap"; wait "$mcap" || true; caps=""
+	grep -qx '0 packets dropped by kernel' "$work/migration-cap.log" || fail 'migration capture lost packets'
+	for family in ip ip6; do
+		trace=$(tcpdump -Anr "$work/migration.pcap" "$family" 2>/dev/null)
+		printf '%s\n' "$trace" | grep -Fq 'Host: direct.example' || fail "no $family WAN positive control"
+		if printf '%s\n' "$trace" | grep -Fq 'Host: probe.protected.example'; then echo "LEAK: $family protected cached-real HTTP reached WAN"; fi
+	done
+	if tcpdump -Anr "$work/migration.pcap" 2>/dev/null | grep -Fq 'Host: probe.protected.example'; then
+		# Try the conservative address-only repair as well. It must not
+		# qualify for production if it also breaks the direct policy.
+		rn nft -f - <<EOF
+add table inet pkc_migration_probe
+add chain inet pkc_migration_probe forward { type filter hook forward priority -20; policy accept; }
+add rule inet pkc_migration_probe forward iifname "br-lan" oifname "wan" ip daddr $cached_v4 counter drop
+add rule inet pkc_migration_probe forward iifname "br-lan" oifname "wan" ip6 daddr $cached_v6 counter drop
+EOF
+		for addr in "$cached_v4" "$cached_v6"; do
+			if migration_http "$addr" probe.protected.example >/dev/null 2>&1; then
+				fail 'address-only quarantine did not close the protected route'
+			fi
+		done
+		for addr in "$direct4" "$direct6"; do
+			if migration_http "$addr" direct.example >/dev/null 2>&1; then
+				fail 'the guarded direct control no longer reproduces the shared-address collision'
+			fi
+		done
+		[ "$(rn nft list chain inet pkc_migration_probe forward | grep -cE 'counter packets [1-9][0-9]* bytes [0-9]+ drop')" -eq 2 ]
+		[ "$(ln wget -T 3 -qO- "http://$managed4:18080/")" = isolated-http-ok ]
+		[ "$(ln wget -T 3 -qO- "http://[$managed6]:18080/")" = isolated-http-ok ]
+		echo 'REJECTED: quarantining the shared IPs blocks legitimate direct in both families; managed tunnel still works'
+		fail 'production cutover does not close the cached-real route'
+	fi
+	echo 'PASS: managed and direct controls reached their paths, cached protected HTTP did not reach WAN'
+	exit 0
+fi
+for family in 4 6; do
+	address=203.0.113.80:18084
+	[ "$family" = 4 ] || address='[2001:db8:80::1]:18084'
+	PKC_NATIVE_LAB=https-serve ip netns exec "$w" "$bin" -test.run='^TestGuestFixture$' -- \
+		"$address" "$work/https$family.der" >"$work/https$family.log" 2>&1 & pids="$pids $!"
+done
 for iface in external0 tunnel0 tunnel1; do
 	ip netns exec "$w" tcpdump -i "$iface" -Q in -nn -s 96 -c 1024 -w "$work/$iface.pcap" \
-		"$pools or $tunnel_src or port 53 or port 18080 or port 18081 or port 18082 or port 18443" >"$work/cap-$iface.log" 2>&1 &
+		"$pools or $tunnel_src or port 53 or port 67 or port 68 or port 18080 or port 18081 or port 18082 or port 18084 or port 18443" >"$work/cap-$iface.log" 2>&1 &
 	caps="$caps $!"
 done
 sleep 1
@@ -305,13 +495,21 @@ done
 no_dns 10.19.0.1:1058 udp protected.example.
 no_dns '[fd19::1]:1058' tcp protected.example.
 blocked ln "http://$v4:18081/"
-ok ln 'http://203.0.113.80:18080/'
+ok ln 'http://203.0.113.82:18080/'
 load_fw4 "$work/firewall"
 ok ln "http://$v4:18081/"
 load_fw4 "$work/firewall"
 rn nft get element inet podkopchik_native s_0011223344556677_m4 "{ $v4 }" >/dev/null
 ok ln "http://$v4:18081/"
 echo 'PASS: managed LAN DNS on port 53, listener isolation, real fw4 default policy and include reload'
+client_before=$(ip -n "$l" -j addr show dev client0)
+ln udhcpc -n -q -B -t 3 -T 1 -i client0 -s /bin/true >"$work/dhcp.log" 2>&1 || {
+	cat "$work/dhcp.log"; fail 'DHCP cannot reach the router under native fallback'; }
+grep -q 'lease of 10\.19\.0\..*obtained' "$work/dhcp.log"
+[ "$(ip -n "$l" -j addr show dev client0)" = "$client_before" ] || fail 'test DHCP script changed client addresses'
+ip -n "$l" -6 neigh flush dev client0
+ln ping -6 -c 1 -W 2 fd19::1 >/dev/null || fail 'IPv6 neighbour discovery or local management was intercepted'
+echo 'PASS: DHCP broadcast/ACK and refreshed IPv6 neighbour discovery preserve local router access'
 clients=""
 for i in 1 2 3 4 5 6 7 8; do
 	net=udp; [ "$((i % 2))" != 0 ] || net=tcp
@@ -334,12 +532,15 @@ ok ln "http://$v4:18081/"
 load_fw4 "$work/firewall"
 ok ln 'http://203.0.113.81:18081/'
 echo 'PASS: an existing firewall4 deny still takes precedence over the native include'
-ok ln 'http://203.0.113.80:18080/'
+ok ln 'http://203.0.113.82:18080/'
 udp ln "$v4:18081"
 udp ln "[$v6]:18081"
 PKC_NATIVE_LAB=quic-client ln "$bin" -test.run='^TestGuestFixture$' -- "$v4:18082" "$work/quic4.der"
 PKC_NATIVE_LAB=quic-client ln "$bin" -test.run='^TestGuestFixture$' -- "[$v6]:18082" "$work/quic6.der"
+PKC_NATIVE_LAB=https-client ln "$bin" -test.run='^TestGuestFixture$' -- "$v4:18084" "$work/https4.der"
+PKC_NATIVE_LAB=https-client ln "$bin" -test.run='^TestGuestFixture$' -- "[$v6]:18084" "$work/https6.der"
 echo 'PASS: actual QUIC TLS handshake and bidirectional stream on native IPv4 and IPv6'
+echo 'PASS: certificate-verified TLS 1.3 HTTPS through native IPv4 and IPv6'
 echo 'PASS: committed DNS UDP/TCP, native IPv4/IPv6 TCP/UDP, protected CIDR and ordinary direct'
 
 v4=$(answer udp protected.example. A NOERROR 1)
@@ -419,7 +620,7 @@ ok ln "http://[$v6]:18081/"
 rn nft -f "$work/down"
 blocked ln "http://$v4:18081/"
 blocked ln "http://[$v6]:18081/"
-ok ln 'http://203.0.113.80:18080/'
+ok ln 'http://203.0.113.82:18080/'
 echo 'PASS: existing lease survives failover; all-down fails closed while direct works'
 
 ip -n "$r" link set wan down
@@ -429,7 +630,7 @@ ip -n "$r" addr replace 192.0.2.1/24 dev wan
 ip -n "$r" -6 addr replace 2001:db8:0::1/64 dev wan nodad
 ip -n "$r" route replace default via 192.0.2.2 dev wan
 ip -n "$r" -6 route replace default via 2001:db8:0::2 dev wan
-ok ln 'http://203.0.113.80:18080/'
+ok ln 'http://203.0.113.82:18080/'
 echo 'PASS: isolated WAN link loss and route restoration'
 
 cat >"$work/xray-server.json" <<'EOF'
@@ -467,6 +668,8 @@ wait_pid "$xray_mixed" >/dev/null || fail 'mixed Xray not running'
 sleep 1
 ok ln "http://$x4:18081/" || { cat "$work/xray-mixed.log"; fail 'mixed VLESS IPv4'; }
 ok ln "http://[$x6]:18081/" || { cat "$work/xray-mixed.log"; fail 'mixed VLESS IPv6'; }
+PKC_NATIVE_LAB=https-client ln "$bin" -test.run='^TestGuestFixture$' -- "$x4:18084" "$work/https4.der"
+PKC_NATIVE_LAB=https-client ln "$bin" -test.run='^TestGuestFixture$' -- "[$x6]:18084" "$work/https6.der"
 if PKC_NATIVE_LAB=dial ln "$bin" -test.run='^TestGuestFixture$' -- 10.19.0.1:23000 >"$work/vless-port.log" 2>&1; then
 	fail 'private VLESS port can be reached without TPROXY'
 fi
@@ -480,6 +683,18 @@ ok ln "http://$x4:18081/"
 rn nft -f "$work/to-vless"
 ok ln "http://$v4:18081/"
 if udp ln "$v4:18081" >"$work/failover-udp.log" 2>&1; then fail 'VLESS fallback leaked UDP'; fi
+if [ "${PKC_VM_UNKNOWN_ACTION:-protected}" = protected ] &&
+	{ [ "${PKC_VM_CLASSIFICATION:-compatible}" = strict ] || [ "${PKC_VM_MIGRATION:-0}" = 1 ]; }; then
+	ok ln 'http://203.0.113.80:18081/'
+	ok ln 'http://[2001:db8:80::1]:18081/'
+	udp ln '203.0.113.80:18081'
+	udp ln '[2001:db8:80::1]:18081'
+	PKC_NATIVE_LAB=https-client ln "$bin" -test.run='^TestGuestFixture$' -- '203.0.113.80:18084' "$work/https4.der"
+	PKC_NATIVE_LAB=https-client ln "$bin" -test.run='^TestGuestFixture$' -- '[2001:db8:80::1]:18084' "$work/https6.der"
+	PKC_NATIVE_LAB=quic-client ln "$bin" -test.run='^TestGuestFixture$' -- '203.0.113.80:18082' "$work/quic4.der"
+	PKC_NATIVE_LAB=quic-client ln "$bin" -test.run='^TestGuestFixture$' -- '[2001:db8:80::1]:18082' "$work/quic6.der"
+	echo 'PASS: actual VLESS carries unknown HTTPS while native backup carries unknown UDP/QUIC; known DNS policy stays exact'
+fi
 rn nft -f "$work/from-vless"
 [ "$(answer tcp protected.example. A NOERROR 1)" = "$v4" ]
 udp ln "$v4:18081"
@@ -498,8 +713,15 @@ ip netns exec "$w" tcpdump --immediate-mode -U -i external0 -Q in -nn -s 96 -w "
 	'dst port 18080 or dst port 18443' >"$work/canary-cap.log" 2>&1 &
 canarycap=$!; active_caps="$caps"; caps="$caps $canarycap"
 sleep 1
-blocked ln 'http://203.0.113.80:18080/'
-blocked ln 'http://[2001:db8:80::1]:18080/'
+if [ "${PKC_VM_UNKNOWN_ACTION:-protected}" = protected ] &&
+	{ [ "${PKC_VM_CLASSIFICATION:-compatible}" = strict ] || [ "${PKC_VM_MIGRATION:-0}" = 1 ]; }; then
+	ok ln 'http://203.0.113.80:18080/'
+	ok ln 'http://[2001:db8:80::1]:18080/'
+else
+	blocked ln 'http://203.0.113.80:18080/'
+	blocked ln 'http://[2001:db8:80::1]:18080/'
+fi
+blocked ln 'http://203.0.113.82:18080/'
 ok ln 'http://198.19.0.1:18083/'
 ip -n "$l" route replace 198.19.0.1/32 via 10.19.0.1
 blocked ln 'http://198.19.0.1:18083/'
@@ -517,7 +739,7 @@ canary_endpoint=$(tcpdump -nn -r "$work/canary-wan.pcap" 'src host 192.0.2.1 and
 echo "Canary WAN capture: direct=$canary_direct transport_endpoint=$canary_endpoint"
 [ "$canary_direct" -eq 0 ] && [ "$canary_endpoint" -gt 0 ] || fail 'canary WAN capture did not establish isolation'
 rn nft delete chain inet podkopchik_native_gate canary
-ok ln 'http://203.0.113.80:18080/'
+ok ln 'http://203.0.113.82:18080/'
 ok ln 'http://[2001:db8:80::1]:18080/'
 echo 'PASS: strict canary prevents cached-real-IP and endpoint direct fallback without blocking either transport'
 echo 'PASS: known old FakeDNS local delivery is preserved only on the separate legacy LAN'
@@ -572,7 +794,12 @@ for i in 1 2 3 4; do [ ! -e "$work/hold-ready" ] || break; sleep 1; done
 
 # Missing set in a real kernel: protected replies (even cached) must fail,
 # and the already-issued DNAT conntrack tuple must not fall back to WAN.
-rn nft flush chain inet podkopchik_native classify
+# Remove only references to the failed DNS set. Retain explicit direct and
+# unknown-fallback rules so this fault does not simulate loss of all policy.
+for handle in $(rn nft -a list chain inet podkopchik_native classify |
+	awk '/@s_0011223344556677_g0_4 / && /# handle/ { print $NF }'); do
+	rn nft delete rule inet podkopchik_native classify handle "$handle"
+done
 rn nft delete set inet podkopchik_native s_0011223344556677_g0_4
 touch "$work/hold-send"
 wait "$holdpid" || { cat "$work/hold.log"; fail 'conntrack fail-closed'; }
@@ -582,14 +809,20 @@ rn nft list map inet podkopchik_native s_0011223344556677_m4 > "$work/failed-dns
 if grep -q '203\.0\.113\.9[01]' "$work/failed-dns-map"; then fail 'failed DNS transaction partially committed'; fi
 query tcp direct.example. A NOERROR 1
 blocked ln "http://$v4:18081/"
-blocked ln "http://[$newv6]:18081/"
-ok ln 'http://203.0.113.80:18080/'
+# The IPv6 lease is independent of the missing IPv4 group set.
+ok ln "http://[$newv6]:18081/"
+ok ln 'http://203.0.113.82:18080/'
 rn nft delete table inet podkopchik_native
 blocked ln "http://$v4:18081/"
 blocked rn 'http://198.19.255.254:18081/'
 if udp ln '172.31.253.254:18081' >"$work/stale-udp4.log" 2>&1 ||
 	udp rn '[2001:2::dead]:18081' >"$work/stale-udp6.log" 2>&1; then fail 'unknown UDP bypassed the pool guard'; fi
-echo 'PASS: missing nft set/table => SERVFAIL and stale addresses blocked; direct remains available'
+if [ "${PKC_VM_CLASSIFICATION:-compatible}" = strict ] || [ "${PKC_VM_MIGRATION:-0}" = 1 ]; then
+	blocked ln 'http://203.0.113.82:18080/'
+fi
+rn nft -f "$work/primary"
+ok ln 'http://203.0.113.82:18080/'
+echo 'PASS: missing nft set/table => SERVFAIL and stale addresses blocked; explicit direct recovers with classification'
 
 cp "$work/old-fw4.nft" "$work/old-fw4.good"
 (cd "$work" && printf '%s\n' 'delete chain inet pkc_missing_table pkc_missing_chain' >> old-fw4.nft && sha256sum old-fw4.nft release > backup.sha256)
@@ -623,7 +856,7 @@ rn nft flush chain inet podkopchik_native_gate dns_lan
 for addr in 10.19.0.1:53 192.0.2.2:53 '[2001:db8::2]:53'; do
 	for net in udp tcp; do no_dns "$addr" "$net" protected.example.; done
 done
-ok ln 'http://203.0.113.80:18080/'
+ok ln 'http://203.0.113.82:18080/'
 echo 'PASS: stopped listener and lost redirect do not fall back to stock or WAN DNS'
 ucode /mnt/lab/trial-state.uc abort "$work" 2>/dev/null || [ "$(ucode /mnt/lab/trial-state.uc poll "$work")" = rollback ]
 for i in 1 2 3 4 5 6; do [ ! -f "$work/rollback-rejected" ] || break; sleep 1; done
@@ -638,7 +871,7 @@ for pid in $caps; do kill -INT "$pid"; wait "$pid" || true; done
 caps=""
 for iface in external0 tunnel0 tunnel1; do grep -q '^0 packets dropped by kernel' "$work/cap-$iface.log"; done
 count() { tcpdump -nn -r "$work/$1.pcap" "$2" 2>/dev/null | wc -l; }
-leak=$(count external0 "dst port 18081 or dst port 18082 or $pools or $tunnel_src")
+leak=$(count external0 "dst port 18081 or dst port 18082 or dst port 18084 or port 67 or port 68 or $pools or $tunnel_src")
 direct=$(count external0 'dst port 18080')
 endpoint=$(count external0 'dst port 18443')
 primary=$(count tunnel0 'dst port 18081')
@@ -658,12 +891,13 @@ ip netns exec "$w" tcpdump --immediate-mode -U -i external0 -Q in -nn -s 96 -w "
 rollbackcap=$!; caps="$rollbackcap"
 sleep 1
 query_at 10.19.0.1:53 tcp probe.protected.example. A NOERROR 1 | grep -qx 'address=203.0.113.80'
+ip -n "$l" route replace 198.19.0.1/32 via 10.19.0.1 dev client0
 ok ln 'http://198.19.0.1:18083/'
 blocked ln "http://$v4:18081/"
 blocked ln "http://[$newv6]:18081/"
 blocked rn "http://$v4:18081/"
 blocked rn "http://[$newv6]:18081/"
-ok ln 'http://203.0.113.80:18080/'
+ok ln 'http://203.0.113.82:18080/'
 kill -INT "$rollbackcap"; wait "$rollbackcap" || true
 caps=""
 grep -q '^0 packets dropped by kernel' "$work/rollback-cap.log"
@@ -672,6 +906,7 @@ rollback_direct=$(count rollback-wan 'dst port 18080')
 echo "Rollback WAN capture: synthetic=$rollback_leak direct=$rollback_direct"
 [ "$rollback_leak" -eq 0 ] && [ "$rollback_direct" -gt 0 ] || fail 'rollback WAN capture did not establish quarantine'
 echo 'PASS: independent procd timeout restores stock DNS and preserves quarantine'
+echo 'PASS: restored native LAN can deliver old FakeDNS locally, never to virtual WAN'
 printf 'VM recovery file bytes: '
 wc -c "$work/old-fw4.nft" "$work/release" "$work/backup.sha256" "$work/trial.json" /mnt/lab/trial-state.uc /mnt/lab/native-vm-watchdog.sh | tail -1
 echo 'PASS: native DNS VM acceptance (veth stand-ins, synthetic VLESS; not a router rollout)'

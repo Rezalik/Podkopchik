@@ -31,6 +31,7 @@ sh ./ax6000-virtual-watch-vm-test.sh
 sh ./virtual-pilot-vm-test.sh
 ucode -L /mnt/lab/source /mnt/lab/source/fakedns_guard_smoke.uc
 ucode -L /mnt/lab/source /mnt/lab/source/universal_selection_smoke.uc
+ucode -L /mnt/lab/source /mnt/lab/source/native_classification_smoke.uc
 sh ./ax6000-fakedns-guard-trial-vm-test.sh
 sh ./fakedns-egress-vm-test.sh
 sh ./native-apply-vm-test.sh

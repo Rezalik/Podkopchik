@@ -23,6 +23,57 @@ func testConfig() config {
 		Groups: []group{{[]string{"protected.example"}, true}, {[]string{"other.example"}, true}, {[]string{"direct.example"}, false}}}
 }
 
+type clientResponseWriter struct {
+	dns.ResponseWriter
+	client net.Addr
+}
+
+func (w clientResponseWriter) RemoteAddr() net.Addr { return w.client }
+
+func TestDirectClientGrantDoesNotContaminateSharedDNSCache(t *testing.T) {
+	c := testConfig()
+	c.ClassificationMode = "strict"
+	c.ClientPolicies = []clientPolicy{{CIDR: "10.19.0.4/32", Direct: true}, {CIDR: "fd19::4/128", Direct: true}}
+	if _, err := compile(c); err == nil {
+		t.Fatal("unconfirmed direct-client grant accepted")
+	}
+	c.DirectGrantsConfirmed = true
+	p, err := compile(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lookups, commits atomic.Int32
+	r := testResolver(t, p, func(context.Context, []binding, time.Time) error { commits.Add(1); return nil },
+		func(_ context.Context, q dns.Question) (*dns.Msg, error) {
+			lookups.Add(1)
+			return fixture(q, q.Name+" 90 IN A 203.0.113.80"), nil
+		})
+	for _, source := range []string{"10.19.0.4", "fd19::4", "10.19.0.2", "fd19::2"} {
+		source := source
+		addr := startTestDNS(t, dns.HandlerFunc(func(w dns.ResponseWriter, req *dns.Msg) {
+			r.ServeDNS(clientResponseWriter{w, &net.UDPAddr{IP: net.ParseIP(source), Port: 20000}}, req)
+		}))
+		for _, proto := range []string{"udp", "tcp"} {
+			m := requireAnswer(t, addr, proto, "protected.example.", dns.TypeA, dns.RcodeSuccess, 1)
+			real := strings.Contains(m.Answer[0].String(), "203.0.113.80")
+			if real != (source == "10.19.0.4" || source == "fd19::4") {
+				t.Fatal("DNS grant crossed client boundary", source, proto, m)
+			}
+		}
+	}
+	if lookups.Load() != 1 || commits.Load() != 4 {
+		t.Fatal("cache or classification was not isolated", lookups.Load(), commits.Load())
+	}
+	c.ClientPolicies = append([]clientPolicy{{CIDR: "10.19.0.4/32", Direct: false}}, c.ClientPolicies...)
+	p, err = compile(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.directClient(&net.TCPAddr{IP: net.ParseIP("10.19.0.4"), Port: 1}) || p.directClient(nil) {
+		t.Fatal("client precedence or unknown source bypassed policy")
+	}
+}
+
 func TestVirtualPolicyRequiresSeparateListenerAndPool(t *testing.T) {
 	c := testConfig()
 	c.Virtual = true

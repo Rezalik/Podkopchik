@@ -536,6 +536,17 @@ live FD/UDP turnover and EMFILE checks are recorded in
 Native routing is a separate experimental acceptance track. Follow the
 [scoped Native Apply checks](UNIVERSAL-NATIVE-APPLY.md); an isolated pass
 does not qualify the home LAN for migration.
+Both native classification modes, migration restriction, explicit direct
+consent and source-isolated DNS cache decisions are covered by the
+[classification matrix](NATIVE-CLASSIFICATION.md). Its scoped grant passes
+must not be substituted for the original shared-CDN per-domain regression.
+Strict acceptance requires a cached real-address connection to stay on a
+suitable protected transport (or be denied), explicit whole-client/address
+direct controls to remain usable, and all-down/unsupported UDP never to use
+WAN. A successful protected fallback is not a domain match.
+Atomic legacy restoration must release native classification and DNS interception
+together while retaining synthetic quarantine; restoring only the resolver
+does not qualify a Strict rollback.
 
 These commands must exist:
 

@@ -52,9 +52,45 @@ isolated peer is an Ethernet stand-in, not a physical AWG endpoint.
 | Real EFI reboot | PASS in VM with netifd `ifup` repair. Both pools regained their blackhole rules; temporary tables and journal were absent, prior UCI hashes matched and dnsmasq answered. The earlier run without the ifup repair retained its nft table but lost the RPDB rules. |
 | Guard physical-WAN verification and real mixed traffic | SKIPPED for this build. The VM egress regression exercised a virtual WAN only. |
 | Main LAN Native Apply, permanent confirmation and full restore | FAIL as a release gate: not implemented by the bounded controller. |
-| Current Xiaomi household baseline | PASS from the workstation: SSH, local DNS, WAN HTTPS and HTTPS over all three running AWG. Legacy routing, Xray and FakeDNS remain enabled. No changes on the router. |
+| Recorded Xiaomi household baseline, before this local classification change | Prior read-only pass: SSH, local DNS, WAN HTTPS and HTTPS over all three running AWG. No new physical acceptance is claimed by the classification tests. |
 
 ## Physical release gates
+
+**Historical unrestricted-policy release gate:** cached real addresses
+could bypass protected domain rules. The full-LAN VM fixture demonstrates
+this without touching Xiaomi. The later accepted Strict contract uses a
+protected fallback for unknown addresses; see [the current policy](NATIVE-CLASSIFICATION.md).
+Inside the
+NIC-free guest, after preparing the signed lab dependencies as above,
+run:
+
+```sh
+PKC_VM_CHECK_MIGRATION=1 sh /mnt/lab/native-dns-vm-test.sh
+```
+
+The client retains the real A/AAAA answers for a protected name before
+DNS cutover. After cutover, fresh synthetic answers reach the tunnel
+stand-in and a managed direct name reaches the WAN. Both names share the
+same origin addresses. The WAN capture also contains the protected
+HTTP `Host` header when the client uses the pre-cutover real addresses,
+for both IPv4 and IPv6 in Compatible mode without migration restriction.
+That original per-domain Direct distinction test is not the accepted
+protected-fallback contract and is not silently reported as PASS.
+
+The fixture also tests dropping both real addresses at WAN egress:
+that prevents the cached connections, but blocks the legitimate direct
+name as well. The strict one-client canary is not a substitute: it
+deliberately denies unmarked forwards, including ordinary direct.
+DNS interception, synthetic-range quarantine and IP-only
+allowlists cannot distinguish these two real-address connections. The
+test does not reproduce this leak on the installed Xiaomi. A safe
+replacement needs distinct authorization for direct WAN traffic, not an
+inferred real-IP DNS grant. Under the accepted contract, ambiguous external
+flows use a suitable protected transport or fail closed, while confirmed
+whole-IP/CIDR or whole-client exceptions grant their documented scope.
+The current classification matrix tests that contract; it does not identify
+the domain of a cached real-address connection. Do not treat client cache
+flushing as a security boundary.
 
 The review archive is not an installer. The current AX6000 uses the
 legacy runtime and lacks the installed Core guard. Do not arm Native

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"regexp"
 	"strings"
@@ -20,27 +21,37 @@ type group struct {
 	Protected bool     `json:"protected"`
 }
 
+type clientPolicy struct {
+	CIDR   string `json:"cidr"`
+	Direct bool   `json:"direct"`
+}
+
 type config struct {
-	Epoch         string   `json:"epoch"`
-	Virtual       bool     `json:"virtual,omitempty"`
-	VirtualWindow []uint32 `json:"virtual_window,omitempty"`
-	Listen        string   `json:"listen"`
-	Listen6       string   `json:"listen6,omitempty"`
-	Upstream      string   `json:"upstream"`
-	Pools         []string `json:"pools"`
-	PrivatePool   string   `json:"private_pool,omitempty"`
-	RetiredPools  []string `json:"retired_pools,omitempty"`
-	Exclusions    []string `json:"exclusions"`
-	Groups        []group  `json:"groups"`
+	Epoch                 string         `json:"epoch"`
+	Virtual               bool           `json:"virtual,omitempty"`
+	VirtualWindow         []uint32       `json:"virtual_window,omitempty"`
+	Listen                string         `json:"listen"`
+	Listen6               string         `json:"listen6,omitempty"`
+	Upstream              string         `json:"upstream"`
+	Pools                 []string       `json:"pools"`
+	PrivatePool           string         `json:"private_pool,omitempty"`
+	RetiredPools          []string       `json:"retired_pools,omitempty"`
+	Exclusions            []string       `json:"exclusions"`
+	Groups                []group        `json:"groups"`
+	ClientPolicies        []clientPolicy `json:"client_policies,omitempty"`
+	DirectGrantsConfirmed bool           `json:"direct_grants_confirmed,omitempty"`
+	ClassificationMode    string         `json:"classification_mode,omitempty"`
+	MigrationRestriction  bool           `json:"migration_restrict_unknown,omitempty"`
 }
 
 type policy struct {
 	config
-	key      string
-	names    map[string]int
-	pools    map[bool]netip.Prefix
-	excluded []netip.Prefix
-	retired  []netip.Prefix
+	key            string
+	names          map[string]int
+	pools          map[bool]netip.Prefix
+	excluded       []netip.Prefix
+	retired        []netip.Prefix
+	clientNetworks []netip.Prefix
 }
 
 func compile(c config) (*policy, error) {
@@ -76,6 +87,20 @@ func compile(c config) (*policy, error) {
 		}
 	}
 	p := &policy{config: c, names: map[string]int{}, pools: map[bool]netip.Prefix{}}
+	if c.ClassificationMode != "" && c.ClassificationMode != "strict" && c.ClassificationMode != "compatible" {
+		return nil, errors.New("invalid DNS classification mode")
+	}
+	if len(c.ClientPolicies) > 512 {
+		return nil, errors.New("too many client DNS policies")
+	}
+	for _, client := range c.ClientPolicies {
+		n, err := netip.ParsePrefix(client.CIDR)
+		if err != nil || n != n.Masked() || n.Addr().Is4In6() || client.Direct && !c.DirectGrantsConfirmed &&
+			(c.ClassificationMode == "strict" || c.MigrationRestriction) {
+			return nil, errors.New("invalid or unconfirmed client DNS policy")
+		}
+		p.clientNetworks = append(p.clientNetworks, n)
+	}
 	var approved netip.Prefix
 	if c.PrivatePool != "" {
 		n, err := netip.ParsePrefix(c.PrivatePool)
@@ -135,6 +160,23 @@ func compile(c config) (*policy, error) {
 	b, _ := json.Marshal(c)
 	p.key = fmt.Sprintf("%x", sha256.Sum256(b))
 	return p, nil
+}
+
+func (p *policy) directClient(remote net.Addr) bool {
+	if remote == nil {
+		return false
+	}
+	a, err := netip.ParseAddrPort(remote.String())
+	if err != nil {
+		return false
+	}
+	ip := a.Addr().Unmap().WithZone("")
+	for i, n := range p.clientNetworks {
+		if n.Contains(ip) {
+			return p.ClientPolicies[i].Direct
+		}
+	}
+	return false
 }
 
 func allowedPool(n netip.Prefix) bool {

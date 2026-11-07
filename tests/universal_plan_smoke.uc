@@ -8,6 +8,7 @@ function ok(value, label) { if (!value) die(label + '\n'); }
 function rejects(fn, label) { let failed = false; try { fn(); } catch (e) { failed = true; } ok(failed, label); }
 function fixture(active) {
 	return { lan: 'br-lan', automatic: active,
+		classification: { mode: 'compatible' },
 		adapters: [{ id: a, type: 'amneziawg', usable: active == ra.tag, ipv4: true, ipv6: false },
 			{ id: b, type: 'amneziawg', usable: active != 'blocked', ipv4: true, ipv6: true }],
 		fake_pools: ['198.18.0.0/15', '2001:2::/48'], bypass: ['192.0.2.2'],

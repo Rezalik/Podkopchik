@@ -8,6 +8,29 @@ const guard = require('fakedns_guard');
 const pool_admission = require('native_pool');
 const TABLE = 'podkopchik_native';
 const GATE = 'podkopchik_native_gate';
+const DIRECT = 67109376;
+const UNKNOWN = 67109377;
+const DIRECT_PIN = 2130706432;
+
+function classification(value) {
+	value ??= {};
+	let mode = value.mode ?? 'strict', migration = value.migration_restrict_unknown ?? false,
+		confirmed = value.direct_grants_confirmed ?? false, action = value.unknown_action ?? 'protected';
+	if (index(['strict', 'compatible'], mode) < 0 || index(['protected','block'],action)<0 ||
+		type(migration) != 'bool' || type(confirmed) != 'bool')
+		die('invalid native classification policy');
+	return { mode, migration_restrict_unknown: migration, direct_grants_confirmed:confirmed,
+		unknown_action:action, unknown: mode == 'strict' || migration ? (action=='block'?'drop':'protected') : 'direct' };
+}
+
+function unknown_target(plan,family,protocol) {
+	let candidates=[plan.automatic,...plan.unknown_candidates];
+	for(let tag in candidates) {
+		let a=plan.adapters[tag];
+		if(a?.usable && (family=='4'?a.ipv4:a.ipv6) && (protocol=='tcp' || a.type=='amneziawg')) return tag;
+	}
+	return 'blocked';
+}
 
 function list(value, label, limit) {
 	if (type(value) != 'array' || length(value) > limit) die('invalid native ' + label);
@@ -123,8 +146,17 @@ function compile(input) {
 		}
 		synthetic = { epoch, pools, dns, private_pool };
 	}
-	return { schema: 1, lan, legacy_lans, automatic: input.automatic, adapters, fake, bypass, domains, synthetic,
-		clients: rules(input.clients, 'client policies'), ips: rules(input.ips, 'CIDR policies') };
+	let clients = rules(input.clients, 'client policies'), ips = rules(input.ips, 'CIDR policies');
+	let classified = classification(input.classification);
+	if (classified.unknown != 'direct' && !synthetic) die('restricted native classification requires transactional DNS');
+	if (classified.unknown != 'direct' && !classified.direct_grants_confirmed &&
+		(length(bypass) || length(filter(clients, r=>r.target=='direct')) || length(filter(ips,r=>r.target=='direct'))))
+		die('native direct address/client grants require explicit confirmation');
+	let unknown_candidates=list(input.unknown_candidates ?? [],'unknown fallback candidates',32);
+	for(let tag in unknown_candidates) if(!adapters[tag]) die('invalid unknown fallback candidate');
+	return { schema: 1, lan, legacy_lans, automatic: input.automatic, adapters, fake, bypass, domains, synthetic, unknown_candidates,
+		classification: classified,
+		clients, ips };
 }
 
 function render(plan, switching) {
@@ -146,6 +178,14 @@ function render(plan, switching) {
 		if (length(elements)) push(lines, 'add element inet ' + TABLE + ' ' + name + ' { ' + join(', ', elements) + ' }');
 	}
 	let lan = 'iifname "' + plan.lan + '" ';
+	let restricted = plan.classification.unknown != 'direct';
+	if (plan.synthetic?.dns) {
+		if (!switching) {
+			chain('dns_input_safety','filter','input',-11);
+			rule('dns_input_safety',lan+'meta l4proto { tcp, udp } th dport 53 counter drop');
+		}
+		rule('egress_guard',lan+'meta l4proto { tcp, udp } th dport 53 counter drop');
+	}
 	let xray = filter(values(plan.adapters), a => a.type == 'vless');
 	if (length(xray)) {
 		// TCP IP_TRANSPARENT sees the post-DNAT socket destination. The
@@ -162,7 +202,9 @@ function render(plan, switching) {
 		let v6 = family == '6', proto = v6 ? 'ip6' : 'ip';
 		function of_family(x) { return (index(x, ':') >= 0) == v6; }
 		function verdict(tag) {
-			if (tag == 'direct') return 'return';
+			// An explicit address/client exception grants the whole destination
+			// or client, not a domain inferred from a shared DNS answer.
+			if (tag == 'direct') return restricted ? 'meta mark set ' + DIRECT + ' counter accept' : 'return';
 			if (tag == 'auto_proxy_group') tag = plan.automatic;
 			let a = plan.adapters[tag];
 			if (!a?.usable || !(v6 ? a.ipv6 : a.ipv4)) return 'counter drop';
@@ -196,7 +238,9 @@ function render(plan, switching) {
 			classify(proto + ' daddr ' + pool, 'blocked');
 			rule('synth_nat', lan + proto + ' daddr ' + pool + ' dnat ' + proto + ' to ' + proto + ' daddr map @' + map);
 		}
-		rule('classify', lan + 'meta nfproto ipv' + family + ' fib daddr type local return');
+		// Do not policy-route DHCP broadcasts or IPv6 neighbour discovery
+		// away from router INPUT. The independent FORWARD deny still applies.
+		rule('classify', lan + 'meta nfproto ipv' + family + ' fib daddr type { local, broadcast, multicast } return');
 		classify(proto + ' daddr @bypass' + family, 'direct');
 		for (let r in plan.clients) if (of_family(r.cidr)) classify(proto + ' saddr ' + r.cidr, r.target);
 		if (!plan.synthetic) {
@@ -210,6 +254,18 @@ function render(plan, switching) {
 			classify(proto + ' daddr @quarantine' + family, 'blocked');
 		}
 		for (let r in plan.ips) if (of_family(r.cidr)) classify(proto + ' daddr ' + r.cidr, r.target);
+		if(plan.classification.unknown=='protected') {
+			for(let protocol in ['tcp','udp'])
+				classify('meta nfproto ipv'+family+' meta l4proto '+protocol,unknown_target(plan,family,protocol));
+			classify('meta nfproto ipv'+family,unknown_target(plan,family,'other'));
+		}
+	}
+	if (restricted) {
+		// Delay the deny until FORWARD: preserve router DNS, DHCP and LAN
+		// management input, including IPv6 neighbour discovery.
+		rule('classify', lan + 'meta mark set ' + UNKNOWN + ' return');
+		rule('egress_guard', lan + 'meta mark ' + UNKNOWN + ' counter drop');
+		rule('egress_guard', lan + 'meta mark ' + DIRECT + ' ct mark & 0xff000000 != ' + DIRECT_PIN + ' counter drop');
 	}
 	for (let _, a in plan.adapters) {
 		let marked = lan + 'meta mark ' + a.mark;
@@ -232,6 +288,12 @@ function dns_policy(plan, listen, upstream, excluded) {
 		pools: values(plan.synthetic.pools), retired_pools: plan.fake,
 		exclusions: [...plan.fake, ...plan.bypass, ...map(excluded, network_value)],
 		groups: map(plan.domains, g => ({ names: g.names, protected: g.target != 'direct' })) };
+	if (length(plan.clients)) {
+		result.client_policies=map(plan.clients,c=>({cidr:c.cidr,direct:c.target=='direct'}));
+		result.direct_grants_confirmed=plan.classification.direct_grants_confirmed;
+	}
+	result.classification_mode=plan.classification.mode;
+	result.migration_restrict_unknown=plan.classification.migration_restrict_unknown;
 	if (plan.synthetic.private_pool) result.private_pool = plan.synthetic.private_pool;
 	let dns = plan.synthetic.dns;
 	if (dns) {
@@ -274,6 +336,12 @@ function dns_gate(plan, scoped) {
 	let lan = 'iifname "' + plan.lan + '" ', pin = 'ct mark & 0xff000000 ';
 	// Reclassify every packet but never move an existing NAT tuple to a new adapter.
 	push(lines, 'add chain inet ' + GATE + ' flow_pin { type filter hook prerouting priority -149; policy accept; }');
+	if (plan.classification.unknown != 'direct') {
+		let direct = lan + 'meta mark ' + DIRECT + ' ';
+		rule('flow_pin', direct + 'ct state new ' + pin + '0 ct mark set (ct mark & 0x00ffffff) | ' + DIRECT_PIN);
+		rule('flow_pin', direct + pin + DIRECT_PIN + ' return');
+		rule('flow_pin', direct + 'counter drop');
+	}
 	for (let a in values(plan.adapters)) {
 		let selected = lan + 'meta mark ' + a.mark + ' ';
 		rule('flow_pin', selected + 'ct state new ' + pin + '0 ct mark set (ct mark & 0x00ffffff) | ' + a.pin);
@@ -321,6 +389,14 @@ function dns_gate(plan, scoped) {
 			rule(hook, scope + 'meta nfproto ipv' + family + ' ct direction original ct original ' + proto + ' daddr ' + pool + ' counter drop');
 		}
 		if (!scoped) rule('postrouting', proto + ' saddr ' + pool + ' oifname != ' + lan_set + ' counter drop');
+	}
+	if (plan.classification.unknown != 'direct') {
+		// A missing classifier table must not expose unmarked real IPs.
+		push(lines,'add chain inet '+GATE+' restricted_forward { type filter hook forward priority -9; policy accept; }');
+		rule('restricted_forward',lan+'meta mark '+DIRECT+' '+pin+DIRECT_PIN+' return');
+		for (let a in values(plan.adapters)) if (a.type=='amneziawg')
+			rule('restricted_forward',lan+'meta mark '+a.mark+' '+pin+a.pin+' oifname "'+a.interface+'" return');
+		rule('restricted_forward',lan+'counter drop');
 	}
 	return join('\n', lines) + '\n';
 }
@@ -381,9 +457,19 @@ function dns_release(plan) {
 	return join('\n', map(['dns_lan', 'dns_input', 'dns_forward'], c => 'destroy chain inet ' + GATE + ' ' + c)) + '\n';
 }
 
+function legacy_restore(plan) {
+	// The controller must restore the verified legacy firewall/resolver in
+	// the same transaction. Keep quarantine and tunnel-source guards, but
+	// allow the restored LAN's old FakeDNS delivery to its local Xray.
+	let retired = { ...plan, classification: classification({mode:'compatible'}),
+		legacy_lans: [...plan.legacy_lans, plan.lan] };
+	return 'delete table inet ' + TABLE + '\ndelete table inet ' + GATE + '\n' + dns_gate(retired);
+}
+
 function switch_batch(previous, next) {
 	function layout(p) {
-		return { lan: p.lan, legacy_lans: p.legacy_lans, fake: p.fake, bypass: p.bypass, domains: p.domains, clients: p.clients, ips: p.ips, synthetic: p.synthetic,
+		return { lan: p.lan, legacy_lans: p.legacy_lans, classification: p.classification, unknown_candidates:p.unknown_candidates,
+			fake: p.fake, bypass: p.bypass, domains: p.domains, clients: p.clients, ips: p.ips, synthetic: p.synthetic,
 			adapters: map(keys(p.adapters), tag => [tag, p.adapters[tag].type, p.adapters[tag].interface, p.adapters[tag].mark, p.adapters[tag].port, p.adapters[tag].sources]) };
 	}
 	// A health transition must keep every DNS set and its leases intact.
@@ -391,4 +477,4 @@ function switch_batch(previous, next) {
 	return render(next, true);
 }
 
-return { compile, batch, switch_batch, check_pool_inventory, dns_policy, dns_gate, dns_edge, dns_release, fw4_forward, canary_guard, canary_reply_guard, xray_config };
+return { compile, batch, switch_batch, check_pool_inventory, dns_policy, dns_gate, dns_edge, dns_release, legacy_restore, fw4_forward, canary_guard, canary_reply_guard, classification, unknown_target, xray_config };

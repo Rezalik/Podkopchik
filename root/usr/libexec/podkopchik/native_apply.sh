@@ -105,8 +105,12 @@ rollback() {
 	# Issued addresses remain quarantined; never reset the allocation ledger.
 }
 prepare_batch() {
-	ucode -e 'import { readfile, writefile } from "fs";
+	ucode -L "$LIB" -e 'import { readfile, writefile } from "fs";
 		const dir=ARGV[0], p=json(readfile(dir+"/plan.json")), lan=p.lan, owner=ARGV[1];
+		const declared=require("universal_plan").classification(p.classification);
+		if(!p.classification || p.classification.unknown!=declared.unknown ||
+			p.dns.classification_mode!=declared.mode || !!p.dns.migration_restrict_unknown!=declared.migration_restrict_unknown)
+			die("native classification does not match the staged DNS policy");
 		if(p.mode!="preview-only" || p.requires_xray!=false || !length(p.adapters) ||
 			p.automatic.active=="blocked" || length(p.dns.pools)!=1 || p.dns.pools[0]!="172.31.253.0/24" ||
 			p.dns.listen!="172.31.252.1:24053" || p.dns.listen6 || p.dns.virtual ||

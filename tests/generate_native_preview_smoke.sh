@@ -11,6 +11,7 @@ umask 077
 cat > "$tmp/podkopchik" <<'EOF'
 config settings 'main'
 	option routing_enabled '1'
+	option native_direct_grants_confirmed '1'
 	option lan_ifname 'br-lan'
 	option fakedns_enabled '1'
 config proxy
@@ -62,9 +63,35 @@ ucode -e 'import { readfile } from "fs";
 		length(p.adapters)!=2 ||
 		p.rules.domains!=4 || p.rules.ips!=1 || p.rules.clients!=1 ||
 		p.dns.listen!="172.31.252.1:24053" || p.dns.groups[1].names[2]!="legacy.example" ||
-		length(p.warnings)!=1) die(sprintf("unexpected native preview: %J\n", {
+		p.classification.mode!="strict" || p.classification.unknown!="protected" ||
+		index(p.warnings,"synthetic_addresses_for_direct_clients_are_blocked")<0 ||
+		index(p.warnings,"domain_direct_requires_explicit_address_or_client_grant")<0) die(sprintf("unexpected native preview: %J\n", {
 			automatic:p.automatic, mode:p.mode, rules:p.rules, dns:p.dns, xray:p.requires_xray, warnings:p.warnings}));' "$tmp/out"
 ! grep -q '11111111-2222-3333-4444-555555555555' "$tmp/out"
+sed "s/native_direct_grants_confirmed '1'/native_direct_grants_confirmed '0'/" "$tmp/podkopchik" > "$tmp/pending"
+cp "$tmp/podkopchik" "$tmp/confirmed"
+cp "$tmp/pending" "$tmp/podkopchik"
+if preview "$tmp/spec.json" "$tmp/state.json" > "$tmp/rejected" 2>&1; then exit 1; fi
+grep -q 'require explicit confirmation' "$tmp/rejected"
+UCI_CONFIG_DIR="$tmp" ucode -L "${UCODE_MODULE_DIR:-/usr/lib/ucode}" \
+	root/usr/libexec/podkopchik/generate.uc native-direct-grants "$tmp/spec.json" "$tmp/state.json" > "$tmp/review"
+ucode -e 'import {readfile} from "fs"; const p=json(readfile(ARGV[0]));
+	if(p.mode!="direct-grant-review-only" || p.classification.direct_grants_confirmed || p.nft || p.dns ||
+		length(p.direct_grants)!=1 || p.direct_grants[0].kind!="client" || p.direct_grants[0].scope!="entire_client") die("unsafe grant review");' "$tmp/review"
+cp "$tmp/confirmed" "$tmp/podkopchik"
+if command -v uci >/dev/null 2>&1; then
+	cp "$tmp/podkopchik" "$tmp/with-rules"
+	for kind in domain_rule ip_rule lan_device bypass_rule; do
+		while uci -c "$tmp" -q delete "podkopchik.@$kind[0]"; do :; done
+	done
+	uci -c "$tmp" commit podkopchik
+	preview "$tmp/spec.json" "$tmp/state.json" > "$tmp/unknown-only"
+	ucode -e 'import {readfile} from "fs";const p=json(readfile(ARGV[0]));
+		if(p.rules.domains || p.rules.ips || p.rules.clients || !p.xray_needed_now ||
+			p.unknown_fallback["4"].tcp!="backup" || p.unknown_fallback["4"].udp!="blocked")
+			die("unknown-only native policy lost the automatic group or protocol guard");' "$tmp/unknown-only"
+	cp "$tmp/with-rules" "$tmp/podkopchik"
+fi
 if command -v nft >/dev/null 2>&1 && [ "$(id -u)" = 0 ]; then
 	ucode -e 'import { readfile } from "fs"; let n=json(readfile(ARGV[0])).nft;
 		print(n.quarantine,n.routing,n.protection,n.dns_redirect);' "$tmp/out" > "$tmp/plan.nft"

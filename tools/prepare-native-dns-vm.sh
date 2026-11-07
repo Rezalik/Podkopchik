@@ -30,6 +30,10 @@ cp "$xray" "$payload/xray"
 for f in podkopchik-native-dns pilot-probe native-dns.test SHA256SUMS; do cp "$base/.build/native-dns/$f" "$payload/"; done
 for f in universal_plan native_pool awg awg_network fakedns_guard; do cp "$base/root/usr/libexec/podkopchik/$f.uc" "$payload/source/"; done
 cp "$base/tests/native_dns_vm_plan.uc" "$payload/source/"
+cp "$base/tests/native_classification_smoke.uc" "$payload/source/"
+cp "$base/tools/native-classification-vm-test.sh" "$base/tools/native-classification-vm-boot.sh" "$payload/"
+cp "$base/tools/native-policy-uci-vm-test.sh" "$payload/"
+cp "$base/tools/native-vm-binaries.sh" "$payload/"
 cp "$base/root/usr/libexec/podkopchik/fakedns_guard.sh" "$base/tests/fakedns_guard_smoke.uc" "$payload/source/"
 cp "$base/root/usr/libexec/podkopchik/universal_selection.uc" "$base/tests/universal_selection_smoke.uc" "$payload/source/"
 cp "$base/tools/ax6000-fakedns-guard-trial-vm-test.sh" "$payload/"

@@ -596,7 +596,7 @@ function build_config() {
 	return config;
 }
 
-function native_preview(path) {
+function native_preview(path, review_grants) {
 	let raw = readfile(path || '', 262145);
 	if (!raw || length(raw) > 262144) die('missing or oversized native preview inventory');
 	let spec = json(raw), planner = require('universal_plan'), policy = require('universal_selection');
@@ -680,8 +680,12 @@ function native_preview(path) {
 			target: mode == 'direct' ? 'direct' : target(rule.target) });
 	}
 	let configured_targets = map([...domains, ...ips, ...clients], row => row.target);
-	let automatic_used = index(configured_targets, 'auto_proxy_group') >= 0;
-	if (!automatic_used) choice = { active: 'blocked', reason: 'automatic_group_unused' };
+	let classification = planner.classification({mode:opt(main,'native_classification_mode','strict'),
+		migration_restrict_unknown:boolopt(main,'native_migration_restrict_unknown',true),
+		direct_grants_confirmed:review_grants || boolopt(main,'native_direct_grants_confirmed',false),
+		unknown_action:opt(main,'native_unknown_action','protected')});
+	let automatic_used = index(configured_targets, 'auto_proxy_group') >= 0 || classification.unknown=='protected' && auto!=null;
+	if (!automatic_used && classification.unknown!='protected') choice = { active: 'blocked', reason: 'automatic_group_unused' };
 	let adapter_tags = [...configured_targets, ...(automatic_used ?
 		[auto.primary, auto.fixed_proxy, auto.manual_override_proxy, ...auto.backups] : [])];
 	adapters = filter(adapters, a => index(adapter_tags, a.tag || awg_net.resources(a.id).tag) >= 0);
@@ -700,20 +704,39 @@ function native_preview(path) {
 		if (is_bypass_ip_value(host)) push(bypass, host);
 	}
 	let plan = planner.compile({ lan: spec.lan, legacy_lans: spec.legacy_lans, adapters,
+		classification,
+		unknown_candidates:auto && choice.active!='blocked' ? filter(
+			[auto.mode=='fixed_proxy'?auto.fixed_proxy:auto.primary,
+				...(auto.mode=='fixed_proxy' && auto.failure_action!='switch_to_backup'?[]:auto.backups)],tag=>proxies.by_tag[tag]!=null) : [],
 		automatic: choice.active, fake_pools, bypass, domains, ips, clients, synthetic: spec.synthetic });
+	let grants = [...map(plan.bypass,cidr=>({kind:'endpoint_or_bypass',cidr,scope:'entire_destination'})),
+		...map(filter(plan.clients,c=>c.target=='direct'),c=>({kind:'client',cidr:c.cidr,scope:'entire_client'})),
+		...map(filter(plan.ips,c=>c.target=='direct'),c=>({kind:'ip_rule',cidr:c.cidr,scope:'entire_destination'}))];
+	let unknown_fallback={};
+	for(let family in ['4','6']) unknown_fallback[family]={};
+	for(let family in ['4','6']) for(let protocol in ['tcp','udp','other'])
+		unknown_fallback[family][protocol]=plan.classification.unknown=='protected' ? planner.unknown_target(plan,family,protocol) :
+			plan.classification.unknown=='direct'?'direct':'blocked';
+	for(let family in ['4','6']) for(let tag in values(unknown_fallback[family])) push(selected,tag);
+	if (review_grants) return {mode:'direct-grant-review-only',direct_grants:grants,
+		unknown_fallback,classification:{...plan.classification,direct_grants_confirmed:boolopt(main,'native_direct_grants_confirmed',false)}};
 	let quarantine = guard.desired({ schema: 1, pools: [], lans: [] },
 		length(plan.fake) ? [{ fakedns: map(plan.fake, ipPool => ({ ipPool })) }] : [],
 		[plan.lan, ...plan.legacy_lans],
 		values(plan.synthetic.pools));
-	return { mode: 'preview-only', lan: plan.lan, epoch: plan.synthetic.epoch, automatic: choice, requires_xray: length(filter(adapters, a => a.type == 'vless')) > 0,
+	return { mode: 'preview-only', lan: plan.lan, epoch: plan.synthetic.epoch, classification: plan.classification,unknown_fallback,
+		automatic: choice, requires_xray: length(filter(adapters, a => a.type == 'vless')) > 0,
 		xray_needed_now: length(filter(adapters, a => a.type == 'vless' && a.usable && index(selected, a.tag) >= 0)) > 0,
-		adapters: values(plan.adapters), dns: planner.dns_policy(plan, '', spec.upstream, []),
+		adapters: values(plan.adapters), direct_grants:grants, dns: planner.dns_policy(plan, '', spec.upstream, []),
 		rules: { domains: length(keys(domain_targets)), ips: length(ips), clients: length(clients) },
 		nft: { quarantine: guard.batch(quarantine, false), routing: planner.batch(plan), protection: planner.dns_gate(plan, true),
 			dns_redirect: planner.dns_edge(plan), fw4_forward: planner.fw4_forward(plan), canary: planner.canary_guard(plan),
 			canary_reply: plan.synthetic.pools['4'] ? planner.canary_reply_guard(plan) : '' },
-		warnings: length(filter(clients, c => c.target == 'direct')) ?
-			['synthetic_addresses_for_direct_clients_are_blocked'] : [] };
+		warnings: [...(length(filter(clients, c => c.target == 'direct')) ?
+			['synthetic_addresses_for_direct_clients_are_blocked'] : []),
+			...(plan.classification.mode == 'compatible' ? ['compatible_mode_has_no_strict_domain_fail_closed'] : []),
+		...(plan.classification.unknown != 'direct' && length(filter(domains, d => d.target == 'direct')) ?
+				['domain_direct_requires_explicit_address_or_client_grant'] : [])] };
 }
 
 function health_config(outbound, port) {
@@ -1010,9 +1033,9 @@ else if (mode == 'config-state') {
 	state_file = ARGV[1] || STATE_FILE;
 	obj = build_config();
 }
-else if (mode == 'native-preview') {
+else if (mode == 'native-preview' || mode == 'native-direct-grants') {
 	state_file = ARGV[2] || STATE_FILE;
-	obj = native_preview(ARGV[1]);
+	obj = native_preview(ARGV[1],mode=='native-direct-grants');
 }
 else {
 	obj = build_config();

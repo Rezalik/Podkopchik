@@ -276,7 +276,10 @@ func (r *resolver) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 		write(dns.RcodeSuccess)
 		return
 	}
-	if answer.group >= 0 {
+	// Only an explicit whole-client grant may bypass a protected DNS result.
+	// Keep this decision outside the shared cache: another client must still
+	// receive a committed synthetic address for the same upstream answer.
+	if answer.group >= 0 && !r.policy.directClient(w.RemoteAddr()) {
 		resp.Answer = nil
 		fake, err := r.writer.publish(ctx, answer.group, answer.ips, ttl)
 		if err != nil || ctx.Err() != nil {

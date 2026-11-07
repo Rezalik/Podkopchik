@@ -34,6 +34,7 @@ cp "$base/docs/UNIVERSAL-AX6000-PILOT.md" "$root/PILOT.md"
 cp "$base/docs/UNIVERSAL-AX6000-VIRTUAL-PILOT.md" "$root/VIRTUAL-PILOT.md"
 cp "$base/docs/UNIVERSAL-AX6000-FAKEDNS-UDP.md" "$root/FAKEDNS-UDP.md"
 cp "$base/docs/UNIVERSAL-NATIVE-APPLY.md" "$root/NATIVE-APPLY.md"
+cp "$base/docs/NATIVE-CLASSIFICATION.md" "$root/CLASSIFICATION.md"
 printf '%s\n' 'board=xiaomi,redmi-router-ax6000-stock' 'openwrt=25.12.6' 'kernel=6.12.112' \
 	'architecture=aarch64_cortex-a53' 'mode=review-only-no-installer' > "$root/TARGET"
 chmod 755 "$root/podkopchik-native-dns"

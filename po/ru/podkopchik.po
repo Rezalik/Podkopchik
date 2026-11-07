@@ -1473,3 +1473,51 @@ msgstr "Синтетические пулы не зарегистрирован�
 
 msgid "Protection could not be verified"
 msgstr "Не удалось проверить защиту"
+
+msgid "Native routing classification"
+msgstr "Классификация нативной маршрутизации"
+
+msgid "Strict"
+msgstr "Строгий"
+
+msgid "Compatible"
+msgstr "Совместимый"
+
+msgid "Applies to Universal Routing Engine only; legacy routing is unchanged."
+msgstr "Только для Universal Routing Engine; действующая прежняя маршрутизация не меняется."
+
+msgid "Compatible mode allows unknown traffic directly. Strict domain fail-closed is not guaranteed."
+msgstr "Совместимый режим допускает прямой выход неизвестного трафика. Строгая защита доменов от обхода прокси не гарантируется."
+
+msgid "Restrict unknown traffic during native migration"
+msgstr "Ограничивать неизвестный трафик при переходе на нативную маршрутизацию"
+
+msgid "Confirm whole-address and whole-device direct exceptions"
+msgstr "Подтвердить прямые исключения для целых адресов и устройств"
+
+msgid "Direct IP/CIDR, endpoint and LAN-device exceptions override domain protection for that address or device. Confirm them only after reviewing the complete exception list."
+msgstr "Прямые исключения IP/CIDR, адресов серверов и LAN-устройств имеют приоритет над защитой доменов для этого адреса или устройства. Подтверждайте их только после проверки полного списка исключений."
+
+msgid "Strict direct policy"
+msgstr "Прямой доступ в строгом режиме"
+
+msgid "Unknown traffic"
+msgstr "Неизвестный трафик"
+
+msgid "Protected transport (recommended)"
+msgstr "Защищённый транспорт (рекомендуется)"
+
+msgid "Block"
+msgstr "Блокировать"
+
+msgid "Unknown traffic uses an available Main or Backup transport supporting the protocol. If none is available, it is blocked. This does not identify its domain."
+msgstr "Неизвестный трафик направляется через доступное основное или резервное подключение с поддержкой нужного протокола. Если подходящего подключения нет, трафик блокируется. Это не означает, что его домен определён."
+
+msgid "During migration, unknown traffic stays off direct WAN even in Compatible mode. The protected fallback or block policy applies. Direct exceptions grant the whole address or device."
+msgstr "При переходе неизвестный трафик не выходит напрямую в WAN даже в совместимом режиме: применяется защищённый транспорт или блокировка. Прямые исключения разрешают весь адрес или устройство."
+
+msgid "Domain-only direct rules and shared cached IP addresses are not authenticated. Without a confirmed address or LAN-device exception, the unknown-traffic policy applies."
+msgstr "Правило direct только по домену и общий IP из кэша не подтверждают принадлежность соединения домену. Без подтверждённого исключения для адреса или LAN-устройства применяется политика неизвестного трафика."
+
+msgid "A shared CDN IP may serve multiple domains; a direct IP exception covers all of them."
+msgstr "Один IP CDN может обслуживать несколько доменов: прямое исключение для этого IP распространяется на все эти домены."

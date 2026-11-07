@@ -371,6 +371,9 @@ cmd_status() {
 	# The native compiler is a preview. Do not infer a household mode from
 	# the presence of temporary canary tables or an AWG device.
 	echo "Routing engine: legacy"
+	echo "Native classification configured: $(uci -q get "$APP.main.native_classification_mode" 2>/dev/null || echo strict)"
+	echo "Native unknown traffic configured: $(uci -q get "$APP.main.native_unknown_action" 2>/dev/null || echo protected)"
+	echo "Native migration restriction configured: $(uci -q get "$APP.main.native_migration_restrict_unknown" 2>/dev/null || echo 1)"
 	fake_status="$(sh "$LIB/fakedns_guard.sh" status 2>/dev/null || true)"
 	case "$(printf '%s\n' "$fake_status" | sed -n 's/^state=//p')" in
 		active) echo "Synthetic IP protection: active" ;;
@@ -934,6 +937,7 @@ case "${1:-}" in
 	validate) cmd_validate ;;
 	validate-active) cmd_validate_active ;;
 	native-preview) [ "$#" = 2 ] || die "usage: podkopchikctl native-preview INVENTORY.json"; ucode_run "$LIB/generate.uc" native-preview "$2" ;;
+	native-direct-grants) [ "$#" = 2 ] || die "usage: podkopchikctl native-direct-grants INVENTORY.json"; ucode_run "$LIB/generate.uc" native-direct-grants "$2" ;;
 	native-apply) shift; sh "$LIB/native_apply.sh" start "$@" ;;
 	native-trial)
 		[ "$#" = 2 ] || die 'usage: podkopchikctl native-trial status|verify|abort|clear'
@@ -965,6 +969,7 @@ case "${1:-}" in
 		exec sh "$LIB/xray_jobs.sh" start "xray-$job" "${1:-package}"
 		;;
 	*)
+		echo "Read-only native direct authorization review: podkopchikctl native-direct-grants INVENTORY.json" >&2
 		echo "Usage: podkopchikctl {status|generate|validate|apply|restart|cleanup|health|native-preview INVENTORY.json|native-apply INVENTORY.json|native-trial status|verify|abort|clear|fakedns-guard-status|shaping-status|awg-list|awg-start ID|awg-stop ID|awg-restart ID|awg-check ID|awg-recover|update-check|update-install|rollback|xray-status|xray-check [package|official]|xray-install [package|official]|xray-install local SHA256|xray-rollback}" >&2
 		exit 2
 		;;
