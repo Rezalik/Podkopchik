@@ -64,6 +64,88 @@ An expired, replaced or previous-boot token cannot confirm a generation.
 Application updates retain the frozen active coordinator until a new Apply;
 updates/old code rollbacks lacking Native support are refused while installed.
 
+### Repair Policy
+
+`native_recovery_policy=transactional` remains the default. The explicitly
+selected `repair` policy requires a verified, armed independent emergency
+capsule before Apply. Ordinary listener, DNS provider, site or transport
+failures do not restore legacy: the coordinator retains Strict guards and
+reports `phase=repair` or `recovery`. A corrected ordinary Apply can replace
+the failed pending generation; failed validation does not cancel its journal.
+The repair confirmation timer is not a connectivity test or a rollback trigger.
+
+Until acceptance, a separate boot-bound 120-second management lease must be
+renewed after external SSH and LuCI checks. The frozen procd emergency worker
+does not acquire the Native coordinator lock. Lease expiry, an unconfirmed
+reboot or an explicit critical-emergency request triggers recovery. After
+explicit acceptance it no longer depends on an awake Mac: only prolonged
+loss of local SSH/HTTP listeners triggers automatic emergency recovery.
+Local listeners alone do not prove remote reachability; retain external
+checks throughout controlled acceptance.
+Selecting Native with missing/corrupt generation metadata never starts legacy.
+A small shell-only startup guard denies LAN forwarding and client UDP/TCP DNS
+before local-delivery exemptions, while retaining router management. It does
+not depend on the Go helper or a readable Native pointer. Successful explicit
+repair clears only this owned guard. Boot/transition guards also hold client
+DNS until the protected listener is ready; a service-start race cannot silently
+release it to the stock ISP upstream.
+
+The capsule is `/etc/podkopchik-native-emergency` (root-only), with a checksummed
+baseline Xray config, nft snapshot and small frozen AWG adapter code. It verifies
+the existing Xray binary rather than duplicating it on flash. Recovery preserves
+AWG profiles/roles/default route and allocation history, removes only Native
+resources, and runs **protected legacy recovery**, not the original implicit
+Direct fallback. Unknown transparent traffic uses the baseline AWG or fails
+closed; non-intercepted forwarding is denied except reviewed address grants.
+The retired Native pool is blocked before TPROXY; both pools retain output,
+forward and postrouting quarantine. Failed recovery retains a forwarding guard
+and retries. It neither changes Wi-Fi/network UCI nor reboots the router.
+
+```sh
+# Operator-controlled preparation; not an unattended installation recipe.
+podkopchikctl native-emergency prepare ADMITTED_PRIVATE_POOL
+podkopchikctl native-emergency arm 120
+podkopchikctl native-emergency status
+# Renew using the emergency token, after checking management independently:
+podkopchikctl native-emergency heartbeat EMERGENCY_TOKEN
+# Confirm Native separately, then explicitly accept the emergency lease:
+podkopchikctl native-confirm APPLY_TOKEN
+podkopchikctl native-emergency accept EMERGENCY_TOKEN
+# Critical emergency only:
+podkopchikctl native-emergency request
+```
+
+## Protected DNS Upstream
+
+Permanent Native requires the schema-3 DNS component. Client queries use
+DNS-over-TLS with certificate/SNI verification over a selected AWG or VLESS
+transport, never the ISP/system resolver. The default numeric endpoints are
+`1.1.1.1:853@one.one.one.one` and `9.9.9.9:853@dns.quad9.net`, with their IPv6
+counterparts when the transport supports IPv6. Optional UCI `list native_dns_tls`
+entries use `numeric-address:port@certificate-name` (bracket IPv6 addresses).
+Unverified certificates, missing interfaces, changed ifindex and all-down
+return SERVFAIL; no real protected address is released and no WAN DNS fallback
+exists. Failed providers/transports are bounded and retried without restarting
+the DNS worker. Each query connection is closed, not retained in an unbounded
+UDP cache. Upstream socket state is private and updated on health selection.
+
+AWG DNS sockets bind both interface and mark. VLESS DNS uses a dedicated
+loopback TCP SOCKS inbound per adapter, then verified end-to-end TLS. AWG-only
+does not start Xray for DNS. A single-stack deployment returns NODATA for the
+unsupported DNS address family; cached unsupported traffic remains denied by
+the kernel policy rather than using IPv6 WAN.
+
+Transport endpoint bootstrap is separate: root-only pinned HTTPS DNS queries
+to numeric Cloudflare endpoints resolve configured VPN hosts and explicit
+Direct exclusions. It cannot forward arbitrary LAN DNS. Numeric dial addresses
+are frozen in the generation for AWG and VLESS, including VLESS health probes;
+Reality SNI/security and stored profiles remain unchanged. Bootstrap therefore
+does not require the not-yet-started transport. Endpoint changes require a new
+admitted Apply. Local DHCP/DNS services are not replaced.
+
+Provider references: [Cloudflare DoT](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-tls/)
+and [Quad9 services](https://docs.quad9.net/services/).
+
 ## Classification And Transports
 
 Strict unknown traffic uses a healthy protocol/family-compatible protected
@@ -142,7 +224,9 @@ An explicit routing disable (`podkopchikctl cleanup`) releases interception and
 owned RPDB/includes, but retains issued-pool quarantine and survives boot.
 Returning to legacy requires this explicit disable first, then selecting
 legacy and applying. A service stop is not a routing-disable request: it keeps
-forwarding closed and releases DNS back to the stock resolver.
+forwarding closed and retains LAN DNS interception to the stopped listener.
+It does not silently release client DNS to the ISP. Explicit routing disable
+is a separate operation and restores ordinary stock DNS.
 Use the candidate's Native-aware uninstaller, not an older downloaded script.
 It refuses removal of an active Native controller until `podkopchikctl cleanup`
 has explicitly disabled routing. Normal uninstall preserves its OFF intention
@@ -150,14 +234,14 @@ and configuration; `--purge` is the separately destructive configuration removal
 
 The **first** migration has no confirmed Native generation. Automatically
 restoring legacy's implicit direct fallback would violate Strict. In that
-case recovery restores stock DNS under the validated protected kernel policy:
+case recovery starts a protected DoT real-answer worker under the validated kernel policy:
 cached real addresses use a protected transport or drop; exact synthetic DNS
 classification remains unavailable until a successful new Apply. Status shows
 `phase=recovery`, not ready/accepted. A persistent classifier startup failure
 uses the same protected recovery. This is deliberately not an unrestricted
-legacy restoration. Keep a separate private pre-migration backup for an
-operator-authorized legacy restoration; never enable direct fallback merely
-to clear an error.
+legacy restoration. The separately armed repair-policy emergency capsule is
+the final management-recovery path described above; never enable implicit
+direct fallback merely to clear an error.
 
 ## Build And Controlled Installation
 
@@ -198,7 +282,10 @@ preflight pass, backups are on the Mac, and autonomous local recovery is ready:
 5. Admit nonoverlapping native pool(s), review direct grants, select Native,
    and use ordinary Apply with an independent fixed deadline.
 6. Confirm only after real LAN DNS/HTTPS, all AWGs, WAN capture, management and
-   application checks succeed. Otherwise abort; do not detach the supervisor.
+   application checks succeed. In transactional mode, an unconfirmed failure
+   restores the confirmed generation. In explicitly armed repair mode, ordinary
+   faults stay on guarded Native for in-place correction; emergency legacy
+   restoration is reserved for management loss or an unsafe critical failure.
 
 Back up UCI, Podkopchik code, active Xray binary/selector, AWG revisions,
 firewall/DNS settings and Native state privately before physical deployment.
@@ -227,3 +314,7 @@ automatic household activation.
 
 See [the release acceptance record](UNIVERSAL-PERMANENT-ACCEPTANCE-20261107.md)
 for the measured results, candidate checksums and remaining physical gates.
+
+The subsequent [household Native RC deployment](UNIVERSAL-NATIVE-HOUSEHOLD-20261107.md)
+records actual full-LAN activation, application checks, physical AWG failover,
+MSS correction and the remaining UDP/QUIC and long-duration limitations.

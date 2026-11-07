@@ -30,6 +30,27 @@ type clientResponseWriter struct {
 
 func (w clientResponseWriter) RemoteAddr() net.Addr { return w.client }
 
+func TestProtectedSingleStackDNSDoesNotAdvertiseUnsupportedFamily(t *testing.T) {
+	c := testConfig()
+	c.Pools = c.Pools[:1]
+	c.ProtectedUpstream = "/private/protected-state.json"
+	p, err := compile(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := testResolver(t, p, func(context.Context, []binding, time.Time) error { return nil },
+		func(context.Context, dns.Question) (*dns.Msg, error) {
+			t.Error("unsupported family contacted upstream")
+			return nil, errors.New("must not resolve")
+		})
+	addr := startTestDNS(t, r)
+	for _, proto := range []string{"udp", "tcp"} {
+		for _, name := range []string{"protected.example.", "unknown.example.", "direct.example."} {
+			requireAnswer(t, addr, proto, name, dns.TypeAAAA, dns.RcodeSuccess, 0)
+		}
+	}
+}
+
 func TestDirectClientGrantDoesNotContaminateSharedDNSCache(t *testing.T) {
 	c := testConfig()
 	c.ClassificationMode = "strict"

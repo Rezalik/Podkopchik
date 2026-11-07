@@ -1,5 +1,19 @@
 # Podkopchik
 
+Feature-branch Native RC: permanent Native DNS now requires the schema-3
+protected DNS-over-TLS component. AWG DNS binds to its kernel tunnel; VLESS DNS
+uses its proxy transport. ISP DNS is not a fallback. The optional explicit
+repair policy keeps ordinary failures on Native and reserves a separately
+verified emergency capsule for management loss or a critical leak. Legacy and
+transactional defaults remain unchanged. See the
+[permanent Apply, protected DNS and recovery contract](docs/UNIVERSAL-PERMANENT-APPLY.md).
+
+The [2026-11-07 Xiaomi household Native pilot](docs/UNIVERSAL-NATIVE-HOUSEHOLD-20261107.md)
+is installed and explicitly confirmed: kernel AWG, protected DoT and Strict
+classification, without a running Xray in AWG-only. Application and AWG failover
+checks passed; this is still an experimental RC, not long-duration stability or
+physical QUIC acceptance. Legacy remains the installation default.
+
 Experimental AmneziaWG integration: [Stage 4 safety, independent UDP/IPv6
 settings, test evidence, installation and rollback](docs/AWG-STAGE4.md).
 Both interception extensions are off by default. Local tests do not establish

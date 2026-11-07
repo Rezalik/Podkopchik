@@ -31,6 +31,9 @@ config settings 'main'
  option native_pool_v6 '2001:2::/48'
  option native_dns_port '24253'
  option native_direct_grants_confirmed '1'
+ list native_dns_tls '203.0.113.80:1853@protected.example'
+ list native_dns_tls '203.0.113.81:1853@protected.example'
+ list native_dns_tls '[2001:db8:80::1]:1853@protected.example'
  option fakedns_enabled '1'
  option interval '2'
  option fail_threshold '2'
@@ -73,8 +76,19 @@ done
 mkdir -p "$permanent/core"
 command ln -sf "$xray" "$permanent/core/xray"
 printf '%s\n' local > "$permanent/core/selected"
+for i in 1 2 3; do
+	case "$i" in 1) address=203.0.113.80:1853;; 2) address=203.0.113.81:1853;; 3) address='[2001:db8:80::1]:1853';; esac
+	rm -f "$work/dot$i.der" "$work/dot$i.der.pem"
+	PKC_NATIVE_LAB=dot-serve ip netns exec "$w" "$bin" -test.run='^TestGuestFixture$' -- "$address" "$work/dot$i.der" >"$work/dot$i.log" 2>&1 & pids="$pids $!"
+done
+for attempt in $(seq 1 20); do
+	[ ! -s "$work/dot1.der.pem" ] || [ ! -s "$work/dot2.der.pem" ] || [ ! -s "$work/dot3.der.pem" ] || break
+	sleep 1
+done
+cat "$work/dot1.der.pem" "$work/dot2.der.pem" "$work/dot3.der.pem" > "$work/dns-ca.pem"
 native_env() {
 	env PODKOPCHIK_LIB="$permanent/lib" PODKOPCHIK_CTL="$permanent/ctl" \
+		SSL_CERT_FILE="$work/dns-ca.pem" \
 		PODKOPCHIK_CORE_DIR="$permanent/core" \
 		PODKOPCHIK_NATIVE_DNS="$daemon" PODKOPCHIK_UCI_CONFIG_DIR="$permanent/uci" \
 		PODKOPCHIK_CONFIG_DIR="$permanent/config" PODKOPCHIK_TMP_DIR="$permanent/tmp" PKC_NATIVE_VM_NS="$r" "$@"
@@ -118,6 +132,10 @@ if [ "$resuming" = 1 ]; then
 	. /mnt/lab/native-permanent-vm-resume.sh
 	return
 fi
+if [ "${PKC_VM_EMERGENCY:-0}" = 1 ]; then
+	. /mnt/lab/native-emergency-vm-test.sh
+	return
+fi
 ctl apply > "$permanent/apply.json"
 cat "$permanent/apply.json"
 for i in $(seq 1 30); do
@@ -149,6 +167,11 @@ for family in 4 6; do
 done
 if [ "${PKC_VM_ONLY_MIXED:-0}" = 1 ]; then
 	. /mnt/lab/native-permanent-vm-vless.sh
+	ctl cleanup
+	for family in 4 6; do
+		[ "$(rn ip -N "-$family" -j route show table 43000 | jsonfilter -q -e '@[*].protocol' | wc -l)" = 0 ]
+	done
+	echo 'PASS: mixed VLESS removal verifies numeric RTN_LOCAL ownership and releases only its routing resources'
 	return
 fi
 ip netns exec "$w" tcpdump --immediate-mode -U -i external0 -Q in -nn -s 96 -w "$permanent/wan.pcap" \

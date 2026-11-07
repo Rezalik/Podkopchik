@@ -368,7 +368,7 @@ native_present() {
 native_runtime() { sh "$LIB/native_runtime.sh" "$@"; }
 
 cmd_status() {
-	if native_present; then
+	if native_present || [ "$(uci -q get "$APP.main.routing_engine" 2>/dev/null)" = native ]; then
 		echo "Podkopchik $VERSION"
 		echo 'Routing engine: native'
 		native_runtime status
@@ -464,6 +464,9 @@ cmd_prepare_connections() {
 }
 
 cmd_apply() {
+	if [ -s /etc/podkopchik-native-emergency/state.json ] && [ "$(jsonfilter -q -i /etc/podkopchik-native-emergency/state.json -e '@.mode')" = restored ]; then
+		die 'emergency protected runtime is active; arm recovery and perform an explicit Native repair before Apply'
+	fi
 	if [ "$(uci -q get "$APP.main.routing_engine" 2>/dev/null)" = native ]; then native_runtime apply; return; fi
 	if native_present; then native_runtime leave; fi
 	mkdir -p "$TMP_DIR" "$CONFIG_DIR"
@@ -640,6 +643,7 @@ cmd_cleanup() {
 	uci -q set "$APP.main.routing_enabled=0"
 	uci -q commit "$APP"
 	"$LIB/cleanup_rules.sh"
+	if [ -f "$LIB/native_boot_guard.sh" ]; then sh "$LIB/native_boot_guard.sh" release; fi
 	safety unguard || die "could not remove routing safety guard"
 	"$INIT" restart
 	echo "Podkopchik interception disabled; issued FakeDNS pools remain quarantined."
@@ -974,6 +978,13 @@ cmd_rollback() {
 case "${1:-}" in
 	status) cmd_status ;;
 	native-status) native_runtime status ;;
+	native-emergency)
+		shift
+		emergency="${PKC_EMERGENCY_VM_ROOT:-/etc/podkopchik-native-emergency}/recovery.uc"
+		[ ! -f "$emergency" ] || exec ucode "$emergency" "$@"
+		exec ucode -L "$LIB" "$LIB/native_emergency.uc" "$@"
+		;;
+	native-management-heartbeat) [ "$#" = 2 ] || die 'usage: native-management-heartbeat TOKEN'; native_runtime management-heartbeat "$2" ;;
 	native-confirm) [ "$#" = 2 ] || die 'usage: native-confirm TOKEN'; native_runtime confirm "$2" ;;
 	native-abort) [ "$#" = 2 ] || die 'usage: native-abort TOKEN'; native_runtime abort "$2" ;;
 	generate) shift; cmd_generate "$@" ;;

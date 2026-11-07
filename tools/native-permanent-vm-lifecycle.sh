@@ -58,7 +58,7 @@ for action in stop start restart; do
 		if ln wget -q -T 1 -O - http://203.0.113.80:18081/ >/dev/null 2>&1; then fail 'service stop opened protected forwarding'; fi
 	else ready_native; fi
 done
-echo 'PASS: exact production procd start/stop/restart dispatch, guarded service stop and stock DNS availability'
+echo 'PASS: production procd start/stop/restart, guarded stop, retained LAN DNS interception and root-only stock DNS availability'
 
 pool=$(jsonfilter -q -i "$permanent/config/native-state/runtime.json" -e '@.current')
 epoch=$(jsonfilter -q -i "$permanent/config/native-state/g-$pool/plan.json" -e '@.epoch')
@@ -71,11 +71,11 @@ for attempt in $(seq 1 100); do
 	[ "$(jsonfilter -q -i "$permanent/lifecycle-status.json" -e '@.phase')" != recovery ] || break
 	sleep 1
 done
-[ "$(jsonfilter -q -i "$permanent/lifecycle-status.json" -e '@.phase')" = recovery ] || fail 'persistent DNS failure did not restore protected stock DNS'
+[ "$(jsonfilter -q -i "$permanent/lifecycle-status.json" -e '@.phase')" = recovery ] || fail 'persistent DNS failure did not restore the protected real-answer worker'
 PKC_NATIVE_LAB=query ln "$bin" -test.run='^TestGuestFixture$' -- 10.19.0.1:53 udp probe.protected.example. A NOERROR 1 >/dev/null
 [ "$(ln wget -q -T 3 -O - http://203.0.113.80:18081/)" = isolated-http-ok ]
 [ "$(ln wget -q -T 3 -O - http://203.0.113.81:18081/)" = isolated-http-ok ]
-echo 'PASS: corrupt durable DNS journal fails closed and autonomously restores stock DNS under protected real-IP routing'
+echo 'PASS: corrupt durable DNS journal fails closed; protected DoT real-answer recovery retains strict real-IP routing'
 cp "$permanent/bindings-before-corruption" "$bindings"
 ctl apply > "$permanent/recovery-reapply.json"
 ready_native

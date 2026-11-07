@@ -104,8 +104,9 @@ if [ "${1:-}" = "run" ] && [ "${2:-}" = "-config" ]; then
 	echo "$$ $cfg" >> "$XRAY_PID_LOG"
 	trap '' HUP
 	trap 'echo "term $$ '"$cfg"'" >> "$XRAY_TERM_LOG"; exit 0' INT TERM
+	# Keep the mock's deferred shell trap away from the one-second kill grace.
 	while :; do
-		sleep 1
+		sleep 0.1
 	done
 fi
 

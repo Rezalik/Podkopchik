@@ -205,6 +205,10 @@ func (r *resolver) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 		return
 	}
 	q := req.Question[0]
+	if strings.EqualFold(q.Name, "pkc-native-health.invalid.") && q.Qclass == dns.ClassINET && (q.Qtype == dns.TypeA || q.Qtype == dns.TypeAAAA) {
+		write(dns.RcodeSuccess)
+		return
+	}
 	if q.Qclass != dns.ClassINET || !validQuestionName(strings.TrimSuffix(strings.ToLower(q.Name), ".")) {
 		write(dns.RcodeRefused)
 		return
@@ -217,6 +221,12 @@ func (r *resolver) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	case dns.TypeA, dns.TypeAAAA, dns.TypePTR:
 	default:
 		write(dns.RcodeRefused)
+		return
+	}
+	// A single-stack Native deployment must not advertise an address family
+	// for which protected classification cannot publish a synthetic mapping.
+	if r.policy.ProtectedUpstream != "" && (q.Qtype == dns.TypeA || q.Qtype == dns.TypeAAAA) && !r.policy.pools[q.Qtype == dns.TypeA].IsValid() {
+		write(dns.RcodeSuccess)
 		return
 	}
 	select {

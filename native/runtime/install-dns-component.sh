@@ -48,7 +48,7 @@ if [ ! -e "$target" ]; then
 	cp "$source" "$stage"
 	chmod 755 "$stage"
 	[ "$(sha256sum "$stage" | awk '{print $1}')" = "$expected" ]
-	"$stage" -capabilities | jsonfilter -e '@.schema' | grep -qx 2
+	"$stage" -capabilities | jsonfilter -e '@.schema' | grep -qx 3
 	mv "$stage" "$target"
 	trap - EXIT HUP INT TERM
 fi

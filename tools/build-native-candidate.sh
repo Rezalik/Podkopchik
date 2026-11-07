@@ -28,8 +28,10 @@ cp -R "$base/native/dns" "$stage/package/native/"
 cp "$base/native/runtime/install-dns-component.sh" "$base/native/runtime/native-dns-launcher.sh.in" "$stage/package/native/runtime/"
 cp "$base/tools/build-native-dns.sh" "$base/tools/build-native-candidate.sh" "$stage/package/tools/"
 cp "$base/tools/verify-native-candidate.js" "$stage/package/tools/"
+cp "$base/tools/install-native-rc-files.sh" "$base/tools/ax6000-protected-dns-check.sh" "$base/tools/native-live-pool-review.uc" "$stage/package/tools/"
 cp "$base/README.md" "$stage/package/"
 cp "$base/docs/UNIVERSAL-PERMANENT-APPLY.md" "$base/docs/SPEC.md" "$base/docs/ACCEPTANCE.md" "$stage/package/docs/"
+cp "$base/docs/UNIVERSAL-NATIVE-HOUSEHOLD-20261107.md" "$stage/package/docs/"
 find "$stage/package" -name .DS_Store -delete
 [ -z "$(find "$stage/package" -type l -print)" ] || exit 1
 printf '%s\n' "$hash" > "$stage/package/NATIVE_DNS_SHA256"

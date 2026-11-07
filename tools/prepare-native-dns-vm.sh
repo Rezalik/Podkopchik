@@ -42,6 +42,8 @@ cp "$base/tools/native-permanent-vm-boot.sh" "$base/tools/native-permanent-vm-re
 cp "$base/tools/native-permanent-vm-vless.sh" "$payload/"
 cp "$base/tools/native-permanent-vm-nft-failure.sh" "$payload/"
 cp "$base/tools/native-permanent-vm-lifecycle.sh" "$payload/"
+cp "$base/tools/native-emergency-vm-test.sh" "$payload/"
+cp "$base/tools/native-repair-vm-nft-failure.sh" "$payload/"
 cp "$base/root/usr/libexec/podkopchik/fakedns_guard.sh" "$base/tests/fakedns_guard_smoke.uc" "$payload/source/"
 cp "$base/root/usr/libexec/podkopchik/universal_selection.uc" "$base/tests/universal_selection_smoke.uc" "$payload/source/"
 cp "$base/tools/ax6000-fakedns-guard-trial-vm-test.sh" "$payload/"

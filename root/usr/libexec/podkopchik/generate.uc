@@ -2,7 +2,7 @@
 'use strict';
 
 import { cursor } from 'uci';
-import { readfile } from 'fs';
+import { readfile, lstat } from 'fs';
 
 push(REQUIRE_SEARCH_PATH, '/usr/libexec/podkopchik/*.uc');
 push(REQUIRE_SEARCH_PATH, './root/usr/libexec/podkopchik/*.uc');
@@ -253,6 +253,15 @@ function vless_outbound(p) {
 		},
 		streamSettings: stream
 	};
+}
+
+function pinned_vless(out,spec) {
+	let address=out.settings?.vnext?.[0]?.address;
+	if(!address||require('awg').ip(address))return out;
+	let pins=spec?.endpoint_pins?.[address];
+	if(type(pins)!='array'||!length(pins)||!require('awg').ip(pins[0]))die('missing verified Native VLESS bootstrap address');
+	// Only the dial address changes. Reality SNI, UUID and security stay intact.
+	out.settings.vnext[0].address=pins[0];return out;
 }
 
 function real_dns_target(proxies, groups, state) {
@@ -696,7 +705,7 @@ function native_preview(path, review_grants, permanent) {
 		migration_restrict_unknown:boolopt(main,'native_migration_restrict_unknown',true),
 		direct_grants_confirmed:review_grants || boolopt(main,'native_direct_grants_confirmed',false),
 		unknown_action:opt(main,'native_unknown_action','protected')});
-	let automatic_used = index(configured_targets, 'auto_proxy_group') >= 0 || classification.unknown=='protected' && auto!=null;
+	let automatic_used = index(configured_targets, 'auto_proxy_group') >= 0 || classification.unknown=='protected' && auto!=null || permanent&&auto!=null;
 	if (!automatic_used && classification.unknown!='protected') choice = { active: 'blocked', reason: 'automatic_group_unused' };
 	let adapter_tags = [...configured_targets, ...(automatic_used ?
 		[auto.primary, auto.fixed_proxy, auto.manual_override_proxy, ...auto.backups] : [])];
@@ -735,6 +744,7 @@ function native_preview(path, review_grants, permanent) {
 		unknown_fallback[family][protocol]=plan.classification.unknown=='protected' ? planner.unknown_target(plan,family,protocol) :
 			plan.classification.unknown=='direct'?'direct':'blocked';
 	for(let family in ['4','6']) for(let tag in values(unknown_fallback[family])) push(selected,tag);
+	if(permanent)push(selected,choice.active);
 	if (review_grants) return {mode:'direct-grant-review-only',direct_grants:grants,
 		unknown_fallback,classification:{...plan.classification,direct_grants_confirmed:boolopt(main,'native_direct_grants_confirmed',false)}};
 	let quarantine = guard.desired({ schema: 1, pools: [], lans: [] },
@@ -756,7 +766,10 @@ function native_preview(path, review_grants, permanent) {
 				['domain_direct_requires_explicit_address_or_client_grant'] : [])] };
 	if(permanent) {
 		result.compiled=plan; result.dns.persistent=true;
-		let outbounds={};for(let p in proxies.list)if(p.protocol=='vless' && plan.adapters[p.tag])outbounds[p.tag]=vless_outbound(p);
+		if(!spec.protected_dns_state || type(spec.dns_tls_endpoints)!='array' || !length(spec.dns_tls_endpoints))die('permanent Native requires protected DNS upstream');
+		result.dns.protected_upstream=spec.protected_dns_state;
+		result.dns_tls_endpoints=spec.dns_tls_endpoints;
+		let outbounds={};for(let p in proxies.list)if(p.protocol=='vless' && plan.adapters[p.tag])outbounds[p.tag]=pinned_vless(vless_outbound(p),spec);
 		result.xray=planner.xray_config(plan,outbounds);
 		result.nft.protection=planner.dns_gate(plan);
 	}
@@ -790,7 +803,12 @@ function build_health_config(tag, port) {
 	if (!p)
 		die('unknown proxy for health check: ' + tag);
 
-	return health_config(vless_outbound(p), port);
+	let out=vless_outbound(p),path=getenv('PODKOPCHIK_NATIVE_BOOTSTRAP_SPEC');
+	if(path&&p.protocol=='vless'){
+		let s=lstat(path);if(s?.type!='file'||s.uid!=0||(s.mode&0o077)||s.nlink!=1||s.size>262144)die('unsafe Native bootstrap state');
+		out=pinned_vless(out,json(readfile(path)));
+	}
+	return health_config(out, port);
 }
 
 function load_results(path) {

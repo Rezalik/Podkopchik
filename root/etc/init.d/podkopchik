@@ -23,6 +23,19 @@ native_present() {
 		[ -n "$(jsonfilter -q -i "$CONFIG_DIR/native-state/runtime.json" -e '@.current' 2>/dev/null)" ]
 }
 native_runtime() { sh "$LIB/native_runtime.sh" "$@"; }
+native_missing() {
+	local emergency="${PKC_EMERGENCY_VM_ROOT:-/etc/podkopchik-native-emergency}/state.json"
+	[ "$(jsonfilter -q -i "$emergency" -e '@.mode' 2>/dev/null)" != restored ] || return 0
+	[ "$(uci -c "${PODKOPCHIK_UCI_CONFIG_DIR:-/etc/config}" -q get "$APP.main.routing_enabled" 2>/dev/null)" != 0 ] || return 1
+	[ "$(uci -c "${PODKOPCHIK_UCI_CONFIG_DIR:-/etc/config}" -q get "$APP.main.routing_engine" 2>/dev/null)" = native ] || return 1
+	if native_present && ucode -e 'import {lstat,readfile} from "fs";
+		let root=ARGV[0]+"/native-state",s=lstat(root+"/runtime.json");if(s?.type!="file"||s.uid!=0||(s.mode&0o077))exit(1);
+		let m=json(readfile(root+"/runtime.json"));if(m.schema!=1||!match(m.current || "",/^[a-f0-9]{32}$/))exit(1);
+		s=lstat(root+"/g-"+m.current+"/plan.json");if(s?.type!="file"||s.uid!=0||(s.mode&0o077))exit(1);' "$CONFIG_DIR"; then return 1; fi
+	sh "$LIB/native_boot_guard.sh" hold || safety guard
+	logger -t podkopchik 'Native selected but generation metadata is missing; management retained, LAN/DNS guarded; explicit repair required'
+	return 0
+}
 
 startup_error() {
 	STARTUP_FAILED=1
@@ -72,6 +85,7 @@ xray_instance() {
 }
 
 core_restart() {
+	if native_missing; then return 1; fi
 	if native_present; then native_runtime boot; return; fi
 	local old_pids
 	uci_bool "$APP.main.enabled" && uci_bool "$APP.main.routing_enabled" || return 1
@@ -103,6 +117,7 @@ uci_bool() {
 
 start_service() {
 	STARTUP_FAILED=0
+	if native_missing; then return 1; fi
 	if native_present; then native_runtime boot; return; fi
 	safety fake-sync || { startup_error 'could not establish FakeDNS quarantine'; return 1; }
 	uci_bool "$APP.main.enabled" || return 0

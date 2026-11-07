@@ -25,11 +25,17 @@ func run() error {
 	check := flag.Bool("check", false, "validate policy and persistent state without sockets or nft changes")
 	probe := flag.String("probe", "", "check local DNS over UDP and TCP")
 	resolve := flag.String("resolve", "", "resolve an endpoint through the existing loopback resolver")
+	protected := flag.String("protected-probe", "", "private protected DNS transport state")
+	probeName := flag.String("probe-name", "www.youtube.com", "public protected DNS test name")
+	nativeProbe := flag.Bool("probe-native", false, "probe native listener without an external DNS dependency")
 	runTimeout := flag.Int("run-timeout", 0, "internal bounded native lifecycle command")
 	capabilities := flag.Bool("capabilities", false, "native coordinator compatibility")
 	flag.Parse()
 	if *capabilities {
-		return json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": 2, "persistent_dns": true, "bounded_commands": true})
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": 3, "persistent_dns": true, "bounded_commands": true, "protected_dns": true})
+	}
+	if *protected != "" {
+		return protectedProbe(*protected, *probeName)
 	}
 	if *runTimeout != 0 {
 		if *runTimeout < 1 || *runTimeout > 30 || flag.NArg() < 1 {
@@ -59,6 +65,9 @@ func run() error {
 		var ips []string
 		for _, network := range []string{"udp", "tcp"} {
 			name := "localhost."
+			if *nativeProbe {
+				name = "pkc-native-health.invalid."
+			}
 			if *resolve != "" {
 				name = dns.Fqdn(*resolve)
 			}
@@ -126,6 +135,9 @@ func run() error {
 	}
 	r := &resolver{policy: p, writer: &publisher{policy: p, ledger: l, leases: make(map[bindingKey]binding), commit: nftCommit(p)},
 		upstream: makeUpstream(p.Upstream), slots: make(chan struct{}, 64), cache: make(map[questionKey]result)}
+	if p.ProtectedUpstream != "" {
+		r.upstream = newProtectedResolver(p.ProtectedUpstream).query
+	}
 	if err := r.writer.restore(); err != nil {
 		return err
 	}

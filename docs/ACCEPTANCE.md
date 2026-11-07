@@ -571,6 +571,42 @@ Permanent Native release gates:
 
 These commands must exist:
 
+Permanent Native protected-DNS and repair-policy acceptance:
+
+- Verified TLS DNS through each physical AWG, provider fallback, certificate
+  rejection, stale interface rejection, all-down and recovery without restart.
+- Client DNS never uses ISP DNS; positive AWG capture and zero matching DNS
+  packets on physical WAN are required, not just nft counters.
+- IPv4-only DNS does not advertise unsupported AAAA; IPv6 cached traffic has
+  no unprotected fallback. VLESS numeric bootstrap retains Reality settings.
+- An ordinary DNS or injected nft failure does not restore legacy in repair
+  mode. Invalid correction preserves the journal; a corrected full Apply
+  repairs it in place while protected forwarding remains guarded.
+- Independent procd management deadline is tested detached from SSH; inactive
+  rehearsal retains household PIDs. Actual emergency restore retains both
+  synthetic quarantines and protected legacy transport, not implicit Direct.
+- The default transactional mode still passes reboot/rollback tests. Physical
+  emergency and whole-LAN acceptance must be reported separately from VM tests.
+
+Household Native RC, Xiaomi AX6000 / OpenWrt 25.12.6, 2026-11-07:
+
+- [x] Whole br-lan ordinary Apply explicitly confirmed in Strict/repair mode;
+  AWG-only runs without Xray. Network, Wi-Fi, DHCP and AWG profiles retained.
+- [x] Protected DoT through each real AWG, bad-certificate/stale-interface
+  rejection and provider fallback; matching physical WAN DNS capture is empty.
+- [x] Real client HTTPS and iPhone applications work; user reports improvement
+  after MSS repair. Captured tunnel SYN MSS changes from 1460 to 1240 at MTU 1280.
+- [x] Probe-only physical fault triggers three-failure AWG failover, HTTPS on
+  backup, independent fault removal and two-success automatic primary return.
+- [x] Unknown/retired synthetic pools denied; bounded physical WAN capture
+  contains no matching synthetic packets. Private recovery kit retained.
+- [ ] Physical controlled UDP echo and QUIC remain unconfirmed: remote echo
+  has no answering independent AWG control; HTTP/3 controls also time out.
+- [ ] Many-hour resource stability, actual household reboot, physical VLESS,
+  native IPv6 transport and full physical emergency restore remain separate.
+
+See [the measured pilot and limitations](UNIVERSAL-NATIVE-HOUSEHOLD-20261107.md).
+
 ```sh
 podkopchikctl status
 podkopchikctl generate

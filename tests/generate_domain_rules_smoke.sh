@@ -13,6 +13,7 @@ if ! ucode -L "${UCODE_MODULE_DIR:-/usr/lib/ucode}" -e 'import { cursor } from "
 fi
 
 tmp="$(mktemp -d)"
+export PODKOPCHIK_UCI_CONFIG_DIR="$tmp"
 trap 'rm -rf "$tmp"' EXIT
 
 cat > "$tmp/podkopchik" <<'EOF'

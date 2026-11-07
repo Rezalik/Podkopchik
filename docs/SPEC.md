@@ -1000,6 +1000,22 @@ the explicit deployment acceptance in [AWG-STAGE23.md](AWG-STAGE23.md).
 Required CLI
 
 Experimental `native-apply` is limited to the isolated AX6000 canary scope.
+Permanent Native uses a schema-3 protected DoT upstream through AWG or VLESS,
+with numeric endpoint bootstrap separated from client DNS. There is no ISP DNS
+fallback. Explicit `native_recovery_policy=repair` keeps ordinary failures on
+Native with Strict protection; it requires a separately verified immutable
+management-emergency capsule. Transactional fixed-deadline behavior remains
+the default. Emergency legacy recovery is protected, not unrestricted Direct.
+See [DNS and repair contracts](UNIVERSAL-PERMANENT-APPLY.md).
+
+The [2026-11-07 physical household pilot](UNIVERSAL-NATIVE-HOUSEHOLD-20261107.md)
+uses the permanent Native lifecycle on AX6000, not a per-client preview.
+Native AWG forwarding clamps TCP MSS in both tunnel directions using path MTU;
+it does not change interface MTU or profile configuration. Already-owned,
+revision-matching, guarded AWGs are inspected without taking a mutation lock
+for an unnecessary start, preventing contention with health probes.
+VLESS route ownership accepts both named `local` and numeric `RTN_LOCAL=2`
+JSON from `ip -N`, but still requires owned protocol, loopback and default route.
 It is not the permanent mode: `routing_engine=native` dispatches ordinary
 `apply`, `generate`, `validate` and `validate-active` to the whole-LAN coordinator.
 `native-status`, `native-confirm TOKEN` and `native-abort TOKEN` expose its

@@ -236,6 +236,14 @@ function controller(options) {
 			let lines = [];
 			for (let line in split(profile.parsed.config, '\n')) {
 				let field = trim(split(line, '=', 2)[0]);
+				if(field=='Endpoint'&&options.endpoint_ips){
+					let value=trim(split(line,'=',2)[1]),ipv6=substr(value,0,1)=='[',end=ipv6?index(value,']'):rindex(value,':');
+					let host=ipv6?substr(value,1,end-1):substr(value,0,end),port=substr(value,end+(ipv6?2:1));
+					if(!awg.ip(host)){
+						let ip=options.endpoint_ips[host]?.[0];if(!ip||!awg.ip(ip))awg.fail('network');
+						line='Endpoint = '+(index(ip,':')>=0?'['+ip+']':ip)+':'+port;
+					}
+				}
 				if (index([ 'Address', 'DNS', 'MTU', 'FwMark' ], field) < 0) push(lines, line);
 			}
 			let f = fs.open(config_path, 'wx', 0o600);

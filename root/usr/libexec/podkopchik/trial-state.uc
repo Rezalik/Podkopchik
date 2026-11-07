@@ -25,11 +25,11 @@ function save(state) {
 		die('cannot persist trial journal\n');
 }
 
-if (action == 'arm') {
+if (action == 'arm' || action == 'arm-repair') {
 	const timeout = ARGV[2];
 	if (fs.lstat(path) || !match(timeout || '', /^[0-9]{1,4}$/) || +timeout < 5 || +timeout > 3600)
 		die('trial already armed or invalid timeout\n');
-	save({ schema: 1, boot, deadline: now + +timeout, state: 'armed' });
+	save({ schema: 1, boot, deadline: now + +timeout, state: 'armed', ...(action=='arm-repair'?{repair:true}:{}) });
 	return;
 }
 
@@ -37,13 +37,20 @@ const s = json(fs.readfile(path) || '{}');
 if (s.schema != 1 || !match(s.boot || '', /^[a-f0-9-]{36}$/) || type(s.deadline) != 'int' ||
 	index(['armed', 'verified', 'confirmed', 'rollback', 'restored'], s.state) < 0)
 	die('invalid trial journal\n');
-const expired = s.boot != boot || now >= s.deadline;
+// Repair uses the independently supervised management lease, not a site/DNS
+// confirmation timer. The ordinary transactional deadline stays fixed.
+const expired = s.boot != boot || s.repair!==true && now >= s.deadline;
 if (action == 'poll') {
 	if (expired && index(['armed', 'verified'], s.state) >= 0) {
 		s.state = 'rollback'; save(s);
 	}
 	print((index(['armed', 'verified'], s.state) >= 0 ? 'waiting' : s.state) + '\n');
 }
+else if (action == 'repair-renew' && s.repair===true && !expired && index(['armed','verified'],s.state)>=0) {
+	if(!match(ARGV[2] || '',/^[0-9]+$/)||+ARGV[2]<30||+ARGV[2]>300)die('invalid repair management lease\n');
+	s.deadline=now + +ARGV[2];save(s);
+}
+else if (action == 'cancel' && s.repair===true && index(['armed','verified'],s.state)>=0) { s.state='rollback';save(s);s.state='restored';save(s); }
 else if (action == 'verify' && s.state == 'armed' && !expired) { s.state = 'verified'; save(s); }
 else if (action == 'confirm' && s.state == 'verified' && !expired) { s.state = 'confirmed'; save(s); }
 else if (action == 'abort' && index(['armed', 'verified'], s.state) >= 0) { s.state = 'rollback'; save(s); }

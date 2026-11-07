@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"io"
 	"math/big"
@@ -17,19 +18,20 @@ import (
 
 	quic "github.com/apernet/quic-go"
 	"github.com/apernet/quic-go/http3"
+	"github.com/miekg/dns"
 )
 
 // Both sides run only in the isolated guest; private keys never leave memory.
 func quicFixture(mode, addr, certPath string) error {
 	tlsConf := &tls.Config{ServerName: "protected.example", MinVersion: tls.VersionTLS13}
-	if mode == "quic-serve" || mode == "https-serve" {
+	if mode == "quic-serve" || mode == "https-serve" || mode == "dot-serve" {
 		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		if err != nil {
 			return err
 		}
 		now := time.Now()
 		leaf := &x509.Certificate{SerialNumber: big.NewInt(1), DNSNames: []string{tlsConf.ServerName}, NotBefore: now.Add(-time.Minute),
-			NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+			NotAfter: now.Add(6 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
 		der, err := x509.CreateCertificate(rand.Reader, leaf, leaf, &key.PublicKey, key)
 		if err != nil {
 			return err
@@ -37,6 +39,32 @@ func quicFixture(mode, addr, certPath string) error {
 		tlsConf.Certificates = []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}
 		if err := os.WriteFile(certPath, der, 0600); err != nil {
 			return err
+		}
+		if mode == "dot-serve" {
+			if err := os.WriteFile(certPath+".pem", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0600); err != nil {
+				return err
+			}
+			ln, err := tls.Listen("tcp", addr, tlsConf)
+			if err != nil {
+				return err
+			}
+			server := dns.Server{Listener: ln, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, q *dns.Msg) {
+				m := new(dns.Msg).SetReply(q)
+				name := q.Question[0].Name
+				if q.Question[0].Qtype == dns.TypeAAAA {
+					m.Answer = []dns.RR{rr(name + " 90 IN AAAA 2001:db8:80::1")}
+				} else if name == "approved.example." {
+					m.Answer = []dns.RR{rr(name + " 90 IN A 203.0.113.82")}
+				} else if name == "protected.example." || name == "expire.protected.example." {
+					m.Answer = []dns.RR{rr(name + " 2 IN CNAME cdn.example."), rr("cdn.example. 90 IN A 203.0.113.80")}
+				} else if name == "multiple.protected.example." {
+					m.Answer = []dns.RR{rr(name + " 90 IN A 203.0.113.90"), rr(name + " 90 IN A 203.0.113.91")}
+				} else {
+					m.Answer = []dns.RR{rr(name + " 90 IN A 203.0.113.80")}
+				}
+				_ = w.WriteMsg(m)
+			})}
+			return server.ActivateAndServe()
 		}
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/test" || (mode == "quic-serve" && r.ProtoMajor != 3) {

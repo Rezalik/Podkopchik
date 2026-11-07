@@ -9,12 +9,12 @@ assert(begin > 0 && end > begin);
 function stage(commitOK, watcherOK) {
 	const calls = [], prior = {current:'previous'};
 	const ctx = () => ({set(){}, commit(){calls.push('commit'); return commitOK;}});
-	const run = new Function('ctx','watch_service','save','journal','fail','META','prior','g','id','seconds', source.slice(begin, end));
+	const run = new Function('ctx','watch_service','save','journal','fail','META','prior','g','id','seconds','repair', source.slice(begin, end));
 	let result, error;
 	try {
 		result = run(ctx, () => {calls.push('watch'); if (!watcherOK) throw Error('watch failed');},
 			(path, value) => {assert.strictEqual(path, 'metadata'); assert.strictEqual(value, prior); calls.push('restore');},
-			action => calls.push(action), message => {throw Error(message);}, 'metadata', prior, 'candidate', 'a'.repeat(32), 300);
+			action => calls.push(action), message => {throw Error(message);}, 'metadata', prior, 'candidate', 'a'.repeat(32), 300, false);
 	} catch (e) {error=e;}
 	return {calls, result, error};
 }

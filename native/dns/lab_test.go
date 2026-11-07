@@ -266,7 +266,7 @@ func TestGuestFixture(t *testing.T) {
 			t.Fatal("TCP connect failed", err)
 		}
 		_ = c.Close()
-	case "quic-serve", "quic-client", "https-serve", "https-client":
+	case "quic-serve", "quic-client", "https-serve", "https-client", "dot-serve":
 		if err := quicFixture(mode, a[0], a[1]); err != nil {
 			t.Fatal(err)
 		}

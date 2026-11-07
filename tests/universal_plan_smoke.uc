@@ -27,6 +27,11 @@ ok(index(failover, r + 'ip daddr @domain_0_4 meta mark set ' + rb.mark) >= 0, 'f
 ok(index(failover, 'add set') < 0 && index(failover, 'delete table') < 0, 'failover keeps DNS sets');
 ok(index(failed, r + 'ip daddr @domain_0_4 counter drop') >= 0, 'all-down blocks protected domain');
 ok(index(initial, 'oifname != "' + ra.interface + '" counter drop') >= 0, 'lost policy cannot escape via WAN');
+ok(index(initial, 'mss_fix iifname "br-lan" meta mark ' + ra.mark + ' oifname "' + ra.interface +
+	'" tcp flags & (fin | syn | rst) == syn tcp option maxseg size set rt mtu') >= 0, 'AWG egress clamps TCP MSS without altering interface MTU');
+ok(index(initial, 'mss_fix iifname "' + ra.interface + '" oifname "br-lan" ct mark & 0xff000000 ' + up.adapters[ra.tag].pin) >= 0,
+	'AWG reply MSS correction requires the owned transport pin');
+ok(index(failover, 'flush chain inet podkopchik_native mss_fix') >= 0, 'MSS correction participates in atomic transport updates');
 ok(index(initial, 'tproxy') < 0 && index(initial, 'xray') < 0, 'native path has no Xray');
 let bad = fixture(ra.tag); bad.bypass = ['198.19.2.3'];
 rejects(() => native.compile(bad), 'reject bypass conflict with fake pool');

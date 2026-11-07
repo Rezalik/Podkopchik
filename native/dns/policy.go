@@ -45,6 +45,7 @@ type config struct {
 	ClassificationMode    string         `json:"classification_mode,omitempty"`
 	MigrationRestriction  bool           `json:"migration_restrict_unknown,omitempty"`
 	Persistent            bool           `json:"persistent,omitempty"`
+	ProtectedUpstream     string         `json:"protected_upstream,omitempty"`
 }
 
 type policy struct {
@@ -59,6 +60,9 @@ type policy struct {
 }
 
 func compile(c config) (*policy, error) {
+	if c.ProtectedUpstream != "" && (!strings.HasPrefix(c.ProtectedUpstream, "/") || len(c.ProtectedUpstream) > 512 || strings.ContainsAny(c.ProtectedUpstream, "\r\n\x00")) {
+		return nil, errors.New("invalid protected DNS state path")
+	}
 	if !epochRE.MatchString(c.Epoch) || len(c.Groups) > 512 || len(c.Pools) == 0 || len(c.Pools) > 2 ||
 		len(c.Exclusions) > 1024 || len(c.RetiredPools) > 80 {
 		return nil, errors.New("invalid DNS policy bounds")

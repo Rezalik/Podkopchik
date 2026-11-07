@@ -414,6 +414,7 @@ install_tree() {
 	fi
 
 	chmod 755 "$(path /etc/init.d/podkopchik)" "$(path /etc/init.d/podkopchik-fakedns)" "$(path /usr/bin/podkopchikctl)" || die "could not set executable permissions"
+	[ ! -f "$(path /etc/init.d/podkopchik-native-emergency)" ] || chmod 755 "$(path /etc/init.d/podkopchik-native-emergency)" || die "could not set emergency init permissions"
 	chmod 755 "$(path /usr/libexec/podkopchik)"/*.sh "$(path /usr/libexec/podkopchik)"/*.uc || die "could not set helper permissions"
 	[ -f "$CONFIG_PATH" ] && chmod 600 "$CONFIG_PATH"
 }

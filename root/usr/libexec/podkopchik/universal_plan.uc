@@ -174,6 +174,7 @@ function render(plan, switching) {
 	}
 	chain('classify', 'filter', 'prerouting', -151);
 	chain('egress_guard', 'filter', 'forward', -200);
+	chain('mss_fix', 'filter', 'forward', -150);
 	chain('nat', 'nat', 'postrouting', 99);
 	if (plan.synthetic) chain('synth_nat', 'nat', 'prerouting', -105);
 	function rule(chain, expression) { push(lines, 'add rule inet ' + TABLE + ' ' + chain + ' ' + expression); }
@@ -282,6 +283,12 @@ function render(plan, switching) {
 			continue;
 		}
 		rule('egress_guard', marked + ' oifname != "' + a.interface + '" counter drop');
+		// Kernel AWG forwarding no longer benefits from Xray's local TCP
+		// sockets. Clamp both SYN directions to the tunnel path MTU.
+		let syn = 'tcp flags & (fin | syn | rst) == syn tcp option maxseg size set rt mtu';
+		rule('mss_fix', marked + ' oifname "' + a.interface + '" ' + syn);
+		rule('mss_fix', 'iifname "' + a.interface + '" oifname "' + plan.lan +
+			'" ct mark & 0xff000000 ' + a.pin + ' ' + syn);
 		rule('nat', marked + ' oifname "' + a.interface + '" masquerade');
 	}
 	return join('\n', lines) + '\n';
@@ -332,6 +339,9 @@ function xray_config(plan, outbounds) {
 			streamSettings: { sockopt: { tproxy: 'tproxy' } } });
 		push(config.outbounds, outbound);
 		push(config.routing.rules, { type: 'field', inboundTag: [tag], outboundTag: a.tag });
+		let dns_tag='native-dns-'+a.port;
+		push(config.inbounds,{tag:dns_tag,listen:'127.0.0.1',port:a.port+32,protocol:'socks',settings:{auth:'noauth',udp:false}});
+		push(config.routing.rules,{type:'field',inboundTag:[dns_tag],outboundTag:a.tag});
 	}
 	return config;
 }

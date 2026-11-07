@@ -31,11 +31,17 @@ func run(args []string) error {
 	defer cancel()
 	switch mode {
 	case "lookup":
-		if len(args) != 4 || (args[2] != "tcp" && args[2] != "udp") {
+		if (len(args) != 4 && len(args) != 5) || (args[2] != "tcp" && args[2] != "udp") {
 			return errors.New("lookup requires TCP/UDP and a hostname")
 		}
 		q := new(dns.Msg).SetQuestion(dns.Fqdn(args[3]), dns.TypeA)
 		c := &dns.Client{Net: args[2], Timeout: 4 * time.Second}
+		if len(args) == 5 {
+			c.Dialer = &net.Dialer{}
+			if err := bindDevice(c.Dialer, args[4]); err != nil {
+				return err
+			}
+		}
 		m, _, err := c.ExchangeContext(ctx, q, endpoint.String())
 		if err != nil {
 			return err
@@ -68,6 +74,11 @@ func run(args []string) error {
 			iface = args[2]
 		}
 		return probeEcho(ctx, endpoint, iface)
+	case "stun":
+		if len(args) != 3 {
+			return errors.New("stun requires an endpoint and interface")
+		}
+		return probeSTUN(ctx, endpoint, args[2])
 	case "udp-serve":
 		if len(args) != 3 {
 			return errors.New("udp-serve requires a bind endpoint and a lifetime in seconds")
@@ -78,15 +89,31 @@ func run(args []string) error {
 		}
 		return serveEcho(endpoint, time.Duration(seconds)*time.Second)
 	case "quic":
-		if len(args) != 3 || endpoint.Port() != 443 {
+		if (len(args) != 3 && len(args) != 4) || endpoint.Port() != 443 {
 			return errors.New("quic requires UDP/443 and a TLS server name")
 		}
 		if labels, ok := dns.IsDomainName(args[2]); !ok || labels < 2 {
 			return errors.New("invalid QUIC TLS server name")
 		}
+		var packet net.PacketConn
+		if len(args) == 4 {
+			d := &net.Dialer{}
+			if err := bindDevice(d, args[3]); err != nil {
+				return err
+			}
+			lc := net.ListenConfig{Control: d.Control}
+			packet, err = lc.ListenPacket(ctx, "udp4", "0.0.0.0:0")
+			if err != nil {
+				return err
+			}
+			defer packet.Close()
+		}
 		tr := &http3.Transport{
 			TLSClientConfig: &tls.Config{ServerName: args[2], MinVersion: tls.VersionTLS13},
 			Dial: func(ctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+				if packet != nil {
+					return quic.Dial(ctx, packet, net.UDPAddrFromAddrPort(endpoint), tlsCfg, cfg)
+				}
 				return quic.DialAddr(ctx, endpoint.String(), tlsCfg, cfg)
 			},
 		}

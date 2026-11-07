@@ -101,6 +101,8 @@ done
 
 rm -f "$(path /etc/init.d/podkopchik)"
 rm -f "$(path /etc/init.d/podkopchik-fakedns)"
+if [ -z "$DESTDIR" ] && [ -x /etc/init.d/podkopchik-native-emergency ]; then /etc/init.d/podkopchik-native-emergency disable; fi
+rm -f "$(path /etc/init.d/podkopchik-native-emergency)"
 rm -f "$(path /etc/hotplug.d/iface/95-podkopchik-fakedns)"
 rm -f "$(path /usr/bin/podkopchikctl)"
 rm -rf "$(path /usr/libexec/podkopchik)"

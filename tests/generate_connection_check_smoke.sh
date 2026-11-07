@@ -5,6 +5,7 @@ if ! command -v ucode >/dev/null 2>&1 || ! command -v jsonfilter >/dev/null 2>&1
 	exit 0
 fi
 tmp="$(mktemp -d)"
+export PODKOPCHIK_UCI_CONFIG_DIR="$tmp"
 trap 'rm -rf "$tmp"' EXIT
 cat > "$tmp/podkopchik" <<'EOF'
 config settings 'main'
