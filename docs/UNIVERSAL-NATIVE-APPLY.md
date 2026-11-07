@@ -1,5 +1,8 @@
 # Scoped Native Apply on OpenWrt 25.12.6
 
+Historical canary checkpoint. The current ordinary whole-LAN Apply is
+documented in [Permanent Native Apply](UNIVERSAL-PERMANENT-APPLY.md).
+
 Base: `afa1a4c`, `feature/universal-routing-engine`. This is an actual
 activation transaction for one isolated virtual client, not a household
 LAN migration. `podkopchikctl apply` still uses the working legacy path.

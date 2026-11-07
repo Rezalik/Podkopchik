@@ -243,7 +243,7 @@ function cli(args) {
 		return true;
 	}
 	function work() {
-		if (index(['sync', 'sync-registered', 'status', 'release', 'register-native', 'preview-native', 'rollback-first-install'], cmd) < 0)
+		if (index(['sync', 'sync-registered', 'status', 'release', 'register-native', 'check-native', 'preview-native', 'rollback-first-install'], cmd) < 0)
 			die('invalid FakeDNS guard action');
 		// LuCI diagnostics must neither initialize the guard nor write flash.
 		if (cmd != 'status') {
@@ -256,7 +256,7 @@ function cli(args) {
 		let registered = private_file(path);
 		if (cmd == 'sync-registered' && !registered) return;
 		let previous = registered ? state(json(fs.readfile(path))) : { schema: 1, pools: [], lans: [] };
-		let uci = require('uci').cursor(), lan = uci.get('podkopchik', 'main', 'lan_ifname') || 'br-lan';
+		let uci = require('uci').cursor(getenv('PODKOPCHIK_UCI_CONFIG_DIR')), lan = uci.get('podkopchik', 'main', 'lan_ifname') || 'br-lan';
 		let configs = [config(conf + '/config.json', false)], lans = [lan];
 		let pointer = trim(fs.readfile(conf + '/working-state.name') || '');
 		if (match(pointer, /^\.working-[A-Za-z0-9_-]+$/)) {
@@ -280,7 +280,7 @@ function cli(args) {
 			if (private_file(path + '.new') && !fs.unlink(path + '.new')) die('cannot remove unfinished trial ledger');
 			return;
 		}
-		if (cmd == 'register-native' || cmd == 'preview-native') {
+		if (cmd == 'register-native' || cmd == 'check-native' || cmd == 'preview-native') {
 			// An explicit operator step after native pool admission; never
 			// assume an RFC1918 block is free or reserve it on normal Apply.
 			native = canonical(candidate);
@@ -331,6 +331,7 @@ function cli(args) {
 		let rules = batch(next, live.table);
 		if (fs.writefile(scratch, rules) != length(rules)) die('cannot stage FakeDNS nftables rules');
 		execute([nft, '-c', '-f', scratch]);
+		if(cmd=='check-native'){print('native_preflight=ok\n');return;}
 		if (cmd == 'preview-native') {
 			if (length(next.pools) != 2 || index(next.pools, '198.18.0.0/15') < 0 ||
 				length(next.native_pools) != 1 || next.native_pools[0] != '172.31.253.0/24')

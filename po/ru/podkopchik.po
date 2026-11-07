@@ -1521,3 +1521,60 @@ msgstr "Правило direct только по домену и общий IP и
 
 msgid "A shared CDN IP may serve multiple domains; a direct IP exception covers all of them."
 msgstr "Один IP CDN может обслуживать несколько доменов: прямое исключение для этого IP распространяется на все эти домены."
+
+msgid "Legacy"
+msgstr "Прежняя архитектура"
+
+msgid "Universal Routing Engine"
+msgstr "Универсальная маршрутизация"
+
+msgid "Native Apply switches the configured LAN and requires explicit confirmation before the rollback deadline."
+msgstr "Native Apply переключает настроенный LAN и требует явного подтверждения до истечения срока автоматического отката."
+
+msgid "Native synthetic IPv4 pool"
+msgstr "Синтетический IPv4-пул Native"
+
+msgid "Native synthetic IPv6 pool"
+msgstr "Синтетический IPv6-пул Native"
+
+msgid "Use a separately admitted pool. Apply checks live addresses, routes, VPN endpoints and issued FakeDNS pools before activation."
+msgstr "Укажите отдельно проверенный пул. Перед включением Apply проверяет действующие адреса, маршруты, адреса VPN-серверов и ранее выданные пулы FakeDNS."
+
+msgid "Apply confirmation timeout (seconds)"
+msgstr "Срок подтверждения Apply (секунды)"
+
+msgid "Native routing status is unavailable."
+msgstr "Состояние Native-маршрутизации недоступно."
+
+msgid "Native routing is ready."
+msgstr "Native-маршрутизация готова."
+
+msgid "Native routing is not ready. Check the transaction status."
+msgstr "Native-маршрутизация не готова. Проверьте состояние транзакции."
+
+msgid "Xray is required by the selected proxy transport."
+msgstr "Выбранному прокси-транспорту требуется Xray."
+
+msgid "AWG Native does not require Xray."
+msgstr "AWG Native не требует Xray."
+
+msgid "Confirm Native Apply"
+msgstr "Подтвердить Native Apply"
+
+msgid "Roll back Native Apply"
+msgstr "Откатить Native Apply"
+
+msgid "Check DNS and internet access, then confirm before the rollback deadline."
+msgstr "Проверьте DNS и доступ в интернет, затем подтвердите изменения до истечения срока автоматического отката."
+
+msgid "Install the Native DNS component for this router architecture before enabling Universal Routing Engine."
+msgstr "Перед включением универсальной маршрутизации установите компонент Native DNS для архитектуры этого роутера."
+
+msgid "Protected transports are unavailable; protected traffic is blocked."
+msgstr "Защищённые подключения недоступны; защищённый трафик заблокирован."
+
+msgid "Protected recovery is active. Stock DNS is restored; apply again to restore exact domain policies."
+msgstr "Включено защищённое восстановление. Штатный DNS восстановлен; повторите применение для восстановления точных доменных политик."
+
+msgid "Native Apply is pending. Open Status and confirm the configuration before the rollback deadline."
+msgstr "Native Apply ожидает подтверждения. Откройте «Состояние» и подтвердите конфигурацию до истечения срока автоматического отката."

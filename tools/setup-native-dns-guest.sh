@@ -7,9 +7,14 @@ umask 077
 cd /mnt/lab
 sha256sum -c SHA256SUMS
 printf '%s\n' 'b07ac0b0bc7c8ae09fefa5d93e3623ee32f0d52bba26cb809da82fede794461d  xray' | sha256sum -c
-printf '%s\n' /mnt/lab/base/packages.adb /mnt/lab/kernel/packages.adb >/tmp/pkc-lab-repositories
-apk --repositories-file /tmp/pkc-lab-repositories --no-cache --no-progress add ip-full kmod-veth kmod-nft-tproxy tcpdump-mini
+printf '%s\n' /mnt/lab/base/packages.adb /mnt/lab/kernel/packages.adb /mnt/lab/packages/packages.adb >/tmp/pkc-lab-repositories
+apk --repositories-file /tmp/pkc-lab-repositories --no-cache --no-progress add ip-full kmod-veth kmod-nft-tproxy tcpdump-mini curl
 modprobe veth
+if [ "${PKC_VM_PERMANENT:-0}" = 1 ]; then
+	ucode -c -o /tmp/pkc-native-runtime.ucb -L /mnt/lab/permanent/usr/libexec/podkopchik /mnt/lab/permanent/usr/libexec/podkopchik/native_runtime.uc
+	sh ./native-dns-vm-test.sh
+	exit
+fi
 ./native-dns.test -test.v
 (
 	cd /mnt/lab/regression

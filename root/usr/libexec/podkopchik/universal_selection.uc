@@ -6,20 +6,28 @@ function fresh(value, now) {
 		now - value.checked_at < 300;
 }
 
+function retained(value,now) {
+	return value?.status=='up' && index(['up','down'],value.probe_status)>=0 &&
+		type(value.checked_at)=='int' && value.checked_at<=now && now-value.checked_at<300;
+}
+
 // Runtime probes supply the existing fail/restore threshold decisions. This
 // selector cannot promote a stale probe or a tunnel without kernel ownership.
-function select(group, ready, previous, now, cooldown) {
+function select(group, ready, previous, now, cooldown, retained) {
 	if (!group) return { active: 'blocked', reason: 'no_automatic_group' };
 	let backups = group.backups || [], fixed = group.mode == 'fixed_proxy';
 	let preferred = fixed ? group.fixed_proxy : group.primary;
 	let available = tag => tag && ready[tag] == true;
+	let current=previous?.active_proxy;
 	if (group.manual_override_proxy && !fixed)
-		return available(group.manual_override_proxy) ?
+		return available(group.manual_override_proxy) || current==group.manual_override_proxy && retained?.[current] ?
 			{ active: group.manual_override_proxy, reason: 'manual_override' } :
 			{ active: 'blocked', reason: 'manual_override_unavailable' };
 	if (!fixed && group.mode != 'strict_primary') die('unsupported automatic group mode');
 	if (fixed && group.failure_action != 'switch_to_backup') backups = [];
-	let members = [preferred, ...backups], current = previous?.active_proxy;
+	let members = [preferred, ...backups];
+	if(current && retained?.[current] && !available(current) && index(members,current)>=0)
+		return {active:current,reason:'probe_hysteresis'};
 	let keep = index(members, current) >= 0 && available(current);
 	let elapsed = now - (previous?.last_switch_time || 0);
 	if (keep && current != preferred && available(preferred) &&
@@ -30,4 +38,4 @@ function select(group, ready, previous, now, cooldown) {
 	return { active: 'blocked', reason: 'no_healthy_transport' };
 }
 
-return { fresh, select };
+return { fresh, retained, select };

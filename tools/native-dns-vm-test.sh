@@ -11,8 +11,14 @@ lib=/mnt/lab/source
 bin="$PKC_VM_BIN/native-dns.test"
 daemon="$PKC_VM_BIN/podkopchik-native-dns"
 xray="$PKC_VM_BIN/xray"
-work=$(mktemp -d /tmp/native-dns-vm.XXXXXX)
-r="pkc-router-$$"; l="pkc-client-$$"; w="pkc-wan-$$"
+if [ -n "${PKC_VM_PERMANENT_STATE:-}" ]; then
+	case "$PKC_VM_PERMANENT_STATE" in /etc/pkc-permanent-vm) ;; *) fail 'invalid permanent VM state';; esac
+	work="$PKC_VM_PERMANENT_STATE/work"; mkdir -p -m700 "$work"
+	r=pkc-permanent-router; l=pkc-permanent-client; w=pkc-permanent-wan
+else
+	work=$(mktemp -d /tmp/native-dns-vm.XXXXXX)
+	r="pkc-router-$$"; l="pkc-client-$$"; w="pkc-wan-$$"
+fi
 pids=""; caps=""; namespaces=""
 dns_service="pkc-vm-dns-$$"; guard_service="pkc-vm-watchdog-$$"
 stock_service="pkc-vm-stock-$$"; xray_server="pkc-vm-xray-server-$$"; xray_client="pkc-vm-xray-client-$$"; xray_mixed="pkc-vm-xray-mixed-$$"
@@ -61,6 +67,21 @@ wn() { ip netns exec "$w" "$@"; }
 for ns in "$r" "$l" "$w"; do
 	ip netns add "$ns"; namespaces="$namespaces $ns"; ip -n "$ns" link set lo up
 done
+if [ -f "$work/permanent/config/native-state/runtime.json" ]; then
+	# This fixture stores configuration on ext4; emulate the production /tmp
+	# loss while retaining only the flash-backed allocator and generations.
+	case "$work" in /etc/pkc-permanent-vm/work) rm -rf "$work/permanent/tmp"; mkdir -m700 "$work/permanent/tmp";; *) fail 'invalid reboot fixture';; esac
+	env PODKOPCHIK_LIB="$work/permanent/lib" PODKOPCHIK_NATIVE_DNS="$daemon" \
+		PODKOPCHIK_UCI_CONFIG_DIR="$work/permanent/uci" PODKOPCHIK_CONFIG_DIR="$work/permanent/config" \
+		PODKOPCHIK_TMP_DIR="$work/permanent/tmp" PKC_NATIVE_VM_NS="$r" \
+		/sbin/ip netns exec "$r" sh "$work/permanent/lib/fakedns_guard.sh" sync
+	env PODKOPCHIK_LIB="$work/permanent/lib" PODKOPCHIK_NATIVE_DNS="$daemon" \
+		PODKOPCHIK_UCI_CONFIG_DIR="$work/permanent/uci" PODKOPCHIK_CONFIG_DIR="$work/permanent/config" \
+		PODKOPCHIK_TMP_DIR="$work/permanent/tmp" PKC_NATIVE_VM_NS="$r" sh "$work/permanent/lib/native_runtime.sh" early
+	if [ "$(uci -c "$work/permanent/uci" get podkopchik.main.routing_enabled)" != 0 ]; then
+		rn nft list table inet podkopchik_native_transition > "$work/early-guard.nft"
+	fi
+fi
 for mode in bootstrap-gate gate edge release canary forward primary backup down restore to-vless from-vless dns resources xray xray-route; do
 	ucode -L "$lib" "$lib/native_dns_vm_plan.uc" "$mode" > "$work/$mode"
 done
@@ -116,12 +137,14 @@ while read -r dev mark table prio; do
 	local_mac=$(ip -n "$r" link show "$dev" | awk '/link\/ether/ {print $2}')
 	ip -n "$r" -6 neigh replace "2001:db8:$i::2" lladdr "$peer_mac" nud permanent dev "$dev"
 	ip -n "$w" -6 neigh replace "2001:db8:$i::1" lladdr "$local_mac" nud permanent dev "$peer"
-	ip -n "$r" rule add fwmark "$mark" table "$table" priority "$prio"
-	ip -n "$r" -6 rule add fwmark "$mark" table "$table" priority "$prio"
-	ip -n "$r" route add default via "198.51.$i.2" dev "$dev" table "$table" metric 100
-	ip -n "$r" -6 route add default via "2001:db8:$i::2" dev "$dev" table "$table" metric 100
-	ip -n "$r" route add unreachable default table "$table" metric 42760
-	ip -n "$r" -6 route add unreachable default table "$table" metric 42760
+	proto=0
+	[ "${PKC_VM_PERMANENT:-0}" != 1 ] || proto=186
+	ip -n "$r" rule add fwmark "$mark" table "$table" priority "$prio" protocol "$proto"
+	ip -n "$r" -6 rule add fwmark "$mark" table "$table" priority "$prio" protocol "$proto"
+	ip -n "$r" route add default via "198.51.$i.2" dev "$dev" table "$table" metric 100 proto "$proto"
+	ip -n "$r" -6 route add default via "2001:db8:$i::2" dev "$dev" table "$table" metric 100 proto "$proto"
+	ip -n "$r" route add unreachable default table "$table" metric 42760 proto "$proto"
+	ip -n "$r" -6 route add unreachable default table "$table" metric 42760 proto "$proto"
 done < "$work/resources"
 read -r xmark xtable xprio < "$work/xray-route"
 for family in 4 6; do
@@ -133,9 +156,13 @@ rn ip -4 -j route show table all > "$work/live-routes4"
 rn ip -6 -j route show table all > "$work/live-routes6"
 rn ip -4 -j rule show > "$work/live-rules4"
 rn ip -6 -j rule show > "$work/live-rules6"
-ucode -L "$lib" "$lib/native_dns_vm_plan.uc" live-inventory "$work/live-addresses" "$work/live-routes4" "$work/live-routes6" \
-	"$work/live-rules4" "$work/live-rules6"
-echo 'PASS: native pool inventory does not overlap live VM addresses, routes or prior FakeDNS'
+if [ -s "$work/permanent/config/native-state/runtime.json" ]; then
+	echo 'SKIPPED: historical canary inventory rejects owned boot quarantine; production Native readmission runs below'
+else
+	ucode -L "$lib" "$lib/native_dns_vm_plan.uc" live-inventory "$work/live-addresses" "$work/live-routes4" "$work/live-routes6" \
+		"$work/live-rules4" "$work/live-rules6"
+	echo 'PASS: native pool inventory does not overlap live VM addresses, routes or prior FakeDNS'
+fi
 cat > "$work/firewall" <<'EOF'
 config defaults
 	option input 'REJECT'
@@ -234,6 +261,10 @@ PKC_NATIVE_LAB=quic-serve ip netns exec "$w" "$bin" -test.run='^TestGuestFixture
 	'203.0.113.80:18082' "$work/quic4.der" >"$work/quic4.log" 2>&1 & pids="$pids $!"
 PKC_NATIVE_LAB=quic-serve ip netns exec "$w" "$bin" -test.run='^TestGuestFixture$' -- \
 	'[2001:db8:80::1]:18082' "$work/quic6.der" >"$work/quic6.log" 2>&1 & pids="$pids $!"
+if [ "${PKC_VM_PERMANENT:-0}" = 1 ]; then
+	. /mnt/lab/native-permanent-vm-test.sh
+	exit
+fi
 ledger="$work/ledger"
 if [ -n "${PKC_VM_PERSIST:-}" ]; then
 	[ "$PKC_VM_PERSIST" = /etc/pkc-native-vm-state ] || fail 'unexpected persistent fixture path'

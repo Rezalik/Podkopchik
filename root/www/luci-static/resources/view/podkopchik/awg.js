@@ -141,7 +141,8 @@ return view.extend({
 		return Promise.resolve().then(operation).then(function(result) {
 			if (!result.ok) throw new Error(errorText(result));
 			ui.hideModal();
-			ui.addNotification(null, E('p', {}, success), 'info');
+			ui.addNotification(null, E('p', {}, result.native_apply && result.native_apply.confirmation_required
+				? _('Native Apply is pending. Open Status and confirm the configuration before the rollback deadline.') : success), 'info');
 			return callList().then(function(data) { self.updateList(data); });
 		}).catch(function(error) {
 			ui.addNotification(null, E('p', {}, error.message || _('AWG operation failed.')), 'error');

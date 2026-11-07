@@ -456,10 +456,14 @@ See [the deployment, current roles, evidence and recovery snapshots](docs/AWG-ST
 and [the earlier diagnosis and local regression tests](docs/AWG-STABILITY-FIXES-20261104.md).
 Full failure-injection/reboot/leak-capture acceptance remains separate.
 
-The [Universal Routing Engine preview](docs/UNIVERSAL-ROUTING-20261105.md)
-is not a production update. It tests classifying traffic before transport,
-with a native AWG path and a separate FakeDNS quarantine. The working router
-still uses Xray for interception and DNS. Do not install the preview from LuCI.
+The feature branch now implements [permanent Native Apply](docs/UNIVERSAL-PERMANENT-APPLY.md)
+through ordinary `podkopchikctl apply`, covering the configured household LAN,
+durable DNS state, independent AWG Native and optional Xray/VLESS. Activation
+requires explicit configuration, a matching ARM64 component, pool admission,
+confirmed direct grants and a fixed autonomous rollback deadline. Legacy stays
+the default. No working router is automatically migrated by installation.
+The earlier [Universal Routing Engine preview](docs/UNIVERSAL-ROUTING-20261105.md)
+is historical evidence, not the permanent installer.
 The [transactional DNS laboratory](docs/UNIVERSAL-DNS-20261106.md) uses an
 offline OpenWrt VM on the workstation and does not access a router.
 The [release qualification report](docs/UNIVERSAL-RELEASE-VM-20261106.md)
@@ -467,7 +471,8 @@ documents procd, reboot, offload rejection and DNS rollback. Its ARM64 review
 archive is not an installer and does not enable native routing.
 The [scoped Native Apply checkpoint](docs/UNIVERSAL-NATIVE-APPLY.md)
 exercises actual activation and rollback for one isolated IPv4 AWG client.
-It does not switch the household LAN or replace the existing Apply command.
+That historical scoped command does not switch the household LAN; ordinary
+Apply in the new permanent coordinator does, after its preflight gates.
 The [native classification contract](docs/NATIVE-CLASSIFICATION.md) defines
 Strict protected fallback, Compatible and migration restriction, explicit
 direct grants and the limit of per-domain direct access on shared cached IPs.

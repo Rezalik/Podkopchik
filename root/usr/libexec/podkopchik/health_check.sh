@@ -15,6 +15,14 @@ ACTIVE_PROBE_PID=""
 ACTIVE_PROBE_LOCK=""
 ACTIVE_PROBE_BASE=""
 
+uci() {
+	if [ -n "${PODKOPCHIK_UCI_CONFIG_DIR:-}" ]; then
+		command uci -c "$PODKOPCHIK_UCI_CONFIG_DIR" "$@"
+	else
+		command uci "$@"
+	fi
+}
+
 xray_bin() {
 	. "${PODKOPCHIK_XRAY_SELECTOR:-$LIB/xray.sh}"
 	xray_bin
@@ -368,7 +376,7 @@ run_once_locked() {
 		done
 	fi
 
-	if ucode -L "$LIB" "$LIB/generate.uc" state "$results" > "$STATE.tmp"; then
+	if ucode -L "$LIB" "$LIB/generate.uc" state "$results" "$STATE" > "$STATE.tmp"; then
 		events="$TMP_DIR/health-events.$$"
 		switched="0"
 		applied="0"
@@ -385,7 +393,7 @@ run_once_locked() {
 			logger -t podkopchik "jsonfilter not available; failover switch events cannot be detected"
 		fi
 
-		if [ "$switched" = "1" ]; then
+		if [ "$switched" = "1" ] || [ "${PODKOPCHIK_NATIVE_ACTIVE:-0}" = 1 ]; then
 			if [ "$(uci -q get "$APP.main.routing_enabled" 2>/dev/null || echo 0)" = "1" ]; then
 				if "$CTL" apply-health-state "$STATE.tmp"; then
 					applied="1"
@@ -412,7 +420,11 @@ run_once_locked() {
 		chmod 600 "$STATE"
 		logger -t podkopchik "health check completed"
 		if [ "$applied" = "1" ]; then
-			logger -t podkopchik "failover config applied; Xray restart was verified before state publication"
+			if [ "${PODKOPCHIK_NATIVE_ACTIVE:-0}" = 1 ]; then
+				logger -t podkopchik "native transport selection applied before health state publication"
+			else
+				logger -t podkopchik "failover config applied; Xray restart was verified before state publication"
+			fi
 		fi
 		rm -f "$events"
 	else

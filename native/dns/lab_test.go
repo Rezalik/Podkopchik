@@ -144,6 +144,8 @@ func TestGuestFixture(t *testing.T) {
 		}
 	case "cached-http":
 		fixtureHTTP(t, a[0], a[1], "")
+	case "source-http":
+		fixtureHTTP(t, a[0], a[1], a[2])
 	case "direct-client":
 		local := net.ParseIP(a[1])
 		qt := uint16(dns.TypeA)
@@ -317,6 +319,9 @@ func TestGuestFixture(t *testing.T) {
 		if len(a) > 3 && a[3] == "expire" {
 			wait = 45 * time.Second
 		}
+		if len(a) > 3 && a[3] == "apply" {
+			wait = 120 * time.Second
+		}
 		for until := time.Now().Add(wait); time.Now().Before(until); {
 			if _, e := os.Stat(a[2] + ".again"); e == nil {
 				if _, e := os.Stat(a[2] + ".replied"); os.IsNotExist(e) {
@@ -329,6 +334,12 @@ func TestGuestFixture(t *testing.T) {
 				}
 			}
 			if _, e := os.Stat(a[2]); e == nil {
+				if len(a) > 3 && a[3] == "apply" {
+					if e := get(); e != nil {
+						t.Fatal("confirmed Apply interrupted an authorized live tuple", e)
+					}
+					return
+				}
 				if e := get(); e == nil {
 					t.Fatal("established flow escaped after classifier disappeared")
 				}

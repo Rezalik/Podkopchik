@@ -6,6 +6,7 @@
 			"cgi-io": [ "exec" ],
 			"file": {
 				"/usr/bin/podkopchikctl status": [ "exec" ],
+				"/usr/bin/podkopchikctl native-status": [ "exec" ],
 				"/usr/bin/podkopchikctl update-check": [ "exec" ],
 				"/usr/bin/podkopchikctl xray-status": [ "exec" ],
 				"/sbin/logread -e podkopchik": [ "exec" ],
@@ -23,6 +24,8 @@
 			"cgi-io": [ "exec" ],
 			"file": {
 				"/usr/bin/podkopchikctl apply": [ "exec" ],
+				"/usr/bin/podkopchikctl native-confirm *": [ "exec" ],
+				"/usr/bin/podkopchikctl native-abort *": [ "exec" ],
 				"/usr/bin/podkopchikctl health": [ "exec" ],
 				"/usr/bin/podkopchikctl restart": [ "exec" ],
 				"/usr/bin/podkopchikctl cleanup": [ "exec" ],

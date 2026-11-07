@@ -18,6 +18,11 @@ STARTUP_FAILED=0
 STARTUP_OLD_PIDS=""
 
 safety() { sh "$SAFETY" "$@"; }
+native_present() {
+	[ -s "$CONFIG_DIR/native-state/runtime.json" ] &&
+		[ -n "$(jsonfilter -q -i "$CONFIG_DIR/native-state/runtime.json" -e '@.current' 2>/dev/null)" ]
+}
+native_runtime() { sh "$LIB/native_runtime.sh" "$@"; }
 
 startup_error() {
 	STARTUP_FAILED=1
@@ -67,6 +72,7 @@ xray_instance() {
 }
 
 core_restart() {
+	if native_present; then native_runtime boot; return; fi
 	local old_pids
 	uci_bool "$APP.main.enabled" && uci_bool "$APP.main.routing_enabled" || return 1
 	"$CTL" validate-active >/dev/null 2>&1 || return 1
@@ -97,6 +103,7 @@ uci_bool() {
 
 start_service() {
 	STARTUP_FAILED=0
+	if native_present; then native_runtime boot; return; fi
 	safety fake-sync || { startup_error 'could not establish FakeDNS quarantine'; return 1; }
 	uci_bool "$APP.main.enabled" || return 0
 
@@ -154,6 +161,7 @@ start_service() {
 }
 
 service_started() {
+	if native_present; then return 0; fi
 	[ "$STARTUP_FAILED" = 0 ] || return 1
 	uci_bool "$APP.main.routing_enabled" || return 0
 	if wait_ready "$STARTUP_OLD_PIDS" && safety save && safety unguard; then return 0; fi
@@ -161,6 +169,7 @@ service_started() {
 }
 
 stop_service() {
+	if native_present; then native_runtime stop; return; fi
 	safety fake-sync || { startup_error 'could not retain FakeDNS quarantine'; return 1; }
 	if uci_bool "$APP.main.routing_enabled"; then
 		# A service failure/restart is not an instruction to expose traffic.
@@ -173,6 +182,9 @@ stop_service() {
 }
 
 reload_service() {
+	# UCI commit is not runtime Apply. Keep the confirmed native generation
+	# until the ordinary Apply validates and stages its replacement.
+	if native_present || [ "$(uci -q get "$APP.main.routing_engine" 2>/dev/null)" = native ]; then return 0; fi
 	restart
 }
 

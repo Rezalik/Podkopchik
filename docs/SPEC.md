@@ -529,7 +529,13 @@ The r7 recovery candidate was subsequently installed on the approved AX6000. See
 Normal Apply/health/FakeDNS/LAN tests passed; destructive runtime faults and
 reboot were not exercised on the working router.
 
-### Universal Routing Preview
+### Universal Routing History
+
+The following laboratory milestones are historical. The current optional
+whole-LAN lifecycle is specified in [Permanent Native Apply](UNIVERSAL-PERMANENT-APPLY.md):
+ordinary Apply, guarded DNS/nft/RPDB cutover, explicit nonce confirmation,
+frozen recovery generations, durable synthetic bindings, Native health-driven
+failover, procd restart/boot and protected recovery. Legacy remains the default.
 
 The preview is not a selectable runtime mode. A pure planner renders LAN
 source, DNS-set and CIDR classification before transport. Native AWG uses
@@ -994,6 +1000,11 @@ the explicit deployment acceptance in [AWG-STAGE23.md](AWG-STAGE23.md).
 Required CLI
 
 Experimental `native-apply` is limited to the isolated AX6000 canary scope.
+It is not the permanent mode: `routing_engine=native` dispatches ordinary
+`apply`, `generate`, `validate` and `validate-active` to the whole-LAN coordinator.
+`native-status`, `native-confirm TOKEN` and `native-abort TOKEN` expose its
+transaction lifecycle. A required architecture-specific DNS component is gated
+before it can be selected. See [permanent implementation and limits](UNIVERSAL-PERMANENT-APPLY.md).
 Native classification has explicit Strict/Compatible modes and a separate
 migration restriction. Direct IP/client exceptions require consent in a
 restricted plan; shared DNS answers do not create direct authorization.

@@ -478,6 +478,33 @@ function technicalDetails(data, health) {
 }
 
 function renderCards(statusText, awg) {
+	if (statusText.indexOf('Routing engine: native') >= 0) {
+		var native;
+		try { native = JSON.parse(statusText.substring(statusText.indexOf('{'))); }
+		catch (e) { return [card(_('Universal Routing Engine'), 'error', _('Native routing status is unavailable.'))]; }
+		var allDown = native.automatic && native.automatic.active === 'blocked';
+		var disabled = native.phase === 'disabled';
+		var children = [card(_('Universal Routing Engine'), disabled ? 'inactive' : native.ready && !allDown ? 'ok' : 'warning',
+			disabled ? _('Disabled') : allDown ? _('Protected transports are unavailable; protected traffic is blocked.') :
+				native.phase === 'recovery' ? _('Protected recovery is active. Stock DNS is restored; apply again to restore exact domain policies.') :
+				native.ready ? _('Native routing is ready.') : _('Native routing is not ready. Check the transaction status.'),
+			disabled ? '' : native.xray_required ? _('Xray is required by the selected proxy transport.') : _('AWG Native does not require Xray.')),
+			card(_('Active connection'), disabled ? 'inactive' : allDown ? 'warning' : 'ok',
+				E('span', { 'style': 'overflow-wrap:anywhere' }, disabled || allDown ? _('None') : native.automatic?.active || _('None'))),
+			speedLimitSummary(speedLimitModel())];
+		if (native.pending) {
+			children.push(card(_('Confirm Native Apply'), 'warning', _('Check DNS and internet access, then confirm before the rollback deadline.')));
+			['native-confirm', 'native-abort'].forEach(function(command) {
+				children.push(E('button', {
+					'class': 'btn cbi-button',
+					'click': ui.createHandlerFn(null, function() {
+						return fs.exec_direct('/usr/bin/podkopchikctl', [command, native.pending]).then(function() { window.location.reload(); });
+					})
+				}, command === 'native-confirm' ? _('Confirm Native Apply') : _('Roll back Native Apply')));
+			});
+		}
+		return children;
+	}
 	var data = parseStatus(statusText);
 	if (awg && awg.ok) {
 		data.state = data.state || {};

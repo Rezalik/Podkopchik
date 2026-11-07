@@ -196,6 +196,12 @@ function auto_group(ctx) {
 	for (let i = 0; i < length(backups); i++) ctx.set('podkopchik', sid, 'backup' + (i + 1), backups[i].tag);
 }
 let apply_changes;
+function native_apply_result(ctx, raw) {
+	if (ctx.get('podkopchik', 'main', 'routing_engine') != 'native') return null;
+	let result = json(raw);
+	if (!result?.confirmation_required || !match(result.pending || '', /^[a-f0-9]{32}$/)) awg.fail('apply_failed');
+	return result;
+}
 function assign(tag, role, priority) {
 	if (!match(tag || '', /^[a-zA-Z_][a-zA-Z0-9_]{0,47}$/) ||
 		index([ 'main', 'backup', 'rules_only', 'disabled' ], role) < 0) awg.fail('roles');
@@ -270,6 +276,7 @@ apply_changes = function(ctx, main_tag, measurement) {
 	if (!fs.mkdir(LOCK)) awg.fail('busy');
 	let token = awg.nonce(), journal = { phase: 'prepared', pid: options.pid || int(split(fs.readfile('/proc/self/stat') || '', ' ')[0]),
 		uci: old, active: fs.readfile(ACTIVE), state: fs.readfile(TMP + '/state.json') };
+	let pending = null;
 	if (!journal.pid) { fs.rmdir(LOCK); awg.fail('component'); }
 	try {
 		atomic(LOCK + '/connection-token', token);
@@ -286,13 +293,13 @@ apply_changes = function(ctx, main_tag, measurement) {
 			if (measurement) {
 				if (!state.proxies) state.proxies = {};
 				let result = measurement.value;
-				state.proxies[measurement.tag] = { status: 'up', checked_at: result.checked_at,
+				state.proxies[measurement.tag] = { status: 'up', probe_status: 'up', valid_for: 300, checked_at: result.checked_at,
 					last_success_at: result.checked_at, fail_count: 0, success_count: 0, last_error: '',
 					latency_ms: result.latency_ms, external_ip: result.external_ip || '' };
 			}
 			atomic(TMP + '/state.json', sprintf('%J', state));
 		}
-		shell([ 'env', 'PODKOPCHIK_CONNECTION_APPLY=' + token, '/usr/bin/podkopchikctl', 'apply' ]);
+		pending = native_apply_result(ctx, shell([ 'env', 'PODKOPCHIK_CONNECTION_APPLY=' + token, '/usr/bin/podkopchikctl', 'apply' ]));
 		journal.phase = 'committed'; atomic(JOURNAL, sprintf('%J', journal));
 		remove_transaction();
 	}
@@ -303,7 +310,7 @@ apply_changes = function(ctx, main_tag, measurement) {
 		remove_transaction();
 		awg.fail('apply_failed');
 	}
-	return {};
+	return pending ? { native_apply: pending } : {};
 };
 function list() {
 	let result = db.run('list', {}), ctx = cursor(), connections = [];
@@ -388,7 +395,8 @@ function run(method, args) {
 		}
 		else if (index([ 'start', 'stop', 'restart', 'check' ], method) >= 0) {
 			result = { runtime: runtime(args.id, method) };
-			if (method != 'check' && active_ref(net.resources(args.id).tag)) shell([ '/usr/bin/podkopchikctl', 'apply' ]);
+			if (method != 'check' && active_ref(net.resources(args.id).tag))
+				result.native_apply = native_apply_result(cursor(), shell([ '/usr/bin/podkopchikctl', 'apply' ]));
 		}
 		else {
 			if (method == 'delete' || method == 'replace') {

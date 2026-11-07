@@ -533,9 +533,9 @@ coverage: `tests/xray_instance_restart_smoke.sh` and
 live FD/UDP turnover and EMFILE checks are recorded in
 [the AX6000 FD report](XRAY-FD-20261105.md).
 
-Native routing is a separate experimental acceptance track. Follow the
-[scoped Native Apply checks](UNIVERSAL-NATIVE-APPLY.md); an isolated pass
-does not qualify the home LAN for migration.
+Native routing is a separate acceptance track. Follow the
+[permanent whole-LAN Apply checks](UNIVERSAL-PERMANENT-APPLY.md); historical
+[scoped Native Apply checks](UNIVERSAL-NATIVE-APPLY.md) alone do not qualify it.
 Both native classification modes, migration restriction, explicit direct
 consent and source-isolated DNS cache decisions are covered by the
 [classification matrix](NATIVE-CLASSIFICATION.md). Its scoped grant passes
@@ -544,9 +544,30 @@ Strict acceptance requires a cached real-address connection to stay on a
 suitable protected transport (or be denied), explicit whole-client/address
 direct controls to remain usable, and all-down/unsupported UDP never to use
 WAN. A successful protected fallback is not a domain match.
-Atomic legacy restoration must release native classification and DNS interception
-together while retaining synthetic quarantine; restoring only the resolver
-does not qualify a Strict rollback.
+Native-to-Native rollback must restore the last confirmed policy, not simply
+remove DNS interception. Initial Strict migration recovery must restore stock
+DNS under a protected kernel policy, never legacy implicit direct fallback.
+Issued-pool quarantine and allocator watermarks must survive both paths.
+
+Permanent Native release gates:
+
+- Ordinary Apply covers all configured LAN clients, domain groups, named
+  groups, IP/CIDR and client policies; malformed Apply leaves runtime unchanged.
+- Fixed procd deadline, explicit token confirmation, timer rollback and a
+  reboot during pending Apply restore a confirmed generation without SSH.
+- DNS UDP/TCP, IPv4/IPv6, HTTPS, bidirectional UDP and QUIC work through the
+  kernel path; AWG-only has no main Xray process.
+- Actual VLESS/Reality adapter selection starts Xray only when needed;
+  unsupported UDP never falls back to WAN.
+- Threshold/cooldown health failover, all-down, primary return, classifier and
+  supervisor SIGKILL, fw4 reload and injected nft cutover failure are covered.
+- Same-boot lease restore, cross-boot fresh validation, TTL expiry, stable
+  identities, torn journals, pool exhaustion and shared-CDN cached-IP controls
+  preserve Strict; DNS failure must not issue an unclassified protected IP.
+- Owned cleanup/manual OFF persists at boot. Old/new synthetic addresses are
+  absent on virtual WAN, with positive direct/tunnel capture controls.
+- Reproducible ARM64 artifacts, manifest, file ownership, LMO and full source
+  regressions pass. Physical AWG/WAN and long-duration tests stay separate.
 
 These commands must exist:
 

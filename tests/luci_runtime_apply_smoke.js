@@ -40,6 +40,7 @@ assertMatch(advanced, /handleSaveApply\s*:\s*function/, 'Advanced settings must 
 assertMatch(advanced, /return\s+ui\.changes\.apply/, 'Advanced settings must wait for LuCI UCI apply');
 assertMatch(advanced, /runRuntime\(\s*\[\s*'apply'\s*\]\s*\)/, 'Advanced settings must apply runtime changes when routing is active');
 assertMatch(advanced, /runRuntime\(\s*\[\s*'cleanup'\s*\]\s*\)/, 'Advanced settings must cleanup routing when service is disabled');
+assertMatch(advanced, /enabled == '0' \|\| routing == '0'/, 'Explicit routing OFF must release Native runtime without relying on a UCI reload restart');
 
 const presets = read('root/www/luci-static/resources/view/podkopchik/presets.js');
 assertMatch(presets, /'require fs';/, 'Presets view must import fs for backend apply');

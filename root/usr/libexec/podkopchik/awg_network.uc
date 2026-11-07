@@ -60,7 +60,7 @@ function execute(args) {
 
 function controller(options) {
 	options = options || {};
-	const root = options.root || '/tmp/podkopchik/awg';
+	const root = options.root || (getenv('PODKOPCHIK_TMP_DIR') || '/tmp/podkopchik')+'/awg';
 	const store = options.store || awg.store('/etc/podkopchik/awg', 0);
 	const run = options.run || execute;
 	const now = options.now || time;

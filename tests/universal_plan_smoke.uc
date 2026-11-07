@@ -74,7 +74,9 @@ ok(pool.select([private_pool], inventory, { '4': 254 }, private_pool)['4'].capac
 rejects(() => pool.select([private_pool], { ...inventory, routes: [...inventory.routes, { dst: '172.31.0.0/16' }] },
 	{ '4': 254 }, private_pool), 'reject larger remote private route');
 rejects(() => pool.select([private_pool], inventory, { '4': 255 }, private_pool), 'reject pool undersizing');
-rejects(() => pool.select(['172.31.0.0/16'], inventory, { '4': 254 }, '172.31.0.0/16'), 'reject broad RFC1918 approval');
+ok(pool.select(['172.31.0.0/16'], inventory, { '4': 4096 }, '172.31.0.0/16')['4'].capacity >=4096,
+	'explicitly admitted production pool supports a whole LAN');
+rejects(() => pool.select(['172.16.0.0/12'], inventory, { '4': 254 }, '172.16.0.0/12'), 'reject unbounded RFC1918 approval');
 if (ARGV[0] == 'initial') print(initial);
 else if (ARGV[0] == 'failover') print(failover);
 else if (ARGV[0] == 'down') print(failed);

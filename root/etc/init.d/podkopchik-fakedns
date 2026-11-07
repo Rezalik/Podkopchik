@@ -3,7 +3,10 @@
 START=18
 
 start() {
-	sh /usr/libexec/podkopchik/fakedns_guard.sh sync
+	sh /usr/libexec/podkopchik/fakedns_guard.sh sync || return 1
+	if [ -s /etc/podkopchik/native-state/runtime.json ]; then
+		sh /usr/libexec/podkopchik/native_runtime.sh early
+	fi
 }
 
 # Issued fake addresses remain quarantined while Xray/routing are stopped.

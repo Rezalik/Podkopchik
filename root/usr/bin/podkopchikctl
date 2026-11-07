@@ -7,7 +7,7 @@ APP="podkopchik"
 LIB="${PODKOPCHIK_LIB:-/usr/libexec/podkopchik}"
 CONFIG_DIR="${PODKOPCHIK_CONFIG_DIR:-/etc/podkopchik}"
 CONFIG="$CONFIG_DIR/config.json"
-UCI_CONFIG="/etc/config/$APP"
+UCI_CONFIG="${PODKOPCHIK_UCI_CONFIG_DIR:-/etc/config}/$APP"
 TMP_DIR="${PODKOPCHIK_TMP_DIR:-/tmp/podkopchik}"
 STATE="$TMP_DIR/state.json"
 BYPASS_STATE="$TMP_DIR/proxy_bypass.env"
@@ -18,6 +18,10 @@ SAFETY="${PODKOPCHIK_SAFETY:-$LIB/routing_safety.sh}"
 INIT="${PODKOPCHIK_INIT:-/etc/init.d/podkopchik}"
 
 safety() { sh "$SAFETY" "$@"; }
+uci() {
+	if [ -n "${PODKOPCHIK_UCI_CONFIG_DIR:-}" ]; then command uci -c "$PODKOPCHIK_UCI_CONFIG_DIR" "$@"
+	else command uci "$@"; fi
+}
 
 recover_working_runtime() {
 	safety guard && safety restore &&
@@ -356,7 +360,20 @@ restore_previous_config() {
 	fi
 }
 
+native_present() {
+	[ -s "$CONFIG_DIR/native-state/runtime.json" ] &&
+		[ -n "$(jsonfilter -q -i "$CONFIG_DIR/native-state/runtime.json" -e '@.current' 2>/dev/null)" ]
+}
+
+native_runtime() { sh "$LIB/native_runtime.sh" "$@"; }
+
 cmd_status() {
+	if native_present; then
+		echo "Podkopchik $VERSION"
+		echo 'Routing engine: native'
+		native_runtime status
+		return
+	fi
 	echo "Podkopchik $VERSION"
 	echo "Service enabled: $(uci -q get "$APP.main.enabled" 2>/dev/null || echo 1)"
 	requested="$(uci -q get "$APP.main.routing_enabled" 2>/dev/null || echo 0)"
@@ -368,8 +385,8 @@ cmd_status() {
 	echo "Routing requested: $requested"
 	echo "Routing applied: $live"
 	echo "Routing safety guard: $guard_status"
-	# The native compiler is a preview. Do not infer a household mode from
-	# the presence of temporary canary tables or an AWG device.
+	# Only the durable coordinator pointer declares the installed engine.
+	# Temporary canary tables and AWG devices do not select household routing.
 	echo "Routing engine: legacy"
 	echo "Native classification configured: $(uci -q get "$APP.main.native_classification_mode" 2>/dev/null || echo strict)"
 	echo "Native unknown traffic configured: $(uci -q get "$APP.main.native_unknown_action" 2>/dev/null || echo protected)"
@@ -407,12 +424,14 @@ cmd_status() {
 }
 
 cmd_generate() {
+	if [ "$(uci -q get "$APP.main.routing_engine" 2>/dev/null)" = native ]; then native_runtime generate "${1:-$CONFIG_DIR/native.generated.json}"; return; fi
 	out="${1:-$CONFIG_DIR/config.generated.json}"
 	generate_to "$out"
 	echo "$out"
 }
 
 cmd_validate() {
+	if [ "$(uci -q get "$APP.main.routing_engine" 2>/dev/null)" = native ]; then native_runtime validate; return; fi
 	tmp="$TMP_DIR/config.validate.json"
 	generate_to "$tmp"
 	validate_file "$tmp"
@@ -420,6 +439,7 @@ cmd_validate() {
 }
 
 cmd_validate_active() {
+	if native_present; then native_runtime validate-active; return; fi
 	[ -s "$CONFIG" ] || die "active config does not exist"
 	validate_file "$CONFIG"
 }
@@ -444,6 +464,8 @@ cmd_prepare_connections() {
 }
 
 cmd_apply() {
+	if [ "$(uci -q get "$APP.main.routing_engine" 2>/dev/null)" = native ]; then native_runtime apply; return; fi
+	if native_present; then native_runtime leave; fi
 	mkdir -p "$TMP_DIR" "$CONFIG_DIR"
 
 	lock_dir="$TMP_DIR/config-apply.lock"
@@ -553,6 +575,7 @@ cmd_apply() {
 cmd_apply_health_state() {
 	state_file="${1:-}"
 	[ -s "$state_file" ] || die "health state file does not exist"
+	if native_present; then native_runtime health "$state_file"; return; fi
 	[ "$(uci -q get "$APP.main.routing_enabled" 2>/dev/null || echo 0)" = "1" ] || die "routing is inactive"
 	[ -s "$CONFIG" ] || die "active config does not exist"
 
@@ -602,6 +625,12 @@ cmd_apply_health_state() {
 }
 
 cmd_cleanup() {
+	if native_present; then
+		uci -q set "$APP.main.routing_enabled=0"
+		uci -q commit "$APP"
+		native_runtime disable
+		return
+	fi
 	lock_dir="$TMP_DIR/config-apply.lock"
 	mkdir -p "$TMP_DIR"
 	mkdir "$lock_dir" || die "another config apply is in progress"
@@ -901,6 +930,14 @@ cmd_update_install() {
 
 	installer="$(find "$extract_dir" -name install.sh -type f | head -n 1)"
 	[ -n "$installer" ] || die "install.sh not found in update archive"
+	if native_present && [ ! -f "$(dirname "$installer")/root/usr/libexec/podkopchik/native_runtime.uc" ]; then
+		die "update lacks permanent Native Apply support; explicitly disable and migrate engines before downgrading"
+	fi
+	component="$(dirname "$installer")/install-native-dns.sh"
+	if [ -f "$component" ]; then
+		sh "$component" --preflight || die "Native DNS component preflight failed; active routing unchanged"
+		sh "$component" --install || die "could not install immutable Native DNS component; active routing unchanged"
+	fi
 	if has_awg_binding && [ ! -f "$(dirname "$installer")/root/usr/libexec/podkopchik/awg_manage.uc" ]; then
 		die "update lacks mixed AWG support; migrate to VLESS-only explicitly before downgrading"
 	fi
@@ -921,6 +958,9 @@ cmd_update_install() {
 
 cmd_rollback() {
 	[ -s "$ROLLBACK" ] || die "rollback archive not found"
+	if native_present && ! tar -tzf "$ROLLBACK" | grep -Eq '(^|/)usr/libexec/podkopchik/native_runtime.uc$'; then
+		die "old rollback cannot restore permanent Native routing; use the protected engine recovery procedure first"
+	fi
 	if has_awg_binding && ! tar -tzf "$ROLLBACK" | grep -Eq '(^|/)usr/libexec/podkopchik/awg_manage.uc$'; then
 		die "old rollback cannot handle AWG bindings; use the protected AWG rollback procedure first"
 	fi
@@ -933,6 +973,9 @@ cmd_rollback() {
 
 case "${1:-}" in
 	status) cmd_status ;;
+	native-status) native_runtime status ;;
+	native-confirm) [ "$#" = 2 ] || die 'usage: native-confirm TOKEN'; native_runtime confirm "$2" ;;
+	native-abort) [ "$#" = 2 ] || die 'usage: native-abort TOKEN'; native_runtime abort "$2" ;;
 	generate) shift; cmd_generate "$@" ;;
 	validate) cmd_validate ;;
 	validate-active) cmd_validate_active ;;
@@ -948,7 +991,7 @@ case "${1:-}" in
 	apply-health-state) shift; cmd_apply_health_state "$@" ;;
 	restart) /etc/init.d/podkopchik restart ;;
 	cleanup) cmd_cleanup ;;
-	health) "$LIB/health_check.sh" once ;;
+	health) if native_present; then native_runtime health-once; else "$LIB/health_check.sh" once; fi ;;
 	awg-list) ucode_run "$LIB/awg_cli.uc" list ;;
 	awg-recover) ucode_run "$LIB/awg_cli.uc" recover apply ;;
 	awg-start|awg-stop|awg-restart|awg-check)

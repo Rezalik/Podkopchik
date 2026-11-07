@@ -16,9 +16,11 @@ const form = {
 };
 const source = fs.readFileSync('root/www/luci-static/resources/view/podkopchik/advanced.js', 'utf8');
 const page = new Function('view', 'form', 'fs', 'ui', 'uci', '_', 'E', source)(
-	{ extend: x => x }, form, {}, { createHandlerFn: () => () => {} }, {}, x => x, () => ({}));
+	{ extend: x => x }, form, {}, { createHandlerFn: () => () => {} }, {get:()=> 'legacy'}, x => x, () => ({}));
 (async () => {
-	await page.render();
+	await page.render([null,{available:true}]);
+	assert(options.get('routing_engine').values.some(row=>row[0]==='native'));
+	assert.strictEqual(options.get('routing_engine').default,'legacy');
 	const mode = options.get('native_classification_mode');
 	assert.deepStrictEqual(mode.values, [['strict', 'Strict'], ['compatible', 'Compatible']]);
 	assert.strictEqual(mode.default, 'strict');
@@ -32,5 +34,7 @@ const page = new Function('view', 'form', 'fs', 'ui', 'uci', '_', 'E', source)(
 	assert(options.get('native_direct_grants_confirmed').description.includes('shared CDN IP'));
 	assert(options.get('_native_strict_warning').cfgvalue().includes('unknown-traffic policy'));
 	assert.strictEqual(options.get('native_unknown_action').default, 'protected');
+	await page.render([null,{available:false}]);
+	assert(!options.get('routing_engine').values.some(row=>row[0]==='native'));
 	console.log('Native classification LuCI PASS: real options, migration default, explicit grant consent and compatible warning');
 })().catch(e => { console.error(e); process.exitCode = 1; });

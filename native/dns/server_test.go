@@ -20,7 +20,7 @@ import (
 func testConfig() config {
 	return config{Epoch: "0011223344556677", Listen: "127.0.0.1:1058", Upstream: "127.0.0.1:1059",
 		Pools: []string{"198.18.0.0/15", "2001:2::/48"}, Exclusions: []string{"192.0.2.11/32"},
-		Groups: []group{{[]string{"protected.example"}, true}, {[]string{"other.example"}, true}, {[]string{"direct.example"}, false}}}
+		Groups: []group{{Names: []string{"protected.example"}, Protected: true}, {Names: []string{"other.example"}, Protected: true}, {Names: []string{"direct.example"}, Protected: false}}}
 }
 
 type clientResponseWriter struct {

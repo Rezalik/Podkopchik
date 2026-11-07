@@ -4,7 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const source = fs.readFileSync('root/www/luci-static/resources/view/podkopchik/awg.js', 'utf8');
 const calls = [], notices = [];
-let modal, flags = {};
+let modal, flags = {}, pendingNative = false;
 String.prototype.format = function(...args) { let i = 0; return this.replace(/%[sd]/g, () => String(args[i++])); };
 function E(tag, attrs, children) {
 	assert(/^[a-z][a-z0-9]*$/i.test(tag), 'DOM tag must be constant, not user input');
@@ -23,6 +23,7 @@ const rpc = { declare(spec) {
 		calls.push({ method: spec.method, args });
 		if (spec.method === 'list') return { ok: true, connections: [item], ...flags };
 		if (spec.method === 'set_interception') flags = { udp_interception: args[0] === '1', ipv6_interception: args[1] === '1' };
+		if (spec.method === 'assign' && pendingNative) return {ok:true, native_apply:{confirmation_required:true, pending:'a'.repeat(32)}};
 		return { ok: true };
 	};
 } };
@@ -91,6 +92,11 @@ async function settle() { for (let i = 0; i < 20; i++) { await new Promise(r => 
 	selects[0].value = 'backup'; selects[1].value = '2';
 	find(modal, n => n.tag === 'button' && text(n) === 'Apply settings').attrs.click(); await settle();
 	assert.deepStrictEqual(calls.find(x => x.method === 'assign').args, ['awg_' + item.id, 'backup', '2']);
+	pendingNative = true;
+	await page.perform(() => rpc.declare({object:'podkopchik.awg', method:'assign'})(), 'Connection role applied.');
+	assert(text(notices.at(-1)).includes('Open Status and confirm'), 'Native role change must not hide confirmation');
+	assert(!text(notices.at(-1)).includes('role applied'), 'pending is not a committed success');
+	pendingNative = false;
 	page.probeSettings(item);
 	find(modal, n => n.tag === 'button' && text(n) === 'Save').attrs.click(); await settle();
 	assert(calls.some(x => x.method === 'set_probe' && x.args[0] === item.id));

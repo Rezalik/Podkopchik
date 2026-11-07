@@ -149,6 +149,22 @@ const statusText = [
 ].join('\n');
 
 const rendered = view.render([ statusText ]);
+const nativeRendered = view.render(['Podkopchik\nRouting engine: native\n' + JSON.stringify({
+	engine: 'native', phase: 'active', ready: true, xray_required: false, pending: 'a'.repeat(32)
+})]);
+const nativeText = textOf(nativeRendered);
+if (!nativeText.includes('AWG Native does not require Xray.') || !nativeText.includes('Confirm Native Apply') ||
+	!nativeText.includes('Roll back Native Apply') || nativeText.includes('Xray is not running'))
+	throw new Error('Native status/confirmation card did not render independently from legacy Xray');
+const nativeDown = view.render(['Routing engine: native\n' + JSON.stringify({
+	phase: 'active', ready: true, automatic: { active: 'blocked' }, xray_required: false
+})]);
+if (textOf(nativeDown).includes('Native routing is ready.') ||
+	!textOf(nativeDown).includes('Protected transports are unavailable'))
+	throw new Error('Native all-down must not be presented as healthy routing');
+const nativeRecovery = view.render(['Routing engine: native\n' + JSON.stringify({phase:'recovery',ready:false})]);
+if (!textOf(nativeRecovery).includes('Stock DNS is restored'))
+	throw new Error('Protected recovery must explain its reduced DNS precision');
 const text = textOf(rendered).replace(/\s+/g, ' ').trim();
 
 if (!text.includes('Legacy routing through Xray') || !text.includes('Protection is incomplete'))

@@ -4,6 +4,7 @@ umask 077
 . /mnt/lab/native-vm-only.sh
 state=/etc/pkc-native-vm-state
 [ -d "$state" ] && [ ! -L "$state" ]
+if [ -f "$state/permanent-only" ]; then exec sh /mnt/lab/native-permanent-vm-boot.sh; fi
 if [ -f "$state/classification-only" ]; then exec sh /mnt/lab/native-classification-vm-boot.sh; fi
 export PKC_VM_PERSIST="$state"
 boot=$(cat /proc/sys/kernel/random/boot_id)

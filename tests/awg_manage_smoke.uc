@@ -43,7 +43,7 @@ let manager = backend.create({ root: root + '/profiles', tmp: root, owner: owner
 		for (let p in rows()) if (p['.type'] == 'proxy' && p.enabled != '0')
 			push(out, { tag: p.tag, protocol: p.protocol || 'vless' });
 		write(active, sprintf('%J', { outbounds: out }));
-		return '';
+		return rows()[0].routing_engine == 'native' ? sprintf('%J', {pending:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',confirmation_required:true,timeout:300}) : '';
 	}
 });
 function fails(method, args, code, label) {
@@ -122,6 +122,13 @@ fails('list', {}, 'recovery_required', 'interrupted transition is visible, not s
 check(manager.recover(), 'recover dead transaction');
 check(fs.readfile(cfg) == original && fs.readfile(active) == original_active, 'crash journal restores previous files');
 check(!fs.lstat(root + '/config-apply.lock'), 'crash lock removed');
+let native_ctx = cursor();
+native_ctx.set('podkopchik', 'main', 'routing_engine', 'native'); native_ctx.commit('podkopchik');
+let pending = manager.run('assign', {tag:'ibn',role:'main',priority:''});
+check(pending.native_apply?.confirmation_required && pending.native_apply.pending == 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'Native confirmation token is returned to LuCI');
+check(json(fs.readfile(root + '/state.json')).proxies.ibn.probe_status == 'up', 'isolated role probe is fresh for Native selection');
+native_ctx = cursor(); native_ctx.delete('podkopchik', 'main', 'routing_engine'); native_ctx.commit('podkopchik');
+original = fs.readfile(cfg);
 fs.mkdir(root + '/config-apply.lock');
 write(root + '/config-apply.lock/connection-journal.json', sprintf('%J', {
 	pid: 99999999, phase: 'prepared', uci: original, active: original_active, state: old_state

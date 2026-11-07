@@ -63,7 +63,7 @@ function compile(input) {
 	for (let name in legacy_lans)
 		if (type(name) != 'string' || !match(name, /^[A-Za-z0-9_.-]{1,15}$/) || name == 'lo' || name == lan)
 			die('legacy and native LAN interfaces must be separate');
-	let adapters = {}, marks = {}, interfaces = {};
+	let adapters = {}, marks = {}, interfaces = {}, pins={};
 	for (let a in list(input.adapters, 'adapters', 32)) {
 		let r;
 		if (a?.type == 'amneziawg' && match(a.id || '', /^[a-f0-9]{32}$/)) {
@@ -89,13 +89,16 @@ function compile(input) {
 		}
 		marks[r.mark] = true;
 		if (r.interface) interfaces[r.interface] = true;
-		adapters[r.tag] = { ...r, sources, pin: (length(keys(adapters)) + 1) * 16777216,
+		let pin=a.pin ?? (length(keys(adapters))+1)*16777216;
+		if(type(pin)!='int'||pin<=0||pin>4261412864||pin%16777216!=0||pin==DIRECT_PIN||pins[pin])die('invalid native conntrack pin ownership');
+		pins[pin]=true;
+		adapters[r.tag] = { ...r, sources, pin,
 			type: a.type, usable: a.usable == true, ipv4: a.ipv4 == true, ipv6: a.ipv6 == true };
 	}
 	// Runtime health/threshold/cooldown selection supplies resolved automatic
 	// targets. The planner does not probe or treat unknown health as available.
 	function target(tag) {
-		if (tag == 'direct' || tag == 'blocked' || tag == 'auto_proxy_group' || adapters[tag]) return tag;
+		if (tag == 'direct' || tag == 'blocked' || tag == 'auto_proxy_group' || adapters[tag] || input.groups?.[tag]) return tag;
 		die('unresolved native target');
 	}
 	if (input.automatic != 'blocked' && !adapters[input.automatic]) die('unresolved native automatic transport');
@@ -154,7 +157,10 @@ function compile(input) {
 		die('native direct address/client grants require explicit confirmation');
 	let unknown_candidates=list(input.unknown_candidates ?? [],'unknown fallback candidates',32);
 	for(let tag in unknown_candidates) if(!adapters[tag]) die('invalid unknown fallback candidate');
-	return { schema: 1, lan, legacy_lans, automatic: input.automatic, adapters, fake, bypass, domains, synthetic, unknown_candidates,
+	let groups=input.groups || {};
+	for(let tag in keys(groups))if(!match(tag,/^[a-z][a-z0-9_]{0,63}$/)||adapters[tag]||index(['direct','blocked','auto_proxy_group'],tag)>=0||
+		(groups[tag]!='blocked' && !adapters[groups[tag]]))die('invalid native group');
+	return { schema: 1, lan, legacy_lans, automatic: input.automatic, adapters, fake, bypass, domains, synthetic, unknown_candidates,groups,
 		classification: classified,
 		clients, ips };
 }
@@ -206,6 +212,7 @@ function render(plan, switching) {
 			// or client, not a domain inferred from a shared DNS answer.
 			if (tag == 'direct') return restricted ? 'meta mark set ' + DIRECT + ' counter accept' : 'return';
 			if (tag == 'auto_proxy_group') tag = plan.automatic;
+			else if(plan.groups?.[tag])tag=plan.groups[tag];
 			let a = plan.adapters[tag];
 			if (!a?.usable || !(v6 ? a.ipv6 : a.ipv4)) return 'counter drop';
 			return 'meta mark set ' + a.mark + ' counter accept';
@@ -287,7 +294,7 @@ function dns_policy(plan, listen, upstream, excluded) {
 	let result = { epoch: plan.synthetic.epoch, listen, upstream,
 		pools: values(plan.synthetic.pools), retired_pools: plan.fake,
 		exclusions: [...plan.fake, ...plan.bypass, ...map(excluded, network_value)],
-		groups: map(plan.domains, g => ({ names: g.names, protected: g.target != 'direct' })) };
+		groups: map(plan.domains, g => ({ names: g.names, protected: g.target != 'direct',policy:g.target })) };
 	if (length(plan.clients)) {
 		result.client_policies=map(plan.clients,c=>({cidr:c.cidr,direct:c.target=='direct'}));
 		result.direct_grants_confirmed=plan.classification.direct_grants_confirmed;
@@ -442,6 +449,7 @@ function dns_edge(plan) {
 		rule('dns_lan', lan + 'meta nfproto ipv' + family + ' ' + transport + 'th dport 53 dnat ' + proto + ' to ' + target);
 		let socket = proto + ' daddr ' + addr + ' ' + transport + 'th dport ' + dns.port;
 		rule('dns_input', lan + socket + ' ct status dnat ct direction original ct original proto-dst 53 return');
+		rule('dns_input','iifname "lo" '+socket+' return');
 		rule('dns_input', socket + ' counter drop');
 	}
 	// These filter chains stay in place if the NAT redirect is lost.
@@ -457,6 +465,15 @@ function dns_release(plan) {
 	return join('\n', map(['dns_lan', 'dns_input', 'dns_forward'], c => 'destroy chain inet ' + GATE + ' ' + c)) + '\n';
 }
 
+function dns_recovery(plan) {
+	if(!plan.synthetic?.dns)die('no managed DNS in recovery plan');
+	let lines=['destroy chain inet '+TABLE+' dns_input_safety',
+		'add chain inet '+GATE+' dns_recovery { type nat hook prerouting priority -155; policy accept; }'];
+	for(let family,addr in plan.synthetic.dns.endpoints){let proto=family=='4'?'ip':'ip6',target=family=='4'?addr+':53':'['+addr+']:53';
+		push(lines,'add rule inet '+GATE+' dns_recovery iifname "'+plan.lan+'" meta nfproto ipv'+family+' meta l4proto { tcp, udp } th dport 53 dnat '+proto+' to '+target);}
+	return join('\n',lines)+'\n';
+}
+
 function legacy_restore(plan) {
 	// The controller must restore the verified legacy firewall/resolver in
 	// the same transaction. Keep quarantine and tunnel-source guards, but
@@ -469,12 +486,13 @@ function legacy_restore(plan) {
 function switch_batch(previous, next) {
 	function layout(p) {
 		return { lan: p.lan, legacy_lans: p.legacy_lans, classification: p.classification, unknown_candidates:p.unknown_candidates,
+			groups:keys(p.groups || {}),
 			fake: p.fake, bypass: p.bypass, domains: p.domains, clients: p.clients, ips: p.ips, synthetic: p.synthetic,
-			adapters: map(keys(p.adapters), tag => [tag, p.adapters[tag].type, p.adapters[tag].interface, p.adapters[tag].mark, p.adapters[tag].port, p.adapters[tag].sources]) };
+			adapters: map(keys(p.adapters), tag => [tag, p.adapters[tag].type, p.adapters[tag].interface, p.adapters[tag].mark, p.adapters[tag].port, p.adapters[tag].sources, p.adapters[tag].pin]) };
 	}
 	// A health transition must keep every DNS set and its leases intact.
 	if (sprintf('%J', layout(previous)) != sprintf('%J', layout(next))) die('native layout changed during selection');
 	return render(next, true);
 }
 
-return { compile, batch, switch_batch, check_pool_inventory, dns_policy, dns_gate, dns_edge, dns_release, legacy_restore, fw4_forward, canary_guard, canary_reply_guard, classification, unknown_target, xray_config };
+return { compile, batch, switch_batch, check_pool_inventory, dns_policy, dns_gate, dns_edge, dns_release, dns_recovery, legacy_restore, fw4_forward, canary_guard, canary_reply_guard, classification, unknown_target, xray_config };

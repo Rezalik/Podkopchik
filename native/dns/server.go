@@ -281,7 +281,7 @@ func (r *resolver) ServeDNS(w dns.ResponseWriter, req *dns.Msg) {
 	// receive a committed synthetic address for the same upstream answer.
 	if answer.group >= 0 && !r.policy.directClient(w.RemoteAddr()) {
 		resp.Answer = nil
-		fake, err := r.writer.publish(ctx, answer.group, answer.ips, ttl)
+		fake, err := r.writer.publishName(ctx, answer.group, answer.ips, ttl, q.Name)
 		if err != nil || ctx.Err() != nil {
 			write(dns.RcodeServerFailure)
 			return

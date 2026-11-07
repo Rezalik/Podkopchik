@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -19,6 +20,7 @@ var labelRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 type group struct {
 	Names     []string `json:"names"`
 	Protected bool     `json:"protected"`
+	Policy    string   `json:"policy,omitempty"`
 }
 
 type clientPolicy struct {
@@ -42,6 +44,7 @@ type config struct {
 	DirectGrantsConfirmed bool           `json:"direct_grants_confirmed,omitempty"`
 	ClassificationMode    string         `json:"classification_mode,omitempty"`
 	MigrationRestriction  bool           `json:"migration_restrict_unknown,omitempty"`
+	Persistent            bool           `json:"persistent,omitempty"`
 }
 
 type policy struct {
@@ -52,6 +55,7 @@ type policy struct {
 	excluded       []netip.Prefix
 	retired        []netip.Prefix
 	clientNetworks []netip.Prefix
+	stamp          func() (bootStamp, error)
 }
 
 func compile(c config) (*policy, error) {
@@ -86,7 +90,7 @@ func compile(c config) (*policy, error) {
 			return nil, errors.New("invalid second DNS listener")
 		}
 	}
-	p := &policy{config: c, names: map[string]int{}, pools: map[bool]netip.Prefix{}}
+	p := &policy{config: c, names: map[string]int{}, pools: map[bool]netip.Prefix{}, stamp: systemBootStamp}
 	if c.ClassificationMode != "" && c.ClassificationMode != "strict" && c.ClassificationMode != "compatible" {
 		return nil, errors.New("invalid DNS classification mode")
 	}
@@ -104,8 +108,8 @@ func compile(c config) (*policy, error) {
 	var approved netip.Prefix
 	if c.PrivatePool != "" {
 		n, err := netip.ParsePrefix(c.PrivatePool)
-		if err != nil || n != n.Masked() || !n.Addr().Is4() || !n.Addr().IsPrivate() || n.Bits() != 24 {
-			return nil, errors.New("private pool must be an explicit RFC1918 /24")
+		if err != nil || n != n.Masked() || !n.Addr().Is4() || !n.Addr().IsPrivate() || n.Bits() < 16 || n.Bits() > 24 {
+			return nil, errors.New("private pool must be an explicit RFC1918 /16 through /24")
 		}
 		approved = n
 	}
@@ -144,6 +148,9 @@ func compile(c config) (*policy, error) {
 		p.excluded = append(p.excluded, n.Masked())
 	}
 	for i, g := range c.Groups {
+		if c.Persistent && (g.Policy == "" || len(g.Policy) > 80 || strings.ContainsAny(g.Policy, "\r\n|")) {
+			return nil, errors.New("persistent DNS groups require stable routing policy identities")
+		}
 		if len(g.Names) == 0 || len(g.Names) > 4096 || len(p.names)+len(g.Names) > 32768 {
 			return nil, errors.New("invalid number of DNS names")
 		}
@@ -160,6 +167,16 @@ func compile(c config) (*policy, error) {
 	b, _ := json.Marshal(c)
 	p.key = fmt.Sprintf("%x", sha256.Sum256(b))
 	return p, nil
+}
+
+func (p *policy) ledgerKey() string {
+	if !p.Persistent {
+		return p.key
+	}
+	pools := append([]string(nil), p.Pools...)
+	sort.Strings(pools)
+	b, _ := json.Marshal([]any{"native-dns-namespace-v1", p.Epoch, pools})
+	return fmt.Sprintf("%x", sha256.Sum256(b))
 }
 
 func (p *policy) directClient(remote net.Addr) bool {

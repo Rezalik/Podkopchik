@@ -1,8 +1,10 @@
 'use strict';
 import { cursor } from 'uci';
 const awg = require('awg');
-const manager = require('awg_manage');
-let action = ARGV[0], ctx = cursor();
+let manager = require('awg_manage');
+let action = ARGV[0], dir=getenv('PODKOPCHIK_UCI_CONFIG_DIR'),ctx = cursor(dir);
+if(getenv('PODKOPCHIK_AWG_ROOT'))manager=manager.create({root:getenv('PODKOPCHIK_AWG_ROOT'),tmp:getenv('PODKOPCHIK_TMP_DIR') || '/tmp/podkopchik',cursor:()=>cursor(dir),
+	network:require('awg_network').controller({store:awg.store(getenv('PODKOPCHIK_AWG_ROOT'),0)})});
 if (action == 'restore-active') {
 	// A failed Apply restores the last applied runtime, not pending UCI roles.
 	let cfg = json(require('fs').readfile('/etc/podkopchik/config.json'));

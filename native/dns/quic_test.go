@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"crypto/ed25519"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
@@ -22,14 +23,14 @@ import (
 func quicFixture(mode, addr, certPath string) error {
 	tlsConf := &tls.Config{ServerName: "protected.example", MinVersion: tls.VersionTLS13}
 	if mode == "quic-serve" || mode == "https-serve" {
-		pub, key, err := ed25519.GenerateKey(rand.Reader)
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		if err != nil {
 			return err
 		}
 		now := time.Now()
 		leaf := &x509.Certificate{SerialNumber: big.NewInt(1), DNSNames: []string{tlsConf.ServerName}, NotBefore: now.Add(-time.Minute),
 			NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
-		der, err := x509.CreateCertificate(rand.Reader, leaf, leaf, pub, key)
+		der, err := x509.CreateCertificate(rand.Reader, leaf, leaf, &key.PublicKey, key)
 		if err != nil {
 			return err
 		}

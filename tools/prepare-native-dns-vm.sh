@@ -8,7 +8,7 @@ payload="$work/payload"
 release=https://downloads.openwrt.org/releases/25.12.6
 target="$release/targets/armsr/armv8"
 image=openwrt-25.12.6-armsr-armv8-generic-initramfs-kernel.bin
-mkdir -p "$payload/base" "$payload/kernel" "$payload/source"
+mkdir -p "$payload/base" "$payload/kernel" "$payload/source" "$payload/packages"
 fetch() {
 	[ -f "$2" ] && return
 	curl --proto '=https' -fsSL --max-time 120 "$1" -o "$2.part"
@@ -18,6 +18,9 @@ fetch "$target/$image" "$work/openwrt-initramfs.bin"
 printf '%s  %s\n' 2b1f0796ec31201b609643beca48de20d75f2879104a20adba327cbaf64b5f2b "$work/openwrt-initramfs.bin" | shasum -a 256 -c
 for f in packages.adb ip-full-6.18.0-r2.apk libbpf1-1.6.2-r1.apk libelf1-0.192-r1.apk libpcap1-1.10.6-r1.apk tcpdump-mini-4.99.6-r1.apk; do
 	fetch "$release/packages/aarch64_generic/base/$f" "$payload/base/$f"
+done
+for f in packages.adb curl-8.23.0-r1.apk libcurl4-8.23.0-r1.apk libnghttp2-14-1.70.0-r1.apk; do
+	fetch "$release/packages/aarch64_generic/packages/$f" "$payload/packages/$f"
 done
 for f in packages.adb kmod-veth-6.12.112-r1.apk kmod-nf-tproxy-6.12.112-r1.apk kmod-nft-tproxy-6.12.112-r1.apk; do
 	fetch "$target/kmods/6.12.112-1-67e205f26d0458c4d12f1fd315216398/$f" "$payload/kernel/$f"
@@ -34,6 +37,11 @@ cp "$base/tests/native_classification_smoke.uc" "$payload/source/"
 cp "$base/tools/native-classification-vm-test.sh" "$base/tools/native-classification-vm-boot.sh" "$payload/"
 cp "$base/tools/native-policy-uci-vm-test.sh" "$payload/"
 cp "$base/tools/native-vm-binaries.sh" "$payload/"
+cp "$base/tools/native-permanent-vm-test.sh" "$base/tools/native-permanent-vm-awg.uc" "$payload/"
+cp "$base/tools/native-permanent-vm-boot.sh" "$base/tools/native-permanent-vm-resume.sh" "$payload/"
+cp "$base/tools/native-permanent-vm-vless.sh" "$payload/"
+cp "$base/tools/native-permanent-vm-nft-failure.sh" "$payload/"
+cp "$base/tools/native-permanent-vm-lifecycle.sh" "$payload/"
 cp "$base/root/usr/libexec/podkopchik/fakedns_guard.sh" "$base/tests/fakedns_guard_smoke.uc" "$payload/source/"
 cp "$base/root/usr/libexec/podkopchik/universal_selection.uc" "$base/tests/universal_selection_smoke.uc" "$payload/source/"
 cp "$base/tools/ax6000-fakedns-guard-trial-vm-test.sh" "$payload/"
@@ -56,3 +64,7 @@ for f in awg awg_network generate vless interception universal_plan universal_se
 	cp "$base/root/usr/libexec/podkopchik/$f.uc" "$regression/root/usr/libexec/podkopchik/"
 done
 cp "$base/root/etc/init.d/podkopchik" "$regression/root/etc/init.d/"
+mkdir -p "$payload/permanent/usr/libexec/podkopchik" "$payload/permanent/usr/bin" "$payload/permanent/etc/init.d"
+cp "$base/root/usr/libexec/podkopchik/"*.uc "$base/root/usr/libexec/podkopchik/"*.sh "$payload/permanent/usr/libexec/podkopchik/"
+cp "$base/root/usr/bin/podkopchikctl" "$payload/permanent/usr/bin/"
+cp "$base/root/etc/init.d/podkopchik" "$base/root/etc/init.d/podkopchik-fakedns" "$payload/permanent/etc/init.d/"

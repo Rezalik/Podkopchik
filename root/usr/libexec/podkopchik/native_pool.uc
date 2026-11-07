@@ -24,7 +24,7 @@ function capacity(cidr) {
 }
 
 function private_v4(cidr) {
-	return family(cidr) == '4' && +split(cidr, '/')[1] == 24 &&
+	return family(cidr) == '4' && +split(cidr, '/')[1] >= 16 && +split(cidr, '/')[1] <= 24 &&
 		length(filter(['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'], x => awg.overlap(cidr, x))) != 0;
 }
 
@@ -75,7 +75,7 @@ function select(candidates, snapshot, required, private_pool) {
 	let occupied = inventory(snapshot, true), result = {};
 	if (private_pool != null) {
 		private_pool = prefix(private_pool);
-		if (!private_v4(private_pool)) die('private native pool requires one explicit RFC1918 /24');
+		if (!private_v4(private_pool)) die('private native pool requires one explicit RFC1918 /16 through /24');
 	}
 	if (type(required) != 'object' || !length(keys(required))) die('missing native pool capacity requirements');
 	for (let f, size in required) if (!ranges[f] || type(size) != 'int' || size < 1 || size > 65536)

@@ -1,5 +1,9 @@
 # Native classification and migration
 
+Historical classification checkpoint through `8c59dc7`. Its scope/release-gate
+table below is not the current whole-LAN lifecycle; see
+[Permanent Native Apply](UNIVERSAL-PERMANENT-APPLY.md) for that implementation.
+
 This changes the existing native planner and DNS classifier, not the installed
 legacy Xray path. It does not authorize a household rollout. The Xiaomi is not
 contacted by these tests.

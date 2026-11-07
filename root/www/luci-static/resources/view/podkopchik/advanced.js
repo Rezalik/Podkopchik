@@ -17,10 +17,11 @@ function runRuntime(args) {
 
 return view.extend({
 	load: function() {
-		return uci.load('podkopchik');
+		return Promise.all([uci.load('podkopchik'), fs.exec_direct('/usr/bin/podkopchikctl', ['native-status'])
+			.then(function(text) { return JSON.parse(text); }).catch(function() { return {available:false}; })]);
 	},
 
-	render: function() {
+	render: function(data) {
 		var m = new form.Map('podkopchik', _('Podkopchik'));
 		this.map = m;
 		var s = m.section(form.NamedSection, 'main', 'settings', _('Advanced'));
@@ -30,6 +31,30 @@ return view.extend({
 		o.default = '1';
 
 		o = s.option(form.DummyValue, 'routing_enabled', _('Routing applied'));
+
+		o = s.option(form.ListValue, 'routing_engine', _('Routing engine'));
+		o.value('legacy', _('Legacy'));
+		if (data && data[1] && data[1].available || uci.get('podkopchik', 'main', 'routing_engine') === 'native')
+			o.value('native', _('Universal Routing Engine'));
+		o.default = 'legacy';
+		o.rmempty = false;
+		o.description = _('Native Apply switches the configured LAN and requires explicit confirmation before the rollback deadline.');
+		if (!data || !data[1] || !data[1].available)
+			o.description += ' ' + _('Install the Native DNS component for this router architecture before enabling Universal Routing Engine.');
+
+		o = s.option(form.Value, 'native_pool_v4', _('Native synthetic IPv4 pool'));
+		o.datatype = 'cidr4';
+		o.depends('routing_engine', 'native');
+		o.description = _('Use a separately admitted pool. Apply checks live addresses, routes, VPN endpoints and issued FakeDNS pools before activation.');
+
+		o = s.option(form.Value, 'native_pool_v6', _('Native synthetic IPv6 pool'));
+		o.datatype = 'cidr6';
+		o.depends('routing_engine', 'native');
+
+		o = s.option(form.Value, 'native_confirm_seconds', _('Apply confirmation timeout (seconds)'));
+		o.datatype = 'range(60,900)';
+		o.default = '300';
+		o.depends('routing_engine', 'native');
 
 		o = s.option(form.ListValue, 'native_classification_mode', _('Native routing classification'));
 		o.value('strict', _('Strict'));
@@ -159,7 +184,7 @@ return view.extend({
 			var enabled = uci.get('podkopchik', 'main', 'enabled');
 			var routing = uci.get('podkopchik', 'main', 'routing_enabled');
 
-			if (enabled == '0')
+			if (enabled == '0' || routing == '0')
 				return runRuntime([ 'cleanup' ]);
 
 			if (routing == '1')

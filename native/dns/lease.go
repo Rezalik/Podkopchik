@@ -26,9 +26,11 @@ type watermark struct {
 }
 
 type ledger struct {
-	path string
-	lock *os.File
-	data watermark
+	path         string
+	lock         *os.File
+	data         watermark
+	history      map[string]savedBinding
+	historyBytes int64
 }
 
 func openLedger(path, key string, init bool) (*ledger, error) {
@@ -173,12 +175,32 @@ func (p *publisher) expire(now time.Time) {
 }
 
 func (p *publisher) publish(ctx context.Context, group int, ips []netip.Addr, ttl uint32) ([]netip.Addr, error) {
+	return p.publishName(ctx, group, ips, ttl, "")
+}
+
+func (p *publisher) publishName(ctx context.Context, group int, ips []netip.Addr, ttl uint32, name string) ([]netip.Addr, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.poisoned || ctx.Err() != nil {
 		return nil, errors.New("DNS publisher unavailable")
 	}
 	now := time.Now()
+	var stamp bootStamp
+	if p.policy.Persistent {
+		name = strings.TrimSuffix(strings.ToLower(name), ".")
+		if !validName(name) {
+			return nil, errors.New("persistent binding requires question identity")
+		}
+		if err := p.ledger.loadHistory(p.policy); err != nil {
+			p.poisoned = true
+			return nil, err
+		}
+		var err error
+		stamp, err = p.policy.stamp()
+		if err != nil {
+			return nil, err
+		}
+	}
 	until := now.Add(time.Duration(ttl)*time.Second + leaseGrace)
 	next := p.ledger.data
 	bindings := make([]binding, 0, len(ips))
@@ -189,6 +211,17 @@ func (p *publisher) publish(ctx context.Context, group int, ips []netip.Addr, tt
 		}
 		key := bindingKey{group, ip}
 		b := p.leases[key]
+		if p.policy.Persistent {
+			b = binding{}
+			if v, ok := p.ledger.history[historyKey(name, p.policy.Groups[group].Policy, ip.String())]; ok {
+				b = binding{group: group, real: ip, fake: netip.MustParseAddr(v.Fake), until: until}
+				if v.Boot == stamp.Boot && v.Until > int64(stamp.Uptime) {
+					b.until = maxTime(b.until, now.Add(time.Duration(v.Until)-stamp.Uptime))
+				}
+			} else if len(p.ledger.history)+len(bindings) >= maxHistory {
+				return nil, errors.New("DNS binding history exhausted")
+			}
+		}
 		if !b.until.After(now) {
 			cursor := &next.Next6
 			if ip.Is4() {
@@ -211,6 +244,16 @@ func (p *publisher) publish(ctx context.Context, group int, ips []netip.Addr, tt
 		bindings = append(bindings, b)
 		fake = append(fake, b.fake)
 	}
+	if p.policy.Persistent {
+		var extra int64
+		for _, b := range bindings {
+			v := savedBinding{Name: name, Policy: p.policy.Groups[group].Policy, Real: b.real.String(), Fake: b.fake.String(), Boot: stamp.Boot, Until: int64(stamp.Uptime + time.Until(b.until))}
+			extra += p.ledger.recordDelta(v)
+		}
+		if p.ledger.historyBytes+extra > maxHistoryBytes {
+			return nil, errors.New("DNS binding history capacity exhausted")
+		}
+	}
 	if next != p.ledger.data {
 		if err := p.ledger.save(next); err != nil {
 			p.poisoned = true
@@ -222,6 +265,13 @@ func (p *publisher) publish(ctx context.Context, group int, ips []netip.Addr, tt
 		return nil, err
 	}
 	for _, b := range bindings {
+		if p.policy.Persistent {
+			v := savedBinding{Name: name, Policy: p.policy.Groups[group].Policy, Real: b.real.String(), Fake: b.fake.String(), Boot: stamp.Boot, Until: int64(stamp.Uptime + time.Until(b.until))}
+			if err := p.ledger.record(v); err != nil {
+				p.poisoned = true
+				return nil, err
+			}
+		}
 		p.leases[bindingKey{b.group, b.real}] = b
 	}
 	return fake, nil

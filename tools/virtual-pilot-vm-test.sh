@@ -3,11 +3,12 @@
 set -eu
 umask 077
 . /mnt/lab/native-vm-only.sh
+. /mnt/lab/native-vm-binaries.sh
 fail() { echo "FAIL: $*" >&2; exit 1; }
 work=$(mktemp -d /tmp/pkc-virtual-data.XXXXXX)
 epoch=ab11223344556677; port=pvab1122334455; awg=paw111111111111
 r=pkc-virtual-router-$$; l=pkc-virtual-client-$$; w=pkc-virtual-wan-$$; h=pkc-virtual-home-$$
-bin=/mnt/lab/native-dns.test; daemon=/mnt/lab/podkopchik-native-dns
+bin="$PKC_VM_BIN/native-dns.test"; daemon="$PKC_VM_BIN/podkopchik-native-dns"
 pids=; caps=; dp=
 cleanup() {
 	for p in $dp $pids $caps; do kill "$p" 2>/dev/null || true; wait "$p" 2>/dev/null || true; done
@@ -84,7 +85,7 @@ for dst in 203.0.113.80 203.0.113.81; do
 done
 PKC_NATIVE_LAB=quic-serve ip netns exec "$w" "$bin" -test.run='^TestGuestFixture$' -- 203.0.113.80:18443 "$work/cert" > "$work/quic" 2>&1 & pids="$pids $!"
 PKC_NATIVE_LAB=https-serve ip netns exec "$w" "$bin" -test.run='^TestGuestFixture$' -- 203.0.113.80:18444 "$work/https-cert" > "$work/https" 2>&1 & pids="$pids $!"
-ip netns exec "$w" /mnt/lab/pilot-probe udp-serve 203.0.113.80:19000 120 > "$work/echo" 2>&1 & pids="$pids $!"
+ip netns exec "$w" "$PKC_VM_BIN/pilot-probe" udp-serve 203.0.113.80:19000 120 > "$work/echo" 2>&1 & pids="$pids $!"
 rn "$daemon" -config "$work/dns.json" -ledger "$work/ledger" -init-ledger
 ip netns exec "$r" "$daemon" -config "$work/dns.json" -ledger "$work/ledger" > "$work/classifier" 2>&1 & dp=$!
 for dev in wan0 tunnel0; do
@@ -112,17 +113,17 @@ if ! probe dial ln "$fake:18081"; then
 	fail 'initial TCP did not reach the native transport'
 fi
 probe udp ln "$fake:18081"
-rn sysctl -w net.netfilter.nf_conntrack_acct=1 net.netfilter.nf_conntrack_udp_timeout=2 net.netfilter.nf_conntrack_udp_timeout_stream=3 >/dev/null
-wn /mnt/lab/pilot-probe udp-echo 203.0.113.80:19000
-ln /mnt/lab/pilot-probe udp-echo "$fake:19000"
+rn sysctl -w net.netfilter.nf_conntrack_acct=1 net.netfilter.nf_conntrack_udp_timeout=5 net.netfilter.nf_conntrack_udp_timeout_stream=6 >/dev/null
+wn "$PKC_VM_BIN/pilot-probe" udp-echo 203.0.113.80:19000
+ln "$PKC_VM_BIN/pilot-probe" udp-echo "$fake:19000"
 echo_tuple() {
 	rn awk -v ip="$fake" '$3=="udp" && $0 ~ "dst=" ip " sport=[0-9]+ dport=19000 packets=[4-9]" &&
 		$0 ~ /src=203.0.113.80 dst=.*sport=19000 dport=[0-9]+ packets=[4-9]/ {found=1} END{exit !found}' /proc/net/nf_conntrack
 }
-echo_tuple || fail 'missing DNAT/reply UDP conntrack tuple'
-for i in 1 2 3 4 5 6 7 8; do ! echo_tuple && break; sleep 1; done
+echo_tuple || { rn cat /proc/net/nf_conntrack > "$work/udp-conntrack-failure"; cat "$work/udp-conntrack-failure"; fail 'missing DNAT/reply UDP conntrack tuple'; }
+for i in $(seq 1 12); do ! echo_tuple && break; sleep 1; done
 if echo_tuple; then fail 'UDP conntrack tuple did not expire'; fi
-ln /mnt/lab/pilot-probe udp-echo "$fake:19000"
+ln "$PKC_VM_BIN/pilot-probe" udp-echo "$fake:19000"
 echo_tuple || fail 'missing renewed UDP session'
 echo 'PASS: four verified replies on a reused UDP socket, original/translated tuple, expiry and new UDP session'
 

@@ -24,6 +24,24 @@ done
 	exit 1
 }
 
+# An old-style service stop retains the Native forwarding guard on purpose.
+# Require an explicit routing disable before removing the recovery controller.
+native_current=''
+if [ -z "$DESTDIR" ] && [ -f /etc/podkopchik/native-state/runtime.json ]; then
+	native_current=$(ucode -e 'import {lstat,readfile} from "fs";
+		let s=lstat(ARGV[0]);if(s?.type!="file"||s.uid!=0||s.nlink!=1||(s.mode&0o077))die("unsafe Native state; files retained");
+		let m;try{m=json(readfile(ARGV[0]));}catch(e){die("invalid Native state; files retained");}
+		if(m.schema!=1||m.current!=null&&!match(m.current,/^[a-f0-9]{32}$/))die("invalid Native pointer; files retained");
+		print(m.current || "");' /etc/podkopchik/native-state/runtime.json) || exit 1
+fi
+if [ -n "$native_current" ]; then
+	if [ "$(uci -q get podkopchik.main.routing_enabled)" != 0 ]; then
+		echo 'podkopchik uninstall: run podkopchikctl cleanup first to explicitly disable Native routing; files retained' >&2
+		exit 1
+	fi
+	sh /usr/libexec/podkopchik/native_runtime.sh leave || exit 1
+fi
+
 helper="$(path /usr/libexec/podkopchik/packages.sh)"
 [ -f "$helper" ] || helper="$BASE_DIR/root/usr/libexec/podkopchik/packages.sh"
 REGISTERED=""
