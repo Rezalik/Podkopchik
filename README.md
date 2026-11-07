@@ -14,6 +14,11 @@ classification, without a running Xray in AWG-only. Application and AWG failover
 checks passed; this is still an experimental RC, not long-duration stability or
 physical QUIC acceptance. Legacy remains the installation default.
 
+The [bounded 48-hour operational observation](docs/NATIVE-OBSERVATION-20261107.md)
+uses a temporary, read-only diagnostic job: rotated tmpfs logs, no user DNS
+history, no continuous capture and no automatic configuration repair. The
+24/48-hour verdict is separate from successful installation.
+
 Experimental AmneziaWG integration: [Stage 4 safety, independent UDP/IPv6
 settings, test evidence, installation and rollback](docs/AWG-STAGE4.md).
 Both interception extensions are off by default. Local tests do not establish

@@ -1016,6 +1016,11 @@ revision-matching, guarded AWGs are inspected without taking a mutation lock
 for an unnecessary start, preventing contention with health probes.
 VLESS route ownership accepts both named `local` and numeric `RTN_LOCAL=2`
 JSON from `ip -N`, but still requires owned protocol, loopback and default route.
+
+The optional [operator observation](NATIVE-OBSERVATION-20261107.md) is outside
+the routing lifecycle. It writes bounded, address-neutral tmpfs diagnostics
+and cannot Apply, restart services or request emergency rollback. It is not
+a permanent statistics feature or a substitute for packet-level acceptance.
 It is not the permanent mode: `routing_engine=native` dispatches ordinary
 `apply`, `generate`, `validate` and `validate-active` to the whole-LAN coordinator.
 `native-status`, `native-confirm TOKEN` and `native-abort TOKEN` expose its

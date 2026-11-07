@@ -55,10 +55,15 @@ func run(args []string) error {
 		}
 		return errors.New("expected A answer")
 	case "tcp":
-		if len(args) != 2 {
-			return errors.New("tcp requires one endpoint")
+		if len(args) != 2 && len(args) != 3 {
+			return errors.New("tcp requires an endpoint and optional interface")
 		}
 		d := net.Dialer{Timeout: 2 * time.Second}
+		if len(args) == 3 {
+			if err := bindDevice(&d, args[2]); err != nil {
+				return err
+			}
+		}
 		c, err := d.DialContext(ctx, "tcp4", endpoint.String())
 		if err != nil {
 			return err
@@ -75,10 +80,14 @@ func run(args []string) error {
 		}
 		return probeEcho(ctx, endpoint, iface)
 	case "stun":
-		if len(args) != 3 {
-			return errors.New("stun requires an endpoint and interface")
+		if len(args) != 2 && len(args) != 3 {
+			return errors.New("stun requires an endpoint and optional interface")
 		}
-		return probeSTUN(ctx, endpoint, args[2])
+		iface := ""
+		if len(args) == 3 {
+			iface = args[2]
+		}
+		return probeSTUN(ctx, endpoint, iface)
 	case "udp-serve":
 		if len(args) != 3 {
 			return errors.New("udp-serve requires a bind endpoint and a lifetime in seconds")

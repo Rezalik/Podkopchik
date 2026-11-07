@@ -607,6 +607,17 @@ Household Native RC, Xiaomi AX6000 / OpenWrt 25.12.6, 2026-11-07:
 
 See [the measured pilot and limitations](UNIVERSAL-NATIVE-HOUSEHOLD-20261107.md).
 
+Operational observation, 2026-11-07:
+
+- [x] Separate tmpfs-only collector, 48-hour monotonic deadline, two 512 KiB
+  logs, bounded summary and no production configuration/service mutation.
+- [x] PID-aware FD/UDP and CPU measurements, private output, hourly read-only
+  review, independent UDP DNS/QUIC controls and explicit test limitations.
+- [ ] Complete 24-hour resource/availability assessment.
+- [ ] Complete 48-hour resource/availability assessment and final verdict.
+
+See [window, measurements and report procedure](NATIVE-OBSERVATION-20261107.md).
+
 ```sh
 podkopchikctl status
 podkopchikctl generate

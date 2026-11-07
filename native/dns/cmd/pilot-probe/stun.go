@@ -21,8 +21,10 @@ func validSTUNReply(reply, request []byte) bool {
 
 func probeSTUN(ctx context.Context, endpoint netip.AddrPort, iface string) error {
 	d := net.Dialer{}
-	if err := bindDevice(&d, iface); err != nil {
-		return err
+	if iface != "" {
+		if err := bindDevice(&d, iface); err != nil {
+			return err
+		}
 	}
 	c, err := d.DialContext(ctx, "udp4", endpoint.String())
 	if err != nil {
