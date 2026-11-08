@@ -1,5 +1,11 @@
 # Podkopchik 0.1.0-beta Specification
 
+Current public usage is documented in the Russian [README](../README.md) and
+[user guide](GUIDE-RU.md). The original overview below describes Legacy;
+the later permanent Native sections define independent AWG/Xray routing.
+The [2026-11-08 publication snapshot](PUBLICATION-20261108.md) is an RC copy,
+not a main-branch promotion or completed long-duration stability release.
+
 ## Overview
 
 Podkopchik is an OpenWrt 24.10+ LuCI application for routing selected LAN traffic through Xray VLESS proxy links.
@@ -1029,11 +1035,39 @@ before it can be selected. See [permanent implementation and limits](UNIVERSAL-P
 Native classification has explicit Strict/Compatible modes and a separate
 migration restriction. Direct IP/client exceptions require consent in a
 restricted plan; shared DNS answers do not create direct authorization.
+The normal application default is selective Compatible mode, with migration
+restriction disabled: only enabled preset/domain/IP/LAN policies choose a
+protected transport; unmatched IPv4/IPv6 traffic uses Direct. Generator, UCI
+and LuCI defaults agree, without rewriting existing explicit Strict choices.
+The defensive planner fallback remains Strict if its internal policy is absent.
+In selective mode, cached real IPs, third-party DoH and literal addresses can
+bypass domain-only classification; this is not advertised as Strict fail-closed.
+Live mapped protected destinations, protected IP rules and synthetic-pool WAN
+quarantine remain enforced independently of the unmatched Direct default.
 Strict defaults unknown connections to an available protocol/family-compatible
 Main/Backup transport, never implicit WAN. All-down or unsupported traffic is
 denied. Known DNS/synthetic policies remain exact; the unknown fallback is not
 domain identification. The optional unknown policy can instead block.
 See [the contract and precedence](NATIVE-CLASSIFICATION.md).
+LuCI binds its classification controls to the same UCI keys/defaults as the
+generator. Native status exposes the active classification and DNS listener/
+pools separately from configured classification; malformed saved values cannot
+replace a valid active policy in the display. Strict/migration fields are
+Native-only and retained when hidden. The Native DNS page edits `native_dns_port`
+and `native_pool_v4/v6`, never the ignored Legacy FakeDNS switches.
+All LuCI rule/preset Apply paths retain the existing backend Apply call, explain
+pending Native confirmation, and link to Status without automatic confirmation.
+Repair policy does not display a transactional timeout or a routine rollback
+button: its existing abort action is labelled emergency recovery and requires
+an explicit confirmation dialog. These are display/read-only status changes,
+not changes to packet classification, transport health or rollback mechanics.
+The separate emergency capsule is required only by the explicit repair policy.
+To retire it on a running router, first validate and confirm a transactional
+generation, then stop/disable the independent service and remove its capsule.
+Never stop it while the active generation still declares `repair=true`.
+Operational monitoring must likewise require it only for repair generations.
+Ordinary Apply validation, last-working generation state and synthetic allocator
+history remain essential runtime state, not disposable backup archives.
 It requires an already active Core FakeDNS guard, uses a fixed procd deadline,
 and never confirms a permanent configuration. The Core rechecks persisted
 FakeDNS quarantine after netifd interface setup, without a guard daemon.

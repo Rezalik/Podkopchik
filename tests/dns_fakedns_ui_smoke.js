@@ -74,8 +74,11 @@ function E() {
 	return {};
 }
 
-const factory = new Function('view', 'form', 'fs', 'ui', '_', 'E', source);
-const luciView = factory(view, form, fakeFs, ui, s => s, E);
+const settings = {routing_engine:'legacy',fakedns_port:'9999',native_dns_port:'1053'};
+const uci = {get:(_c,_s,k)=>settings[k],load:()=>Promise.resolve()};
+const routing = require('./lib/luci-routing')({ui,E});
+const factory = new Function('view', 'form', 'fs', 'ui', '_', 'E', 'uci', 'routing', source);
+const luciView = factory(view, form, fakeFs, ui, s => s, E, uci, routing);
 
 luciView.render();
 
@@ -117,6 +120,16 @@ Promise.resolve(luciView.handleSaveApply(null, '1')).then(function() {
 	assert(ui.applied, 'DNS Save & Apply must apply LuCI changes');
 	assert(fakeFs.calls.some(call => call.cmd === '/usr/bin/podkopchikctl' && call.args[0] === 'apply'),
 		'DNS Save & Apply must call podkopchikctl apply');
+	options.length = 0;
+	settings.routing_engine = 'native';
+	luciView.render([null,{engine:'native',phase:'active',dns:{listen:'192.168.1.1:1053',pools:['172.30.0.0/16'],protected:true}}]);
+	assert(option('native_dns_port') && option('native_pool_v4') && option('native_pool_v6'), 'Native DNS must use Native UCI options');
+	assert(!option('fakedns_enabled') && !option('fakedns_port') && !option('dns_redirect'), 'Native DNS must not expose ignored Xray/DNS redirect switches');
+	assert(option('_native_dns_runtime').cfgvalue() === '192.168.1.1:1053', 'active listener comes from runtime, not legacy saved port');
+	assert(option('_native_dns_pools').cfgvalue() === '172.30.0.0/16', 'active pool must not claim 198.18/15');
+	assert(option('_native_dns_upstream').cfgvalue().includes('DNS-over-TLS'), 'protected Native upstream must be shown');
+	assert(option('native_dns_port').validate(null,'1053') === true, 'valid Native port must pass');
+	assert(option('native_pool_v4').validate(null,'172.30.0.0/16') === true, 'Native pool validation must accept the admitted private pool');
 	console.log('DNS FakeDNS UI smoke OK');
 }).catch(function(err) {
 	console.error(err && err.stack || err);

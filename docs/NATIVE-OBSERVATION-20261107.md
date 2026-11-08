@@ -7,13 +7,22 @@ Observation started **2026-11-07 20:23:30 Europe/Moscow** and has a fixed
 deadline **2026-11-09 20:23:30 Europe/Moscow**. The 24-hour checkpoint is
 2026-11-08 20:23:30. The observation is **IN PROGRESS**, not a stability PASS.
 
-Native remains confirmed, Strict/repair, AWG-only without a running Xray.
-The independent emergency capsule remains accepted and running. No Apply,
+At the start, Native was confirmed, Strict/repair, AWG-only without a running
+Xray, with the independent emergency capsule accepted and running. No Apply,
 update-install, reboot, package installation, firewall mutation or restart of
 any working application/network service was performed for this observation.
 All five UCI files (Podkopchik, network, wireless, DHCP and firewall) retain
 their pre-observation hashes. DNS, network, SSH, LuCI, Wi-Fi, Native DNS/watch/
 health and emergency service PIDs were compared and are unchanged.
+
+Subsequent operator-approved maintenance is separate from this read-only job:
+on 2026-11-08 routing became selective, LuCI alignment was deployed, and the
+operator then [retired the emergency capsule and removed router backups](AX6000-CLEANUP-20261108.md).
+The current confirmed generation uses transactional Apply without a separate
+emergency service. The original observation window continues across the
+documented PID/policy segments. Its sampler requires the capsule only when
+the active generation uses repair mode; intentional absence in transactional
+mode is not an emergency warning or a collection failure.
 
 ## Collection
 

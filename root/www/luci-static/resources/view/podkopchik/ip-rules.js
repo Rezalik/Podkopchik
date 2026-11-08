@@ -3,6 +3,7 @@
 'require form';
 'require fs';
 'require ui';
+'require podkopchik.routing as routing';
 'require uci';
 
 function runApply() {
@@ -62,8 +63,7 @@ return view.extend({
 		}).then(function() {
 			return runApply();
 		}).then(function(res) {
-			if (res)
-				ui.addNotification(null, E('pre', { 'style': 'white-space: pre-wrap' }, res));
+			return routing.notifyApply(res);
 		}).catch(function(err) {
 			var message = err && err.message ? err.message : String(err);
 			ui.addNotification(_('Apply'), E('pre', { 'style': 'white-space: pre-wrap' }, message), 'error');

@@ -18,8 +18,10 @@ for (const entry of text.split(/\n\s*\n/)) {
 }
 const missing = new Set();
 const dir = 'root/www/luci-static/resources/view/podkopchik';
-for (const file of fs.readdirSync(dir).filter(name => name.endsWith('.js'))) {
-	for (const m of fs.readFileSync(dir + '/' + file, 'utf8').matchAll(/_\(\s*('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")\s*\)/g)) {
+const files = [dir, 'root/www/luci-static/resources/podkopchik'].flatMap(root =>
+	fs.readdirSync(root).filter(name => name.endsWith('.js')).map(name => root + '/' + name));
+for (const file of files) {
+	for (const m of fs.readFileSync(file, 'utf8').matchAll(/_\(\s*('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")\s*\)/g)) {
 		const id = vm.runInNewContext(m[1]);
 		if (id !== 'Podkopchik' && !messages.get(id)) missing.add(id);
 	}

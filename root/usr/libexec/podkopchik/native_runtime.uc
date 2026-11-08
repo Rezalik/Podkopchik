@@ -608,6 +608,14 @@ else if(action=='leave')locked(()=>{let m=meta();if(m.current && (m.phase!='disa
 else if(action=='status'){let m=meta(),g=m.current?generation(m.current):null,p=g?data(RUNTIME,true):null;
 	if(!m.current&&settings().routing_engine=='native'){printf('%J\n',{engine:'native',phase:'uninitialized',pending:null,ready:false,available:helper_available()});return;}
 	let valid_trial=!m.pending || journal('poll',generation(m.pending))=='waiting';
+	let configured=settings(),configured_classification=null;
+	try{configured_classification=planner.classification({mode:configured.native_classification_mode ?? 'compatible',
+		migration_restrict_unknown:configured.native_migration_restrict_unknown=='1'||configured.native_migration_restrict_unknown=='true',
+		direct_grants_confirmed:configured.native_direct_grants_confirmed=='1'||configured.native_direct_grants_confirmed=='true',
+		unknown_action:configured.native_unknown_action ?? 'protected'});}catch(e){}
 	printf('%J\n',{engine:m.engine,phase:m.phase,pending:m.pending,confirmed:m.confirmed,available:helper_available(),lan:p?.lan,xray_required:p?.xray_needed_now || false,
-		ready:p && m.phase=='active' && valid_trial?healthy(g,p):false,automatic:p?.automatic,unknown_fallback:p?.unknown_fallback,recovery_policy:m.repair?'repair':'transactional',dns_upstream:data(DNS_STATE,true),error:read(TMP+'/native-error',true)});}
+		ready:p && m.phase=='active' && valid_trial?healthy(g,p):false,automatic:p?.automatic,unknown_fallback:p?.unknown_fallback,
+		classification:p?.classification,configured_classification,configured_engine:configured.routing_engine ?? 'legacy',rules:p?.rules,
+		dns:p?{listen:p.dns.listen,pools:p.dns.pools,protected:!!p.dns.protected_upstream}:null,
+		recovery_policy:m.repair?'repair':'transactional',dns_upstream:data(DNS_STATE,true),error:read(TMP+'/native-error',true)});}
 else fail('unknown native lifecycle action');

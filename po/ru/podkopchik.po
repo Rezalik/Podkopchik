@@ -1578,3 +1578,147 @@ msgstr "Включено защищённое восстановление. Шт
 
 msgid "Native Apply is pending. Open Status and confirm the configuration before the rollback deadline."
 msgstr "Native Apply ожидает подтверждения. Откройте «Состояние» и подтвердите конфигурацию до истечения срока автоматического отката."
+
+msgid "Routing requested"
+msgstr "Маршрутизация запрошена"
+
+msgid "Recovery policy"
+msgstr "Режим восстановления"
+
+msgid "Repair in place; emergency recovery is reserved for management loss or a critical failure."
+msgstr "Исправление на месте; аварийное восстановление используется при потере управления или критическом сбое."
+
+msgid "Native Apply switches the configured LAN and requires explicit confirmation on Status. Emergency recovery remains active."
+msgstr "Применение Native переключает настроенную LAN и требует явного подтверждения на странице «Состояние». Аварийное восстановление остаётся активным."
+
+msgid "Base routing policy"
+msgstr "Основная политика маршрутизации"
+
+msgid "Selective routing (rules only)"
+msgstr "Выборочная: только по правилам"
+
+msgid "Strict routing"
+msgstr "Строгая маршрутизация"
+
+msgid "Selective routing is the default: only enabled rules and presets choose a proxy. Main and backup roles alone do not route all traffic."
+msgstr "По умолчанию прокси используется только для включённых правил и пресетов. Назначение основного и резервного подключений само по себе не направляет весь трафик в прокси."
+
+msgid "Saved routing policy"
+msgstr "Сохранённая политика маршрутизации"
+
+msgid "Active routing policy"
+msgstr "Действующая политика маршрутизации"
+
+msgid "Native routing is not active."
+msgstr "Native-маршрутизация сейчас не активна."
+
+msgid "Policy application"
+msgstr "Применение политики"
+
+msgid "Native Apply is pending. Open Status, verify connectivity and confirm. Emergency recovery remains active."
+msgstr "Native Apply ожидает подтверждения. Откройте «Состояние», проверьте соединение и подтвердите изменения. Аварийное восстановление остаётся активным."
+
+msgid "Saved routing policy is invalid."
+msgstr "Сохранённая политика маршрутизации некорректна."
+
+msgid "Active routing policy is unavailable."
+msgstr "Не удалось определить действующую политику маршрутизации."
+
+msgid "Saved routing policy differs from the active policy. Apply is required."
+msgstr "Сохранённая политика отличается от действующей. Требуется применение настроек."
+
+msgid "Saved and active routing policies match."
+msgstr "Сохранённая и действующая политики совпадают."
+
+msgid "Other traffic in Strict or migration mode"
+msgstr "Трафик вне правил в строгом режиме или при миграции"
+
+msgid "Main or backup transport"
+msgstr "Основное или резервное подключение"
+
+msgid "Selective routing depends on router DNS. Cached real IPs, third-party DoH and literal IPs can bypass domain-only rules."
+msgstr "Выборочная маршрутизация зависит от DNS роутера. Реальные IP из кэша, сторонний DoH и обращения по IP могут обходить правила только по доменам."
+
+msgid "Migration restriction (overrides selective routing)"
+msgstr "Ограничение миграции: имеет приоритет над выборочным режимом"
+
+msgid "When enabled, traffic outside the rules is protected or blocked even when the base policy is selective."
+msgstr "Если включено, трафик вне правил направляется через защищённое подключение или блокируется даже при выбранной выборочной политике."
+
+msgid "Migration restriction is enabled. Unmatched traffic is not direct."
+msgstr "Ограничение миграции включено. Трафик вне правил не выходит напрямую."
+
+msgid "Native DNS"
+msgstr "DNS универсальной маршрутизации"
+
+msgid "Legacy DNS settings"
+msgstr "Настройки DNS прежней архитектуры"
+
+msgid "Native DNS is part of Native routing. Legacy Xray FakeDNS options do not control this engine."
+msgstr "Native DNS работает вместе с универсальной маршрутизацией. Параметры прежнего Xray FakeDNS не управляют этим движком."
+
+msgid "Active DNS listener"
+msgstr "Действующий адрес DNS"
+
+msgid "Active DNS status is unavailable."
+msgstr "Не удалось прочитать состояние действующего DNS."
+
+msgid "Active synthetic pools"
+msgstr "Действующие синтетические пулы"
+
+msgid "DNS upstream"
+msgstr "Внешний DNS"
+
+msgid "DNS-over-TLS through a protected transport"
+msgstr "DNS-over-TLS через защищённое подключение"
+
+msgid "Native DNS port"
+msgstr "Порт Native DNS"
+
+msgid "Saved routing engine differs from the active engine. Apply is required."
+msgstr "Сохранённый движок отличается от действующего. Требуется применение настроек."
+
+msgid "Protected DNS recovery is active without exact domain mappings. Apply again to restore domain policies."
+msgstr "Действует защищённое восстановление DNS без точных доменных сопоставлений. Повторное применение восстановит доменные политики."
+
+msgid "Routing policy is not confirmed as active."
+msgstr "Применение политики пока не подтверждено."
+
+msgid "Connection for proxy rules"
+msgstr "Подключение для прокси-правил"
+
+msgid "This connection handles matching rules and protected DNS, not all LAN traffic."
+msgstr "Это подключение обслуживает подходящие правила и защищённый DNS, а не весь трафик LAN."
+
+msgid "Saved routing engine"
+msgstr "Сохранённый движок маршрутизации"
+
+msgid "Domains: %d, IP rules: %d, LAN rules: %d"
+msgstr "Доменов: %d, IP-правил: %d, LAN-правил: %d"
+
+msgid "Routing policy unavailable"
+msgstr "Политика маршрутизации неизвестна"
+
+msgid "Migration restriction"
+msgstr "Ограничение миграции"
+
+msgid "Strict routing with blocking"
+msgstr "Строгая маршрутизация с блокировкой"
+
+msgid "Only enabled rules and presets use their selected transport. All other traffic goes directly."
+msgstr "Назначенные подключения используются только для включённых правил и пресетов. Остальной трафик идёт напрямую."
+
+msgid "Traffic outside the rules is blocked. Explicit direct exceptions still apply."
+msgstr "Трафик вне правил блокируется. Явные прямые исключения продолжают действовать."
+
+msgid "Traffic outside the rules also uses an available main or backup transport. If none is suitable, it is blocked."
+msgstr "Трафик вне правил тоже направляется через доступное основное или резервное подключение. Если подходящего подключения нет, он блокируется."
+
+msgid "Open Status"
+msgstr "Открыть «Состояние»"
+
+msgid "Request emergency recovery"
+msgstr "Запросить аварийное восстановление"
+
+msgid "This restores the verified previous protected configuration and may interrupt connections. It is not a routine undo."
+msgstr "Будет восстановлена проверенная предыдущая защищённая конфигурация. Соединения могут прерваться. Это не обычная отмена изменений."

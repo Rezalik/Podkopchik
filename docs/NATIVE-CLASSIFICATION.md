@@ -16,13 +16,22 @@ contacted by these tests.
 | Compatible | May use the normal direct route | Explicit rules still take precedence; there is no strict domain fail-closed guarantee |
 | Either mode with migration restriction | Protected fallback or explicit block policy, never implicit WAN | Same scope as Strict, not a DNS-derived real-IP allowlist |
 
-New UCI defaults are `native_classification_mode=strict`, `native_unknown_action=protected`,
-`native_migration_restrict_unknown=1` and `native_direct_grants_confirmed=0`.
-The planner also defaults an omitted classification mode to Strict; an older
-unrestricted fixture must now request Compatible explicitly.
+Normal Podkopchik policy is selective: enabled domain/IP/LAN rules, including
+rules created by presets, choose their transport; unmatched traffic uses Direct.
+New UCI, LuCI and generator defaults are `native_classification_mode=compatible`,
+`native_migration_restrict_unknown=0`, `native_unknown_action=protected` and
+`native_direct_grants_confirmed=0`. The unknown action is used only after an
+explicit Strict/migration opt-in. Existing explicit UCI choices are preserved.
+The internal planner still treats a missing policy object as Strict defensively;
+the application generator supplies the explicit selective policy instead.
 They are native settings only. Saving them does not change the working legacy
 runtime. LuCI Advanced identifies that scope and displays the Compatible
 warning and Strict domain-only-direct limitation.
+
+Selective mode does not promise Strict enforcement of domain-only rules for
+old real-address DNS caches, third-party DoH or literal IPs. Registered live
+synthetic mappings and explicit protected IP rules retain their fail-closed
+handling; changing the unmatched default never authorizes synthetic WAN egress.
 
 Direct exceptions are privileged administrator policy, not proof of a domain.
 An approved address grants that address for all names and protocols; an approved

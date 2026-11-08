@@ -84,13 +84,14 @@ for(let i,tag in config.transports){let a=p.compiled.adapters[tag],h=health.prox
 	}
 	push(connections,row);
 }
-let eg=jsonfile('/etc/podkopchik-native-emergency/state.json',65536);
+let emergency_file='/etc/podkopchik-native-emergency/state.json';
+let eg=m.repair || fs.lstat(emergency_file)?jsonfile(emergency_file,65536):null;
 let sample={epoch:time(),uptime:uptime(),process:proc,cpu:{...model.cpu_delta(old?.last?.cpu_raw,cpu,proc,old?.last?.process)},cpu_raw:cpu,
 	memory:{total_kib:model.field(mem,'MemTotal'),available_kib:model.field(mem,'MemAvailable')},
 	conntrack:{count:+trim(text('/proc/sys/net/netfilter/nf_conntrack_count')),max:+trim(text('/proc/sys/net/netfilter/nf_conntrack_max'))},
 	native:{active:active<0?0:active+1,health_switch_epoch:+(health.groups?.auto_proxy_group?.last_switch_time || 0),phase:index(['active','repair','recovery','stopped','emergency'],m.phase)>=0?m.phase:'other',pending:!!m.pending,
 		error:!!length(trim(text('/tmp/podkopchik/native-error'))),xray:!!service('podkopchik-native-xray')?.running},
-	emergency:{accepted:eg.mode=='accepted',running:!!emergency?.running},connections,probes:{}};
+	emergency:model.emergency_status(m.repair,eg,emergency?.running),connections,probes:{}};
 let due=!old?.last_probe_mono || uptime()-old.last_probe_mono>=config.probe_interval;
 if(due){
 	sample.probes.dns_udp_tcp=command([config.helper,'-probe',p.dns.listen,'-probe-native'],6)!=null?'ok':'fail';
@@ -109,7 +110,7 @@ if(active<0)push(warnings,'protected_transport_unavailable');
 if(proc?.fd_limit && proc.fd>=proc.fd_limit*0.85)push(warnings,'fd_pressure');
 if(sample.memory.available_kib<98304)push(warnings,'ram_pressure');
 if(sample.conntrack.max && sample.conntrack.count>=sample.conntrack.max*0.8)push(warnings,'conntrack_pressure');
-if(!sample.emergency.accepted||!sample.emergency.running)push(warnings,'emergency_not_ready');
+if(sample.emergency.attention)push(warnings,'emergency_not_ready');
 if(sample.native.phase!='active'||sample.native.error)push(warnings,'native_attention');
 for(let name,v in sample.probes)if(v=='fail')push(warnings,'probe_'+name);
 sample.warnings=warnings;

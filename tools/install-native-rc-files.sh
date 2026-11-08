@@ -6,7 +6,9 @@ umask 077
 [ "$#" = 1 ] && [ -d "$1/root" ] || exit 2
 base=$(CDPATH= cd -- "$1" && pwd)
 (cd "$base" && sha256sum -c SHA256SUMS >/dev/null)
-ucode /etc/podkopchik-native-emergency/recovery.uc verify >/dev/null
+if [ "$(uci -q get podkopchik.main.native_recovery_policy 2>/dev/null || true)" = repair ]; then
+	ucode /etc/podkopchik-native-emergency/recovery.uc verify >/dev/null
+fi
 before=$(sha256sum /etc/config/podkopchik)
 sh "$base/install-native-dns.sh" --preflight
 sh "$base/install-native-dns.sh" --install
@@ -15,7 +17,7 @@ while IFS= read -r source; do
 	rel=${source#"$base/root/"}
 	case "$rel" in
 		etc/config/podkopchik) continue ;;
-		etc/init.d/podkopchik|etc/init.d/podkopchik-fakedns|etc/init.d/podkopchik-native-emergency|etc/hotplug.d/iface/95-podkopchik-fakedns|usr/bin/podkopchikctl|usr/libexec/rpcd/podkopchik.awg|usr/libexec/podkopchik/*.uc|usr/libexec/podkopchik/*.sh|usr/libexec/podkopchik/podkopchik-native-dns|lib/upgrade/keep.d/podkopchik-*|usr/share/luci/menu.d/luci-app-podkopchik.json|usr/share/rpcd/acl.d/luci-app-podkopchik.json|www/luci-static/resources/view/podkopchik/*.js) ;;
+		etc/init.d/podkopchik|etc/init.d/podkopchik-fakedns|etc/init.d/podkopchik-native-emergency|etc/hotplug.d/iface/95-podkopchik-fakedns|usr/bin/podkopchikctl|usr/libexec/rpcd/podkopchik.awg|usr/libexec/podkopchik/*.uc|usr/libexec/podkopchik/*.sh|usr/libexec/podkopchik/podkopchik-native-dns|lib/upgrade/keep.d/podkopchik-*|usr/share/luci/menu.d/luci-app-podkopchik.json|usr/share/rpcd/acl.d/luci-app-podkopchik.json|www/luci-static/resources/view/podkopchik/*.js|www/luci-static/resources/podkopchik/*.js) ;;
 		*) echo "Unexpected RC payload member: $rel" >&2; exit 1 ;;
 	esac
 	ucode -e 'import {lstat} from "fs";let p=ARGV[0],parts=split(p,"/");

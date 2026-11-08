@@ -14,6 +14,7 @@ function makeNode(tag, attrs, data) {
 		style: {},
 		textContent: '',
 		appendChild(child) {
+			if (Array.isArray(child)) throw Error('appendChild requires one DOM node');
 			this.children.push(child);
 			return child;
 		},
@@ -102,6 +103,7 @@ const modules = {
 	view: { extend: obj => obj },
 	fs: { exec_direct: () => Promise.resolve('') },
 	ui: { createHandlerFn: () => function() {}, addNotification: function() {} },
+	rpc: {declare:()=>()=>Promise.resolve(null)},
 	uci: {
 		load: () => Promise.resolve(),
 		sections: function(_config, type) {
@@ -128,9 +130,10 @@ const modules = {
 	}
 };
 
-const view = new Function('modules', 'E', '_',
-	'var view = modules.view, fs = modules.fs, ui = modules.ui, uci = modules.uci;\n' + source
-)(modules, E, s => s);
+const routing = require('./lib/luci-routing')({E,ui:modules.ui});
+const view = new Function('modules', 'E', '_', 'routing', 'window',
+	'var view = modules.view, fs = modules.fs, ui = modules.ui, uci = modules.uci, rpc = modules.rpc;\n' + source
+)(modules, E, s => s, routing, {location:{reload(){}}});
 
 const statusText = [
 	'Podkopchik 0.1.0-beta',
@@ -163,8 +166,26 @@ if (textOf(nativeDown).includes('Native routing is ready.') ||
 	!textOf(nativeDown).includes('Protected transports are unavailable'))
 	throw new Error('Native all-down must not be presented as healthy routing');
 const nativeRecovery = view.render(['Routing engine: native\n' + JSON.stringify({phase:'recovery',ready:false})]);
-if (!textOf(nativeRecovery).includes('Stock DNS is restored'))
+if (!textOf(nativeRecovery).includes('without exact domain mappings'))
 	throw new Error('Protected recovery must explain its reduced DNS precision');
+const selectiveStatus = view.render(['Routing engine: native\n'+JSON.stringify({engine:'native',phase:'active',ready:true,
+	classification:{mode:'compatible',unknown:'direct',migration_restrict_unknown:false},
+	configured_classification:{mode:'compatible',unknown:'direct',migration_restrict_unknown:false},
+	rules:{domains:81,ips:7,clients:0},automatic:{active:'proxy_main'}})]);
+if (!textOf(selectiveStatus).includes('Selective routing (rules only)') || !textOf(selectiveStatus).includes('All other traffic goes directly.'))
+	throw Error('Native selective policy is missing');
+if (!textOf(selectiveStatus).includes('not all LAN traffic')) throw Error('Main role implies global proxying');
+const unappliedStatus = view.render(['Routing engine: native\n'+JSON.stringify({engine:'native',phase:'active',ready:true,
+	classification:{mode:'strict',unknown:'protected'},configured_classification:{mode:'compatible',unknown:'direct'}})]);
+if (!textOf(unappliedStatus).includes('differs from the active policy')) throw Error('Saved policy was confused with active runtime');
+if (textOf(unappliedStatus).includes('All other traffic goes directly.')) throw Error('Saved selective setting was claimed as active');
+const repairPending = view.render(['Routing engine: native\n'+JSON.stringify({engine:'native',phase:'active',ready:true,
+	pending:'b'.repeat(32),recovery_policy:'repair',classification:{mode:'compatible',unknown:'direct'}})]);
+if (!textOf(repairPending).includes('Request emergency recovery') || textOf(repairPending).includes('Roll back Native Apply') ||
+	textOf(repairPending).includes('rollback deadline')) throw Error('Repair UI must not promise routine timer rollback');
+const activating = view.render(['Routing engine: native\n'+JSON.stringify({engine:'native',phase:'activating',ready:false,
+	classification:{mode:'compatible',unknown:'direct'}})]);
+if (textOf(activating).includes('All other traffic goes directly.')) throw Error('Unready runtime cannot claim active Direct policy');
 const text = textOf(rendered).replace(/\s+/g, ' ').trim();
 
 if (!text.includes('Legacy routing through Xray') || !text.includes('Protection is incomplete'))
@@ -263,3 +284,28 @@ const allDown = view.render([workingUncheckedStatus.replace('State: not recorded
 const blockedCard = findCard(allDown, 'Matching traffic is blocked');
 if (!blockedCard || !blockedCard.attrs.style.includes('background:#fdecea')) throw Error('All-down must render fail-closed as error');
 console.log('Mixed AWG/VLESS Status render smoke OK: stopped override, backup labels, all-down blocking');
+
+(async()=>{
+	const calls=[];let modal=null;
+	modules.ui.createHandlerFn=(ctx,fn,...args)=>()=>fn.apply(ctx,args);
+	modules.ui.showModal=(title,children)=>{modal={title,children};};
+	modules.ui.hideModal=()=>{};
+	const pending={engine:'native',phase:'active',ready:true,pending:'c'.repeat(32),recovery_policy:'repair',
+		classification:{mode:'compatible',unknown:'direct'}};
+	modules.fs.exec_direct=(_cmd,args)=>{
+		calls.push(args);
+		return Promise.resolve(args[0]==='status'?'Routing engine: native\n'+JSON.stringify(pending):
+			args[0]==='apply'?JSON.stringify({engine:'native',confirmation_required:true,pending:pending.pending,recovery_policy:'repair'}):'');
+	};
+	function button(root,label){let result;walk(root,node=>{if(node.tag==='button'&&textOf(node)===label)result=node;});return result;}
+	const page=view.render(['Routing engine: native\n'+JSON.stringify(pending)]);
+	await button(page,'Apply settings').attrs.click();
+	if(!calls.some(a=>a[0]==='apply')||!calls.some(a=>a[0]==='status')||calls.some(a=>a[0]==='native-confirm'))
+		throw Error('Status Apply must refresh DOM and leave confirmation explicit');
+	calls.length=0;
+	button(page,'Request emergency recovery').attrs.click();
+	if(!modal||calls.length)throw Error('Emergency recovery must require a second explicit confirmation');
+	await button(modal.children,'Request emergency recovery').attrs.click();
+	if(calls.length!==1||calls[0][0]!=='native-abort'||calls[0][1]!==pending.pending)throw Error('Emergency confirmation did not invoke the existing guarded action');
+	console.log('Native Status actions PASS: DOM refresh, manual Apply confirmation and explicit emergency consent');
+})().catch(err=>{console.error(err);process.exitCode=1;});

@@ -1,5 +1,64 @@
 # Xiaomi Household Native RC, 2026-11-07
 
+Current operator-approved state on 2026-11-08 is selective Native with ordinary
+transactional Apply. The later [cleanup](AX6000-CLEANUP-20261108.md) retired the
+separate emergency capsule and removed old router backups. Strict/repair
+settings, PIDs and backup locations below are historical rollout evidence,
+not instructions for the current router. See the [Russian guide](GUIDE-RU.md).
+
+## Selective Policy Correction, 2026-11-08
+
+The operator explicitly replaced the earlier whole-LAN Strict policy below
+with Podkopchik's selective policy: `native_classification_mode=compatible`
+and `native_migration_restrict_unknown=0`. Apply was validated and confirmed;
+81 domain names, seven IP rules, exclusions and all three AWG roles were kept.
+Unmatched IPv4/IPv6 now uses Direct; selected services retain their transport.
+Network, wireless, DHCP and SSH file hashes and the default route are unchanged.
+
+Before correction, real Roblox game/STUN connections had no replies over the
+main/backup WARP paths. The same two STUN endpoints each returned four matched
+replies over the rules-only GermanyDir tunnel and WAN, independently of Native
+LAN classification. After correction, both LAN STUN probes returned four
+matched replies; Roblox HTTPS and protected YouTube/Instagram/X HTTPS passed.
+The user subsequently confirmed successful gameplay on the home Wi-Fi and
+that error 279 disappeared. This is acceptance for the reported client, not
+a guarantee for every Roblox experience or transport endpoint.
+No Roblox exception or broad shared-CDN Direct grant was added.
+
+A bounded 15-second, 128-packet-per-interface capture of the two qualified
+Roblox controls counted eight outgoing and eight incoming packets on LAN and
+physical WAN, and zero on the main AWG. Only counts were retained; no packet
+payloads or client addresses were saved. All temporary captures were stopped.
+
+Local checks: 23 JavaScript smoke tests, JS/shell syntax and diff whitespace
+checks passed. The real UCI generator selective-default regression and the
+explicit Strict/Compatible planner regression passed in a NIC-free OpenWrt VM.
+The unit-only VM explicitly skipped the generator's kernel `nft -c` step;
+the installed physical generation separately passed `validate-active` and the
+bounded transport checks above. No new package or system component was installed.
+
+The normal Apply intentionally replaced the Native DNS PID (32577 to 19891).
+The ongoing resource observation must distinguish the two policy/PID segments;
+a restart-related FD drop is not evidence of a leak fix or one uninterrupted
+48-hour same-configuration stability result. The historical initial rollout
+and its Strict acceptance below remain the record for 2026-11-07.
+
+To explicitly return to the former Strict policy, without restoring allocator
+files or replacing current profiles/rules:
+
+```sh
+uci set podkopchik.main.native_classification_mode='strict'
+uci set podkopchik.main.native_migration_restrict_unknown='1'
+uci commit podkopchik
+podkopchikctl apply
+# After readiness checks, use the pending token printed by Apply:
+podkopchikctl native-confirm TOKEN_FROM_APPLY
+```
+
+This is a deliberate policy rollback, not a recommended fix for Roblox. The
+pre-change configuration remains root-private on the router; its checksum was
+verified without transferring configuration secrets to the workstation.
+
 ## Actual Installed Mode
 
 This is a physical whole-LAN pilot on Xiaomi Redmi Router AX6000 stock layout,

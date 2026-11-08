@@ -13,6 +13,11 @@ ok(small.system_pct>10&&small.system_pct<11&&small.process_core_pct==0.4,'CPU do
 ok(m.cpu_delta({total:100,idle:20},{total:300,idle:120,cores:4},{...n,pid:13},p).process_core_pct==null,'PID changes invalidate CPU deltas');
 ok(m.finished({boot:'one',deadline_mono:200},201,'one'),'fixed deadline');
 ok(m.finished({boot:'one',deadline_mono:200},10,'two'),'reboot must not extend lifetime');
+let emergency=m.emergency_status(false,null,false);
+ok(!emergency.required&&!emergency.attention,'transactional routing does not require an emergency capsule');
+ok(m.emergency_status(true,null,false).attention,'repair mode still reports a missing emergency capsule');
+ok(m.emergency_status(true,{mode:'accepted'},false).attention,'repair mode requires a running emergency worker');
+ok(!m.emergency_status(true,{mode:'accepted'},true).attention,'accepted running repair capsule is healthy');
 let s=null;
 for(let i=0;i<10000;i++)s=m.aggregate(s,{epoch:1000+i,process:{pid:12,start_ticks:10,fd:11+i%8,udp:2,tcp:2,rss_kib:13000},
 	cpu:{system_pct:20,process_core_pct:0.5},memory:{available_kib:200000},conntrack:{count:500},native:{active:i%3},

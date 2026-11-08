@@ -4,6 +4,7 @@
 'require ui';
 'require uci';
 'require rpc';
+'require podkopchik.routing as routing';
 
 function readAWGStatus() {
 	return rpc.declare({ object: 'podkopchik.awg', method: 'list', expect: { '': {} } })().catch(function() { return null; });
@@ -484,23 +485,61 @@ function renderCards(statusText, awg) {
 		catch (e) { return [card(_('Universal Routing Engine'), 'error', _('Native routing status is unavailable.'))]; }
 		var allDown = native.automatic && native.automatic.active === 'blocked';
 		var disabled = native.phase === 'disabled';
+		var policyLive = ['active', 'recovery'].indexOf(native.phase) >= 0;
+		var policy = routing.activePolicy(native);
+		var configuredPolicy = native.configured_classification;
+		var model = simpleProxyModel();
 		var children = [card(_('Universal Routing Engine'), disabled ? 'inactive' : native.ready && !allDown ? 'ok' : 'warning',
 			disabled ? _('Disabled') : allDown ? _('Protected transports are unavailable; protected traffic is blocked.') :
-				native.phase === 'recovery' ? _('Protected recovery is active. Stock DNS is restored; apply again to restore exact domain policies.') :
+				native.phase === 'recovery' ? _('Protected DNS recovery is active without exact domain mappings. Apply again to restore domain policies.') :
 				native.ready ? _('Native routing is ready.') : _('Native routing is not ready. Check the transaction status.'),
 			disabled ? '' : native.xray_required ? _('Xray is required by the selected proxy transport.') : _('AWG Native does not require Xray.')),
-			card(_('Active connection'), disabled ? 'inactive' : allDown ? 'warning' : 'ok',
-				E('span', { 'style': 'overflow-wrap:anywhere' }, disabled || allDown ? _('None') : native.automatic?.active || _('None'))),
+			card(_('Active routing policy'), !policyLive || !policy ? 'inactive' : native.ready ? 'ok' : 'warning',
+				disabled ? _('Disabled') : policyLive ? routing.label(policy) : _('Routing policy is not confirmed as active.'),
+				policyLive ? routing.description(policy) : ''),
+			card(_('Connection for proxy rules'), disabled ? 'inactive' : allDown ? 'warning' : 'ok',
+				E('span', { 'style': 'overflow-wrap:anywhere' }, disabled || allDown ? _('None') :
+					model.labels[native.automatic?.active] || native.automatic?.active || _('None')),
+				policy && policy.unknown === 'direct' ? _('This connection handles matching rules and protected DNS, not all LAN traffic.') : ''),
 			speedLimitSummary(speedLimitModel())];
+		if (routing.differs(policy, configuredPolicy))
+			children.push(card(_('Saved routing policy'), 'warning', routing.label(configuredPolicy),
+				_('Saved routing policy differs from the active policy. Apply is required.')));
+		if (Object.prototype.hasOwnProperty.call(native, 'configured_classification') && !configuredPolicy)
+			children.push(card(_('Saved routing policy'), 'error', _('Saved routing policy is invalid.')));
+		if (native.configured_engine && native.configured_engine !== native.engine)
+			children.push(card(_('Saved routing engine'), 'warning',
+				native.configured_engine === 'native' ? _('Universal Routing Engine') : _('Legacy'),
+				_('Saved routing engine differs from the active engine. Apply is required.')));
+		if (native.rules)
+			children.push(card(_('Routing rules'), 'inactive',
+				_('Domains: %d, IP rules: %d, LAN rules: %d').format(native.rules.domains || 0, native.rules.ips || 0, native.rules.clients || 0)));
 		if (native.pending) {
-			children.push(card(_('Confirm Native Apply'), 'warning', _('Check DNS and internet access, then confirm before the rollback deadline.')));
+			children.push(card(_('Confirm Native Apply'), 'warning', native.recovery_policy === 'repair'
+				? _('Native Apply is pending. Open Status, verify connectivity and confirm. Emergency recovery remains active.')
+				: _('Check DNS and internet access, then confirm before the rollback deadline.')));
 			['native-confirm', 'native-abort'].forEach(function(command) {
+				var emergency = command === 'native-abort' && native.recovery_policy === 'repair';
+				function submit() {
+					return fs.exec_direct('/usr/bin/podkopchikctl', [command, native.pending]).then(function() { window.location.reload(); })
+						.catch(function(err) { ui.addNotification(_('Apply'), E('p', {}, err.message || String(err)), 'error'); });
+				}
 				children.push(E('button', {
 					'class': 'btn cbi-button',
+					'disabled': command === 'native-confirm' && !native.ready,
 					'click': ui.createHandlerFn(null, function() {
-						return fs.exec_direct('/usr/bin/podkopchikctl', [command, native.pending]).then(function() { window.location.reload(); });
+						if (!emergency) return submit();
+						ui.showModal(_('Request emergency recovery'), [
+							E('p', {}, _('This restores the verified previous protected configuration and may interrupt connections. It is not a routine undo.')),
+							E('div', { 'class': 'right' }, [
+								E('button', { 'class': 'btn', click: ui.hideModal }, _('Cancel')),
+								' ', E('button', { 'class': 'btn cbi-button-negative', click: ui.createHandlerFn(null, function() {
+									ui.hideModal(); return submit();
+								}) }, _('Request emergency recovery'))
+							])
+						]);
 					})
-				}, command === 'native-confirm' ? _('Confirm Native Apply') : _('Roll back Native Apply')));
+				}, command === 'native-confirm' ? _('Confirm Native Apply') : emergency ? _('Request emergency recovery') : _('Roll back Native Apply')));
 			});
 		}
 		return children;
@@ -601,13 +640,17 @@ return view.extend({
 			return Promise.all([runCommand([ 'status' ]), readAWGStatus()]).then(function(next) {
 				while (content.firstChild)
 					content.removeChild(content.firstChild);
-				content.appendChild(renderCards(next[0], next[1]));
+				content.appendChild(E('div', {}, renderCards(next[0], next[1])));
 			});
 		}
 
 		function action(args) {
-			return runCommand(args).then(function(res) {
-				ui.addNotification(null, E('pre', { 'style': 'white-space: pre-wrap' }, res));
+			return fs.exec_direct('/usr/bin/podkopchikctl', args).then(function(res) {
+				if (args[0] === 'apply') routing.notifyApply(res);
+				else ui.addNotification(null, E('pre', { 'style': 'white-space: pre-wrap' }, res));
+				return refresh();
+			}).catch(function(err) {
+				ui.addNotification(_('Apply'), E('pre', { 'style': 'white-space: pre-wrap' }, err.message || String(err)), 'error');
 				return refresh();
 			});
 		}

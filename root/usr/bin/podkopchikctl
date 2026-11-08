@@ -388,9 +388,9 @@ cmd_status() {
 	# Only the durable coordinator pointer declares the installed engine.
 	# Temporary canary tables and AWG devices do not select household routing.
 	echo "Routing engine: legacy"
-	echo "Native classification configured: $(uci -q get "$APP.main.native_classification_mode" 2>/dev/null || echo strict)"
+	echo "Native classification configured: $(uci -q get "$APP.main.native_classification_mode" 2>/dev/null || echo compatible)"
 	echo "Native unknown traffic configured: $(uci -q get "$APP.main.native_unknown_action" 2>/dev/null || echo protected)"
-	echo "Native migration restriction configured: $(uci -q get "$APP.main.native_migration_restrict_unknown" 2>/dev/null || echo 1)"
+	echo "Native migration restriction configured: $(uci -q get "$APP.main.native_migration_restrict_unknown" 2>/dev/null || echo 0)"
 	fake_status="$(sh "$LIB/fakedns_guard.sh" status 2>/dev/null || true)"
 	case "$(printf '%s\n' "$fake_status" | sed -n 's/^state=//p')" in
 		active) echo "Synthetic IP protection: active" ;;

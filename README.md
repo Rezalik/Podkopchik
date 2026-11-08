@@ -1,590 +1,218 @@
 # Podkopchik
 
-Feature-branch Native RC: permanent Native DNS now requires the schema-3
-protected DNS-over-TLS component. AWG DNS binds to its kernel tunnel; VLESS DNS
-uses its proxy transport. ISP DNS is not a fallback. The optional explicit
-repair policy keeps ordinary failures on Native and reserves a separately
-verified emergency capsule for management loss or a critical leak. Legacy and
-transactional defaults remain unchanged. See the
-[permanent Apply, protected DNS and recovery contract](docs/UNIVERSAL-PERMANENT-APPLY.md).
+Podkopchik управляет выборочной маршрутизацией домашней сети через LuCI.
+Вы указываете сервисы, домены, IP-сети или устройства, выбираете для них
+подключение, а остальной трафик выходит напрямую через провайдера.
 
-The [2026-11-07 Xiaomi household Native pilot](docs/UNIVERSAL-NATIVE-HOUSEHOLD-20261107.md)
-is installed and explicitly confirmed: kernel AWG, protected DoT and Strict
-classification, without a running Xray in AWG-only. Application and AWG failover
-checks passed; this is still an experimental RC, not long-duration stability or
-physical QUIC acceptance. Legacy remains the installation default.
+**Основная политика: только включённые правила и пресеты идут через выбранный
+AWG или прокси. Всё вне правил идёт Direct.** Назначение подключения основным
+само по себе не переводит весь интернет в туннель.
 
-The [bounded 48-hour operational observation](docs/NATIVE-OBSERVATION-20261107.md)
-uses a temporary, read-only diagnostic job: rotated tmpfs logs, no user DNS
-history, no continuous capture and no automatic configuration repair. The
-24/48-hour verdict is separate from successful installation.
+## Проверено На Xiaomi AX6000
 
-Experimental AmneziaWG integration: [Stage 4 safety, independent UDP/IPv6
-settings, test evidence, installation and rollback](docs/AWG-STAGE4.md).
-Both interception extensions are off by default. Local tests do not establish
-live UDP/IPv6 support or packet-level leak protection on your VPN server.
-The [authorized AX6000 live report](docs/AWG-STAGE4-LIVE-20261029.md) records
-verified IPv4 TCP/UDP, failover and scoped fail-closed checks, plus remaining
-IPv6/HTTP3/reboot limits. Final router settings leave UDP and IPv6 off.
+**Проверено и работает на Xiaomi Redmi Router AX6000 со stock-разметкой,
+OpenWrt 25.12.6 и ядром 6.12.112.** Проверялся установленный Native RC
+с реальными AmneziaWG 3.1, домашними устройствами и обычным доступом в интернет.
 
-Podkopchik is an OpenWrt 24.10+ LuCI application for routing selected LAN traffic through Xray VLESS proxy links.
+| Параметр | Проверенная конфигурация |
+| --- | --- |
+| Устройство | Xiaomi Redmi Router AX6000, stock layout |
+| Board ID | `xiaomi,redmi-router-ax6000-stock` |
+| OpenWrt / ядро | `25.12.6` / `6.12.112` |
+| Target / архитектура | `mediatek/filogic` / `aarch64_cortex-a53` |
+| Режим | Native, AWG-only: пользовательский трафик без Xray |
+| Политика | Выборочная: `compatible`, ограничение миграции выключено |
+| Применение | Штатный подтверждаемый Native Apply, `transactional` |
+| Аварийная служба | Отдельный аварийный механизм отключён и удалён по запросу владельца |
+| Дата проверки | 8 ноября 2026 года |
 
-Package: `luci-app-podkopchik`  
-Service: `podkopchik`  
-UCI config: `/etc/config/podkopchik`  
-Generated Xray config: `/etc/podkopchik/config.json`  
-Runtime state: `/tmp/podkopchik/state.json`
+Что подтверждено на этом устройстве:
 
-Release: `0.1.0-beta`
+- Нативный HTTPS через три действующих AWG, без Xray в пути AWG-only.
+- DNS по UDP/TCP и защищённый DNS-over-TLS через транспорт.
+- Доступность YouTube, Instagram и X по HTTPS; пользователь подтвердил работу
+  YouTube и Instagram на iPhone через домашний Wi-Fi без клиентского VPN.
+- Доменные правила, пресеты и семь IP-правил сохранены при обновлениях.
+- Direct для трафика вне правил. Пользователь подтвердил вход в Roblox после
+  исправления политики; независимые UDP-контроли Roblox получают ответы.
+- В раннем физическом пилоте проверялись переключение AWG и защищённый отказ.
+  Полный повтор всех аварийных сценариев после каждого обновления не заявляется.
+- После последнего обслуживания сети, Wi-Fi, DHCP, SSH, профили AWG,
+  роли подключений и системный default route сохранены.
 
-## What 0.1.0-beta Includes
+Это **экспериментальный release candidate**, а не обещание совместимости со
+всеми роутерами и сервисами. 48-часовое наблюдение ещё не завершено.
+Полноценные физические QUIC/HTTP3, IPv6 через туннель и актуальный VLESS-профиль
+на этом Xiaomi не прошли полную текущую приёмку. Подробности:
+[проверки установки](docs/LUCI-NATIVE-ALIGNMENT-20261108.md),
+[текущее состояние после очистки](docs/AX6000-CLEANUP-20261108.md),
+[наблюдение стабильности](docs/NATIVE-OBSERVATION-20261107.md).
 
-- LuCI JavaScript pages for status, proxy links, rule presets, domain groups, IP rules, direct exclusions, LAN devices, DNS, updates, logs, and advanced settings.
-- UCI-backed VLESS TCP/REALITY and VLESS XHTTP/REALITY proxy definitions.
-- Simple proxy roles: one main proxy, optional backup proxies, and disabled links.
-- Internal automatic failover support for the selected main proxy and backups.
-- Rule presets for popular services. Presets create ordinary editable domain and IP rules.
-- Domain, destination CIDR, and LAN source IP routing rules.
-- Manual direct exclusions for host/IP/CIDR entries that must bypass the transparent proxy.
-- Xray transparent inbound with sniffing enabled and FakeDNS disabled.
-- dnsmasq-based DNS with optional LAN UDP/TCP 53 redirect.
-- Podkopchik-owned nftables/firewall4 table and cleanup.
-- Proxy endpoint destinations are bypassed before transparent proxy interception so LAN clients can still connect to the same VLESS servers directly.
-- Experimental Xray FakeDNS config generation and optional LAN DNS hijack, disabled by default.
-- LAN device speed limit configuration and diagnostics only. Real `tc`/`ifb` enforcement is not active in this beta.
-- Config validation before apply, preserving the previous working Xray config on failure.
-- GitHub update checks with a development `main` branch channel and a future verified stable release channel.
+## Как Это Работает
 
-This beta does not include subscription URLs, geoip/geosite databases, traffic statistics, QR import/export, FakeDNS by default, Xray core auto-updates, Docker, or router-side Python/Node.js runtimes.
+У Podkopchik два режима. Установка исходников по умолчанию сохраняет Legacy;
+работающий роутер автоматически на Native не переводится.
 
-## Install On OpenWrt 24.10 / 25.12
+| Режим | Маршрутизация |
+| --- | --- |
+| **Native / Universal Routing Engine** | Политика выбирается до транспорта: DNS-классификатор, nftables и policy routing. AWG передаёт пакеты через ядро Linux. Xray запускается только при необходимости маршрутов через VLESS. |
+| **Legacy** | Прозрачный перехват и маршрутизацию обслуживает Xray. В этом режиме даже AWG-профиль может использовать Xray в тракте обработки. |
 
-OpenWrt 24.10 uses `opkg`; OpenWrt 25.12 uses `apk`. The installer selects
-the native manager from `/etc/openwrt_release`, not just the first binary in
-PATH. A missing expected manager is an error. See
-[AX6000 migration and recovery](docs/OPENWRT-25.12-MIGRATION.md) before changing
-firmware. Firmware upgrades are not performed by Podkopchik.
+В Native клиент обращается к DNS роутера. Для защищённого домена классификатор
+получает настоящий адрес через защищённый upstream, подготавливает synthetic-IP
+и подтверждает установку необходимых правил до выдачи ответа клиенту.
+Далее nftables выполняет классификацию, DNAT и маркировку, а policy routing
+направляет соединение в назначенный AWG или адаптер Xray/VLESS.
 
-SSH into the router as root. The recommended GitHub installer flow is:
+Synthetic-IP не является адресом сайта в интернете. Неизвестные, просроченные
+и старые fake-IP не должны уходить через WAN; их карантин входит в Routing Core.
+Обычный Direct-трафик не должен блокироваться этой защитой.
 
-```sh
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/rezalik/Podkopchik/main/install.sh)"
-```
+DNS-over-TLS использует доступный защищённый транспорт и резервные DNS-upstream.
+DNS провайдера не используется как неявный резерв. Разрешение адресов самих
+VPN/прокси-серверов отделено от клиентского DNS: предусмотрен bootstrap через
+проверяемый HTTPS, чтобы не требовать уже работающий туннель для его запуска.
 
-On a clean image without curl, use OpenWrt's wget entry point instead:
+Если все защищённые транспорты недоступны, защищённые назначения блокируются.
+Новые DNS-запросы также могут стать недоступны: скрытого перехода на DNS
+провайдера нет. Сам по себе Direct-маршрут не гарантирует работающий DNS.
 
-```sh
-wget -O /tmp/podkopchik-install.sh https://raw.githubusercontent.com/rezalik/Podkopchik/main/install.sh
-sh /tmp/podkopchik-install.sh
-```
+## Правила И Исключения
 
-If you already copied or extracted this repository to the router, run the local installer instead:
+- **Пресеты** добавляют обычные редактируемые правила для Telegram, YouTube,
+  Instagram, TikTok, X / Twitter, Discord, OpenAI / ChatGPT / Codex и Canva.
+- **Доменные группы** связывают список доменов с автоматической группой,
+  отдельным подключением или Direct.
+- **IP-правила** задают маршрут для адреса или CIDR-сети.
+- **LAN-устройства** задают поведение конкретного клиента.
+- **Исключения** разрешают прямой доступ к панели, VPS или серверу подключения.
+  Принимаются домен, IPv4/IPv6 и CIDR, без схемы URL, пути и порта.
 
-```sh
-cd /tmp
-curl -fL https://github.com/rezalik/Podkopchik/archive/refs/heads/main.tar.gz -o podkopchik.tar.gz
-tar -xzf podkopchik.tar.gz
-cd Podkopchik-main
-sh install.sh
-```
+Основной и резервные транспорты используются правилами с автоматической целью.
+Подключение «только правила» не становится общим резервом автоматически.
+Недоступность назначенного защищённого маршрута не должна означать Direct.
 
-The installer first performs a system preflight, reports the router model, OpenWrt version, target, architecture, kernel, `/overlay` free space, and install mode. Existing `/etc/config/podkopchik` means update mode and is preserved.
+В выборочном режиме доменные правила зависят от DNS роутера. Старый реальный IP
+в кэше, сторонний DoH/DoT, Private Relay или обращение по IP могут обойти
+доменную классификацию. Это не строгий fail-closed для всего неизвестного трафика.
+Отдельный Strict-режим может отправлять неизвестный трафик через защищённый
+транспорт либо блокировать его; это осознанная настройка, не основной режим.
 
-Because user configuration is preserved, uninstalling and reinstalling Podkopchik does not remove old proxy tags or routing targets from `/etc/config/podkopchik`. During generate/apply, Podkopchik checks enabled routing rules for stale targets. If an old target no longer exists and the internal `auto_proxy_group` is valid, the rule target is repaired to `auto_proxy_group`; otherwise apply stops with a clear error naming the broken rule.
+Исключение общего CDN-IP разрешает весь адрес, а исключение LAN-устройства
+распространяется на его трафик. Это не точное разрешение одного домена.
+Не добавляйте широкие CDN-сети в Direct ради одного сайта.
 
-Free space thresholds:
+## Установка И Настройка
 
-- hard minimum: 15 MB free in `/overlay`
-- recommended: 25 MB free in `/overlay`
+[Подробная инструкция на русском](docs/GUIDE-RU.md) описывает проверку устройства,
+Legacy и Native, импорт подключений, правила, подтверждение Apply,
+обновление, удаление и восстановление.
 
-The installer stops before installing packages when free space is below the hard minimum. Between 15 MB and 25 MB it continues with a clear warning.
+**Эта копия разработки `feature/universal-routing-engine` публикуется в ветке
+`codex/native-rc-ax6000-20261108`. Она не равна `main`. Не запускайте обновление из старой `main` поверх Native RC.**
+Наличие исходников на GitHub не означает, что опубликован готовый подписанный
+пакет или GitHub Release с ARM64-компонентом.
 
-Before installing files, the installer checks for conflicting proxy applications such as Podkop, sing-box, Passwall, OpenClash, Mihomo, Clash, v2rayA, and a standalone non-Podkopchik Xray service/config. It does not remove them automatically.
-
-The raw installer downloads its payload/shared package adapter after the space
-check when needed. Before package changes it checks conflicts, then runs
-`opkg update` / `apk update` and installs missing dependencies with
-`opkg install` / `apk add`. It validates dependencies, installs files and the
-Russian catalog, restarts `rpcd`/`uhttpd`, clears LuCI cache and enables/starts
-Podkopchik. It never reboots or upgrades the whole system.
-
-Installer-managed dependencies:
-
-```text
-luci-base luci-light rpcd rpcd-mod-file rpcd-mod-luci uhttpd ucode ucode-mod-fs ucode-mod-uci
-ucode-mod-ubus curl ca-bundle jsonfilter nftables-json kmod-nft-tproxy
-firewall4 ip-full dnsmasq xray-core unzip
-```
-
-`ip-full` is installed automatically when missing. BusyBox `/sbin/ip` is not sufficient because Podkopchik needs `iproute2` fwmark policy routing for TPROXY.
-
-After install, the service is enabled and its health loop can run. Traffic interception remains inactive until you configure at least one valid VLESS proxy, one routing rule, and click **Apply** in LuCI or run:
+Для новой установки **Legacy** из этой ветки на совместимом OpenWrt:
 
 ```sh
-podkopchikctl apply
+curl -fsSL https://raw.githubusercontent.com/Rezalik/Podkopchik/codex/native-rc-ax6000-20261108/install.sh -o /tmp/podkopchik-install.sh
+PODKOPCHIK_INSTALL_BRANCH=codex/native-rc-ax6000-20261108 sh /tmp/podkopchik-install.sh
 ```
 
-Open LuCI at **Services → Podkopchik**.
+Без curl можно скачать тот же файл через wget. На уже работающем Native
+используйте процедуру полного Native-кандидата из инструкции, а не эту команду.
 
-## Example Fake VLESS Links
+Установщик проверяет систему и свободное место, ставит недостающие зависимости,
+сохраняет существующую UCI-конфигурацию и устанавливает русский каталог LuCI.
+Поддерживаются пакетные менеджеры соответствующих выпусков:
+OpenWrt 24.10 с opkg и OpenWrt 25.12 с apk.
+Установщик не обновляет прошивку, не перезагружает роутер и не устанавливает
+неподтверждённый AWG-модуль.
 
-These are documentation-only examples with reserved domains and fake keys:
+**Для Native нужен отдельно собранный компонент DNS/Routing Core.**
+Текущий контролируемый ARM64-установщик этого компонента проверяет именно
+AX6000 stock, OpenWrt 25.12.6 и aarch64. Сборка выполняется на компьютере,
+не на роутере. Исходники, команды сборки и проверки SHA256 приведены в инструкции.
 
-```text
-vless://11111111-2222-3333-4444-555555555555@example.invalid:443?type=tcp&security=reality&sni=example.invalid&fp=chrome&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=abcd1234&flow=xtls-rprx-vision#fake-tcp-reality
-vless://aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:xhttp.example.invalid:443?type=xhttp&security=reality&sni=xhttp.example.invalid&fp=chrome&pbk=BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB&sid=1234abcd&path=%2Fxhttp&host=xhttp.example.invalid#fake-xhttp-reality
-```
+В LuCI откройте **Службы -> Podkopchik**, добавьте действующее подключение,
+назначьте роли, выберите пресеты или создайте правила. В Native после
+**«Сохранить и применить»** откройте **«Состояние»**, проверьте доступность
+сети и подтвердите Apply. Нажатие «Сохранить» само по себе не обновляет маршруты.
 
-Do not expect these links to connect.
-
-## Configure
-
-1. Add proxy links under **Proxy Links**. Choose exactly one **Main proxy** and, optionally, up to three **Backup proxy** links.
-2. Optional: open **Presets**, choose a service and target, then click **Add preset**. Presets create normal rules that can be edited or deleted later.
-   - Telegram adds domain rules and Telegram IP ranges.
-   - YouTube, Instagram, TikTok, X / Twitter, Discord, OpenAI / ChatGPT / Codex, and Canva are domain-only in this beta step.
-   - OpenAI, ChatGPT, Codex, Canva, Discord, and CDN domain lists can change over time, so presets are a starting point rather than a permanent guarantee.
-3. Create or edit **Domain Groups** such as YouTube, ChatGPT, or Instagram. Put one domain per line and choose a target:
-   - **Automatic: main + backups** uses the main proxy and backups.
-   - **Specific proxy** sends the group to one selected proxy.
-   - **Direct** bypasses the proxy.
-   - Each visual domain group is stored as one `domain_rule` UCI section with multiple `list domain` entries. Older one-section-per-domain configs are still read and are migrated on save.
-4. Add optional routing rules:
-   - **IP Rules** for CIDRs such as `8.8.8.8/32`.
-   - **LAN Devices** for source IP behavior: `full_proxy`, `rules_only`, or `direct`. LAN device speed limit settings can be saved here, but enforcement is diagnostic-only in this beta.
-5. Add optional **Exclusions** for direct access to hosts, IPs, or CIDR networks that should never be transparently proxied, for example `famalymovi.ru`, `5.42.117.16`, or `panel.example.com`. Do not include scheme, path, or port.
-6. Optional: enable LAN DNS redirect on the **DNS** page.
-7. Click **Apply** on the **Status** page.
-
-Traffic for domains and IPs not listed in a rule goes direct by default.
-
-Podkopchik validates the generated Xray config before replacing `/etc/podkopchik/config.json`. If validation fails, the previous working config remains in place.
-
-When routing is applied, Podkopchik resolves configured VLESS endpoint hosts and adds their IP addresses to a Podkopchik-owned nftables bypass set. This prevents LAN devices with their own VLESS clients from being transparently redirected back into the router Xray when they connect to the same proxy server, for example on TCP/443. If an endpoint hostname cannot be resolved during apply, routing still applies and Podkopchik logs a warning.
-
-Manual exclusions use this UCI model:
-
-```text
-config bypass_rule
-	option enabled '1'
-	option host 'famalymovi.ru'
-	option comment '3x-ui / VPS direct'
-```
-
-IP and CIDR exclusions are added to the Podkopchik-owned nftables `proxy_bypass4` or `proxy_bypass6` sets before the final TPROXY rule. Domain exclusions are added to an Xray `direct` domain rule above normal proxy domain routing and are also resolved during apply so their IPs can bypass TPROXY. Port-specific exclusions are intentionally not implemented in this beta step.
-
-## Experimental FakeDNS
-
-FakeDNS is off by default. It can be enabled from LuCI under Podkopchik -> DNS or with UCI. Enabling `fakedns_enabled` changes generated Xray config: it adds Xray `dns`, `fakedns`, `dns-in`, and `dns-out` sections and adds `fakedns` to transparent inbound sniffing. LAN DNS hijack is separate and only active when `fakedns_hijack_dns=1`.
-
-Use FakeDNS for mobile or CDN-heavy apps that do not route reliably with domain-only sniffing. The X/Twitter app is the main tested example. When FakeDNS and LAN DNS hijack are enabled, LAN DNS queries on UDP/TCP port 53 are redirected to Xray FakeDNS, and clients can receive fake IP addresses from `198.18.0.0/15`. That is expected. Private DNS, DoH, iCloud Private Relay, or another VPN on a client can bypass router DNS and prevent this path from working.
-
-FakeDNS MVP was verified on a GL.iNet Flint 2 / GL-MT6000 running OpenWrt 24.10.4 with Xray 25.1.30. The verified path is:
-
-- generated Xray config passes `xray run -test`;
-- Xray `dns-in` listens on port `1053`;
-- nftables `dns_prerouting` redirects LAN UDP/TCP 53 to `:1053`;
-- active FakeDNS pool `198.18.0.0/15` is excluded from nft `reserved4`;
-- active FakeDNS pool `198.18.0.0/15` is excluded from Xray's private/reserved direct rule;
-- a LAN client DNS query for `x.com` through the router returns `198.18.x.x` or `198.19.x.x`;
-- X/Twitter app on iPhone works through the FakeDNS path;
-- Xray logs show `[dns-in -> dns-out]` DNS handling and `[transparent -> gerwarp]` for FakeDNS traffic.
-
-This MVP does not enable UDP TPROXY and does not add UDP/443 blocking.
-
-Enable for config validation experiments:
-
-```sh
-uci set podkopchik.main.fakedns_enabled='1'
-uci commit podkopchik
-podkopchikctl generate
-xray run -test -config /etc/podkopchik/config.generated.json
-```
-
-Enable experimental LAN DNS hijack to Xray FakeDNS:
-
-```sh
-uci set podkopchik.main.fakedns_enabled='1'
-uci set podkopchik.main.fakedns_hijack_dns='1'
-uci commit podkopchik
-podkopchikctl apply
-nft list table inet podkopchik
-```
-
-The same settings are available in LuCI on the DNS page:
-
-- Enable FakeDNS
-- Hijack LAN DNS queries
-- FakeDNS port
-- FakeDNS IPv4 pool
-- FakeDNS pool size
-- FakeDNS listen address
-
-Use Save & Apply on that page to save UCI, apply LuCI changes, and run the Podkopchik runtime apply path.
-
-When DNS hijack is enabled, the Xray `dns-in` inbound listens on `0.0.0.0` by default so nft redirected LAN DNS packets can reach it on the router LAN address. The nft rule is still limited to the configured LAN interface. Without DNS hijack, `dns-in` listens on `127.0.0.1`.
-
-When FakeDNS is enabled, the active FakeDNS IPv4 pool, default `198.18.0.0/15`, is not added to the nftables reserved bypass set and is not routed direct by Xray's private/reserved rule. This lets TCP traffic to fake IPs enter the Xray transparent inbound. When FakeDNS is disabled, `198.18.0.0/15` remains treated as a reserved/direct range.
-
-Acceptance checklist on a router:
-
-```sh
-podkopchikctl generate
-xray run -test -config /etc/podkopchik/config.generated.json
-podkopchikctl apply
-netstat -lnp 2>/dev/null | grep -E '1053|12345'
-nft -a list table inet podkopchik | grep -A10 -B3 'dns_prerouting'
-nft list set inet podkopchik reserved4 | grep '198.18.0.0/15' || echo 'OK: FakeDNS pool is not in reserved4'
-jsonfilter -q -i /etc/podkopchik/config.generated.json -e '@.routing.rules[@.outboundTag="direct"].ip[*]' | grep -Fx '198.18.0.0/15' || echo 'OK: FakeDNS pool is not direct-routed'
-nslookup x.com 192.168.8.1
-logread | grep -iE 'dns-in|dns-out|transparent.*198\\.18|transparent.*198\\.19'
-```
-
-Rollback:
-
-```sh
-uci set podkopchik.main.fakedns_enabled='0'
-uci set podkopchik.main.fakedns_hijack_dns='0'
-uci commit podkopchik
-podkopchikctl apply
-```
-
-## CLI
+## Проверка И Обслуживание
 
 ```sh
 podkopchikctl status
-podkopchikctl generate
 podkopchikctl validate
-podkopchikctl apply
-podkopchikctl restart
+podkopchikctl validate-active
+# Только если активен Native:
+podkopchikctl native-status
+```
+
+Статус LuCI различает сохранённую и активную политику. Основной транспорт
+не означает «весь LAN через прокси». Показатель «ещё не проверялся» сам по себе
+не доказывает отказ подключения.
+
+Обычный Apply проверяет конфигурацию до переключения. В Native используются
+сохранённые поколения и ограниченный срок подтверждения; неудачный Apply
+не должен молча выключать ранее работавшую маршрутизацию.
+Не удаляйте рабочие `native-state`, `native-bin`, историю synthetic-адресов
+или AWG-профили под видом очистки бэкапов.
+
+Приложение не обновляет Xray автоматически. Для VLESS есть отдельный ручной
+менеджер ядра; он не является обязательным обновлением для AWG-only.
+В Legacy экспериментальный Xray FakeDNS выключен по умолчанию.
+Его настройки не управляют Native DNS.
+
+## Обновление, Удаление И Восстановление
+
+Для Native используйте проверенный полный кандидат из той же линии разработки,
+с совместимым ARM64-компонентом и сохранением профилей/состояния.
+Не подменяйте бинарники и активные JSON-файлы отдельными файлами из разных версий.
+
+Для явного отключения маршрутизации используется:
+
+```sh
 podkopchikctl cleanup
-podkopchikctl health
-podkopchikctl shaping-status
-podkopchikctl update-check
-podkopchikctl update-install
-podkopchikctl rollback
 ```
 
-`cleanup` disables routing interception and removes only the Podkopchik-owned nftables table and matching policy routing entries.
+Это разрешает обычный Direct для LAN; это не команда уборки старых архивов.
 
-## LAN Device Speed Limits
-
-Podkopchik can store per-LAN-device speed limit settings and show diagnostics for them. This is Phase 1 only: no `tc`, `ifb`, qdisc, nft mark, or interface shaping rules are created yet.
-
-Ordinary WAN-side QoS rules matching a LAN source IP can fail for proxied traffic. After TPROXY hands traffic to Xray, the WAN connection is usually from the router to the VLESS server, so the original LAN source IP is no longer visible on the WAN side.
-
-The intended enforcement design is LAN-side classification before or around TPROXY, where the original LAN source IP is still visible:
-
-- upload: classify client-to-router traffic at LAN ingress
-- download: classify router-to-client traffic at LAN egress
-- cleanup: remove only Podkopchik-owned shaping state
-
-Check configured speed limit diagnostics with:
-
-```sh
-podkopchikctl shaping-status
-```
-
-Real enforcement requires physical-router testing with proxied LAN traffic before it is enabled.
-
-## Health And Failover
-
-Health checks first validate generated Xray configs. When `xray` and `curl` are available, Podkopchik starts a temporary localhost SOCKS inbound per proxy and probes the configured URL through that outbound. Results are real `up` or `down` observations.
-
-If the probe path is not available, status is recorded as `unknown` with the reason. Podkopchik does not fake `up` results. Failover only happens after thresholded real failures; unknown status keeps the current/default group selection.
-
-## Update
-
-From LuCI, open **Updates**, click **Check**, then **Install Update**.
-
-From SSH:
-
-```sh
-podkopchikctl update-check
-podkopchikctl update-install
-```
-
-The default update channel is `main`, which downloads the configured GitHub branch archive directly for development and VM testing. This mode does not require a GitHub Release or `.sha256` file.
-
-For future stable releases, set `podkopchik.main.update_channel=stable`. Stable mode uses GitHub Releases, requires a matching `.tar.gz` release asset and `.sha256` asset, verifies the archive, preserves `/etc/config/podkopchik`, restarts needed services, and stores a local rollback archive.
-
-Rollback:
-
-```sh
-podkopchikctl rollback
-```
-
-Podkopchik `0.1.0-beta` never auto-updates Xray core.
-
-### Manual Xray Core Updates
-
-The **Updates** page has an independent **Xray Core** section with installed
-version, installed source, CPU architecture, last check time and operation
-status. Select **OpenWrt package (opkg/apk)** or **Official Xray release**, then
-**Check for updates**. Versions come from the router/selected source.
-Updates run only when explicitly requested. Working routing and exactly one
-main proxy must be configured before a core update can pass verification.
-LuCI starts a background job and polls its status, so a long download does not
-depend on one HTTP request remaining open.
-
-The package source refreshes the native manager's configured feeds and runs
-`opkg upgrade xray-core` / `apk upgrade xray-core`, or installs that package
-when absent. The package manager handles signatures and necessary dependencies.
-The manager refuses package updates when opkg signature checking is disabled.
-No general OpenWrt package upgrade is performed. Use correctly configured,
-trusted feeds for the installed OpenWrt release.
-
-The official source downloads a matching Linux release from `XTLS/Xray-core`
-on GitHub over HTTPS, verifies its SHA256 digest (or upstream `.dgst`), checks
-its Linux ELF architecture and version, and tests the active config. Only the
-`xray` archive member is extracted; bundled geoip/geosite databases are ignored.
-Checksum verification trusts the publisher and is not an independent signature.
-`unzip` is installed as a dependency. Linux arm64 and x86_64 are supported by
-the update manager; other architectures are rejected.
-
-The active selector and managed executable live in
-`/usr/libexec/podkopchik-core/`, outside application payload replacement.
-`/usr/bin/xray` remains owned by the native package manager. Init, validation, health and isolated
-checks share the selector in `xray.sh`. The manager reserves free space for
-staging, extraction and a copy of the previous binary. It serializes with
-Apply and health and restarts only the Xray procd instance.
-
-Verification requires one main process, transparent/FakeDNS listeners, unchanged
-active config/nft/policy routing, and successful HTTPS egress through the main
-proxy. Failed startup or verification restores the previous executable.
-The primary can be reachable while a different outbound is currently selected
-by failover; the updater deliberately checks the configured main connection.
-
-```sh
-podkopchikctl xray-status
-podkopchikctl xray-check package
-podkopchikctl xray-check official
-# Run one of these only when ready for a short proxy interruption:
-podkopchikctl xray-install official
-# Or: podkopchikctl xray-install package
-podkopchikctl xray-status
-podkopchikctl validate-active
-podkopchikctl status
-```
-
-Restore the previous runtime binary with `podkopchikctl xray-rollback` or the
-**Restore previous Xray** button. This is a binary rollback, not a downgrade of
-opkg/apk package metadata/dependencies. A failed package upgrade can therefore
-leave a newer package installed while Podkopchik runs the protected old copy
-(`source=rollback`). A subsequent successful package update can select package mode
-again. If startup recovery needs manual intervention:
-
-```sh
-cp /usr/libexec/podkopchik-core/previous/xray /usr/libexec/podkopchik-core/xray.recovery
-chmod 755 /usr/libexec/podkopchik-core/xray.recovery
-mv /usr/libexec/podkopchik-core/xray.recovery /usr/libexec/podkopchik-core/xray
-printf '%s\n' rollback > /usr/libexec/podkopchik-core/selected
-/etc/init.d/podkopchik core_restart
-podkopchikctl validate-active
-podkopchikctl status
-```
-
-Normal exit and handled signals release locks and attempt rollback after a
-switch. Power loss or SIGKILL cannot run shell traps: inspect running processes
-before removing an orphan update lock, and use the retained previous binary
-if needed. Managed core files survive normal uninstall/reinstall; `--purge`
-removes them. Application rollback and core rollback are independent.
-
-### Connection Checks
-
-Proxy Links automatically checks pasted/changed VLESS URIs and checks them
-before saving. **Check again** repeats the isolated check. A failed check is a
-warning and does not prevent saving. This page remains for VLESS/Reality;
-AmneziaWG has its own controls and shares the same routing targets and roles.
-
-Checks use a separate Xray SOCKS listener on root-owned, locked local port
-20999. The checker verifies the process and listener owner before trusting
-curl. One HTTPS request to `api.ipify.org` obtains an IPv4 exit address and
-measures total request time, displayed as HTTPS check latency (not ICMP ping).
-Temporary configuration/logs are root-only and removed on exit/interruption;
-the URI is passed to the checker in the RPC environment, never process arguments
-or diagnostic output. The primary/group selection and LAN rules are untouched.
-
-Periodic health checks retain the existing thresholds and ordered failover;
-they additionally record HTTPS request latency, external IP when available and
-check time. An external-IP lookup failure does not turn a successful existing
-reachability check into a failover. The Proxy Links page hides success/latency/IP
-after five minutes and labels the result outdated. Immediate pre-save results
-are held in the current page; periodic results appear from the health state.
-
-### AWG 3.1 Integration (Experimental Stages 2–3)
-
-The separate **AmneziaWG** page imports multiple `.conf` files, lists safe
-metadata, renames, replaces, revalidates and deletes profiles. The existing
-Proxy Links/VLESS import workflow is preserved. The AWG page additionally starts,
-stops and checks interfaces, assigns main/backup/rules-only roles and configures
-HTTPS probes. Main/backup assignment requires a real successful availability
-check. VLESS and AWG share one main and three ordered backups, existing health
-thresholds, auto-return and domain/IP/LAN targets. No fastest/random selection.
-"Configuration is valid" means static format validation, not a handshake.
-
-Profiles are limited to 64 KiB each and stored in `/etc/podkopchik/awg/`:
-root-owned directory `0700`, configuration and metadata files `0600`. Keys are
-not stored in UCI, returned by RPC or shown in the list/edit form. The authenticated
-rpcd API accepts file contents, never a caller-supplied filesystem path.
-Use HTTPS for LuCI when importing keys; protect downloaded sysupgrade backups,
-which include these private files through `/lib/upgrade/keep.d/podkopchik-awg`.
-
-Each AWG uses its own interface, mark, terminal policy guards and table, never
-a new default in `main`. Stopped/unavailable AWG targets become blackholes, not
-WAN fallback. All-down automatic routing is blocked; unmatched traffic remains
-direct. Persistent profiles and role settings survive service restarts; startup
-regenerates and validates outbounds from live ownership before starting Xray.
-
-TCP-only interception remains the default. **UDP and IPv6 LAN interception** is
-an explicit experimental opt-in in AmneziaWG. It adds IPv6 policy routing and
-UDP TPROXY except DNS/53, with dual-stack FakeDNS pools when FakeDNS is enabled.
-It does not block UDP/443. Do not enable it until the selected transports support
-the required traffic. FakeDNS remains off by default.
-
-On AX6000 stock / OpenWrt 25.12.6 / kernel 6.12.112, real isolated tests confirmed
-AWG handshake, HTTPS, Xray-to-AWG HTTPS and controller start/check/stop/cleanup.
-The installed Podkopchik was **not** replaced. Full mixed live failover, reboot,
-IPv6/UDP traffic and offload acceptance remain pending separate deployment
-approval. No AWG package/module is installed automatically; other kernels and
-GL-MT6000 are not verified by these tests.
-
-See [Stages 2–3 architecture, evidence, installation and rollback](docs/AWG-STAGE23.md)
-and the [historical Stage 1 storage/format specification](docs/AWG-STAGE1.md).
-
-## Uninstall
-
-Preserve user configuration:
+Из каталога соответствующей версии исходников удаление выполняется так:
 
 ```sh
 sh uninstall.sh
+# Удалить также настройки и секреты профилей:
+# sh uninstall.sh --purge
 ```
 
-Remove configuration too:
+При активном Native сначала нужно явно отключить маршрутизацию через
+`podkopchikctl cleanup`. По умолчанию пользовательские настройки сохраняются.
+Порядок восстановления, работа с предыдущим поколением и границы отката:
+[русская инструкция](docs/GUIDE-RU.md#восстановление).
 
-```sh
-sh uninstall.sh --purge
-```
+## Документация И Безопасность
 
-The uninstaller stops the service, removes only Podkopchik nftables rules, deletes installed files, restarts LuCI services, and is safe to run more than once.
+- [Инструкция пользователя](docs/GUIDE-RU.md).
+- [Состав копии GitHub и проверки перед публикацией](docs/PUBLICATION-20261108.md).
+- [Техническая спецификация](docs/SPEC.md) и [критерии приёмки](docs/ACCEPTANCE.md).
+- [Постоянный Native Apply и защищённый DNS](docs/UNIVERSAL-PERMANENT-APPLY.md).
+- [Классификация, Strict и выборочная политика](docs/NATIVE-CLASSIFICATION.md).
+- [AmneziaWG и ограничения Stage 4](docs/AWG-STAGE4.md).
+- [Миграция OpenWrt и сохранение настроек](docs/OPENWRT-25.12-MIGRATION.md).
+- [Ручное обновление Xray](docs/XRAY-UPDATES-TESTING.md).
 
-## Recovery
+Исторические отчёты в `docs/` описывают состояние на указанную в них дату.
+Текущая инструкция и результаты от 8 ноября имеют приоритет над старыми
+записями о preview, Strict по умолчанию или обязательном аварийном watchdog.
 
-Stage 4 r7 was installed and non-destructively verified on the approved AX6000.
-See [the deployment, current roles, evidence and recovery snapshots](docs/AWG-STAGE4-R7-LIVE-20261104.md)
-and [the earlier diagnosis and local regression tests](docs/AWG-STABILITY-FIXES-20261104.md).
-Full failure-injection/reboot/leak-capture acceptance remains separate.
+Копия GitHub содержит исходники, тесты и документацию, но не настройки домашнего
+роутера. AWG-конфигурации, VLESS-учётные данные, пароли, резервные копии и
+сырые диагностические данные нельзя публиковать. Тестовые примеры с зарезервированными
+доменами и искусственными ключами не являются рабочими подключениями.
 
-The feature branch now implements [permanent Native Apply](docs/UNIVERSAL-PERMANENT-APPLY.md)
-through ordinary `podkopchikctl apply`, covering the configured household LAN,
-durable DNS state, independent AWG Native and optional Xray/VLESS. Activation
-requires explicit configuration, a matching ARM64 component, pool admission,
-confirmed direct grants and a fixed autonomous rollback deadline. Legacy stays
-the default. No working router is automatically migrated by installation.
-The earlier [Universal Routing Engine preview](docs/UNIVERSAL-ROUTING-20261105.md)
-is historical evidence, not the permanent installer.
-The [transactional DNS laboratory](docs/UNIVERSAL-DNS-20261106.md) uses an
-offline OpenWrt VM on the workstation and does not access a router.
-The [release qualification report](docs/UNIVERSAL-RELEASE-VM-20261106.md)
-documents procd, reboot, offload rejection and DNS rollback. Its ARM64 review
-archive is not an installer and does not enable native routing.
-The [scoped Native Apply checkpoint](docs/UNIVERSAL-NATIVE-APPLY.md)
-exercises actual activation and rollback for one isolated IPv4 AWG client.
-That historical scoped command does not switch the household LAN; ordinary
-Apply in the new permanent coordinator does, after its preflight gates.
-The [native classification contract](docs/NATIVE-CLASSIFICATION.md) defines
-Strict protected fallback, Compatible and migration restriction, explicit
-direct grants and the limit of per-domain direct access on shared cached IPs.
-The [mixed transport canary](docs/UNIVERSAL-MIXED-CANARY-20261106.md)
-documents the separate pools, independent native AWG and Xray/VLESS paths,
-and the strict migration boundary for cached addresses.
-The [AX6000 acceptance plan](docs/UNIVERSAL-AX6000-ACCEPTANCE.md) adds offline
-pool admission, conntrack transport pinning and the physical rollout gates.
-The [wired canary and recovery review](docs/UNIVERSAL-AX6000-PILOT.md) records
-the offline pool selection and the separate, timed lan4 recovery procedure.
-
-An invalid Apply leaves existing interception and the saved routing intention
-unchanged. Runtime failures attempt recovery from a private last-working
-Xray/nft snapshot. If recovery fails, an owned forward guard blocks LAN
-forwarding rather than silently exposing protected traffic. This conservative
-fallback also blocks normally direct LAN traffic; router INPUT/OUTPUT and SSH
-are not changed. `status` distinguishes requested routing from verified runtime.
-
-Disable interception:
-
-```sh
-podkopchikctl cleanup
-```
-
-This is an explicit request to allow normal direct forwarding: it persists
-`routing_enabled=0`, removes owned interception/guard state and survives restart
-and boot. An ordinary Apply failure does not perform this action.
-
-Runtime failures attempt recovery of the matching last-working Xray/nft pair.
-Do not restore JSON alone while leaving a different nft configuration active.
-For a full code/config rollback, use the private canonical snapshot and
-independent watchdog described in the linked Stage 4 report.
-
-Inspect state and logs:
-
-```sh
-podkopchikctl status
-logread -e podkopchik
-```
-
-## Troubleshooting
-
-The [AX6000 UDP-cache live pilot](docs/XRAY-UDP-LIVE-PILOT-20261105.md) is **HELD**,
-not a stable release: early socket retirement passed, but the fake-address WAN
-boundary gate failed and the original core was restored. No automatic core
-upgrade is enabled by these test artifacts.
-
-- If **Apply** fails, run `podkopchikctl validate` and inspect the error.
-- If AWG health is UP but sites stall, inspect main Xray logs for `too many open files` and its `/proc/PID/limits`/`fd` usage. Xray still handles transparent traffic and FakeDNS with only AWG profiles. The [bounded UDP reply-cache source fix](docs/XRAY-UDP-CACHE-FIX-20261105.md) preserves full-cone; it is a separately reviewed local-core candidate, not an automatic application update. See also [the FD incident](docs/XRAY-FD-20261105.md) and [the coreless architecture assessment](docs/AWG-ONLY-WITHOUT-XRAY.md).
-- If the routing safety guard is active, keep SSH open and inspect `logread -e podkopchik` and `/tmp/podkopchik/startup-rules.err`. Fix the rejected settings before retrying Apply. Use Cleanup only when direct traffic is explicitly acceptable.
-- Health diagnostics keep separate, sanitized root-only `health-TAG.xray.log` and `health-TAG.curl.log` (up to 4096 bytes each) under `/tmp/podkopchik`. A curl timeout alone does not prove a TCP connect timeout; raw temporary stderr/configs are removed after the check.
-- If reinstalling did not help, remember that `/etc/config/podkopchik` is intentionally preserved. Run `podkopchikctl generate` or `podkopchikctl apply`; stale rule targets are repaired to `auto_proxy_group` when the automatic proxy group is valid, or reported with the exact broken rule.
-- If install fails while installing a dependency, check OpenWrt repositories, WAN/DNS, free `/overlay` space, and kernel kmod compatibility.
-- If Apply reports `Missing required dependency: ip-full`, rerun the installer or install `ip-full`; BusyBox `ip` cannot add Podkopchik fwmark policy rules.
-- If a phone or laptop inside LAN needs direct access to a 3x-ui panel, VPS, or proxy endpoint, add the host/IP/CIDR under **Exclusions**. Then verify that resolved IPs appear in `nft list table inet podkopchik` under `proxy_bypass4` or `proxy_bypass6`.
-- If routing is inactive after reboot, check `uci get podkopchik.main.routing_enabled` and `podkopchikctl status`.
-- If DNS redirect appears ineffective, check whether the client uses DoH, DoT, or Apple Private Relay.
-- If health status is `unknown`, install/verify `xray-core`, `curl`, and `ca-bundle`, then run `podkopchikctl health`.
-- If nftables rules need clearing, run `podkopchikctl cleanup`; it does not flush unrelated firewall rules.
-
-## Test On An OpenWrt x86_64 VM
-
-1. Download an OpenWrt 24.10 x86_64 image and boot it in your hypervisor.
-2. Ensure the VM has WAN access and a LAN bridge or test client network.
-3. Copy the repository to the VM:
-
-```sh
-scp -r ./Podkopchik root@192.168.1.1:/tmp/Podkopchik
-```
-
-4. Install and open LuCI:
-
-```sh
-ssh root@192.168.1.1
-cd /tmp/Podkopchik
-sh install.sh
-/etc/init.d/podkopchik status
-```
-
-5. Add fake links first to confirm validation rejects unusable configuration, then add real test VLESS TCP/REALITY or XHTTP/REALITY links.
-6. Add a test group and route a harmless domain or one LAN test client.
-7. Click **Apply**, then verify:
-
-```sh
-podkopchikctl status
-nft list table inet podkopchik
-ip rule show
-logread -e podkopchik
-```
-
-8. Run cleanup and verify the Podkopchik table is gone:
-
-```sh
-podkopchikctl cleanup
-nft list table inet podkopchik
-```
+В этой версии нет подписок, встроенных geoip/geosite-баз, автоматического
+обновления Xray и подтверждённого ограничения скорости LAN-устройств:
+поля лимитов пока диагностические. Неподтверждённые возможности нельзя считать
+готовыми только потому, что для них виден элемент интерфейса.

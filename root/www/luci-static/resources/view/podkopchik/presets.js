@@ -3,6 +3,7 @@
 'require fs';
 'require ui';
 'require uci';
+'require podkopchik.routing as routing';
 
 var AUTO_GROUP_TAG = 'auto_proxy_group';
 
@@ -466,7 +467,8 @@ return view.extend({
 								}).then(function() {
 									return runApply();
 								}).then(function(res) {
-									ui.addNotification(_('Preset added'), E('pre', { 'style': 'white-space: pre-wrap' }, resultText(result) + (res ? '\n\n' + res : '')));
+									ui.addNotification(_('Preset added'), E('pre', { 'style': 'white-space: pre-wrap' }, resultText(result)));
+									return routing.notifyApply(res);
 								}).catch(function(err) {
 									var message = err && err.message ? err.message : String(err);
 									ui.addNotification(_('Failed to add preset'), E('pre', { 'style': 'white-space: pre-wrap' }, resultText(result) + '\n\n' + _('Runtime apply failed') + ': ' + message), 'error');

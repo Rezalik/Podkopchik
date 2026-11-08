@@ -59,9 +59,13 @@ function aggregate(old, sample) {
 function finished(config, now, boot) {
 	return boot!=config.boot || now>=config.deadline_mono;
 }
+function emergency_status(repair, state, running) {
+	let required=!!repair,accepted=state?.mode=='accepted';
+	return {required,accepted,running:!!running,attention:required&&(!accepted||!running)};
+}
 function bounded_append(fs, path, line, limit) {
 	if(length(line)>limit)die('oversized observation record');
 	if((fs.lstat(path)?.size || 0)+length(line)>limit){fs.unlink(path+'.1');if(fs.lstat(path))fs.rename(path,path+'.1');}
 	let f=fs.open(path,'a',0o600);if(!f)die('observation log unavailable');f.write(line);f.close();
 }
-return {words,number,field,cpu,cpu_delta,process_stat,range,aggregate,finished,bounded_append};
+return {words,number,field,cpu,cpu_delta,process_stat,range,aggregate,finished,emergency_status,bounded_append};

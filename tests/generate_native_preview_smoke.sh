@@ -12,6 +12,8 @@ umask 077
 cat > "$tmp/podkopchik" <<'EOF'
 config settings 'main'
 	option routing_enabled '1'
+	option native_classification_mode 'strict'
+	option native_migration_restrict_unknown '1'
 	option native_direct_grants_confirmed '1'
 	option lan_ifname 'br-lan'
 	option fakedns_enabled '1'
@@ -69,6 +71,23 @@ ucode -e 'import { readfile } from "fs";
 		index(p.warnings,"domain_direct_requires_explicit_address_or_client_grant")<0) die(sprintf("unexpected native preview: %J\n", {
 			automatic:p.automatic, mode:p.mode, rules:p.rules, dns:p.dns, xray:p.requires_xray, warnings:p.warnings}));' "$tmp/out"
 ! grep -q '11111111-2222-3333-4444-555555555555' "$tmp/out"
+if command -v uci >/dev/null 2>&1; then
+	cp "$tmp/podkopchik" "$tmp/strict-options"
+	uci -c "$tmp" delete podkopchik.main.native_classification_mode
+	uci -c "$tmp" delete podkopchik.main.native_migration_restrict_unknown
+	uci -c "$tmp" set podkopchik.main.native_direct_grants_confirmed=0
+	uci -c "$tmp" commit podkopchik
+	preview "$tmp/spec.json" "$tmp/state.json" > "$tmp/selective-defaults"
+	ucode -e 'import {readfile} from "fs";const p=json(readfile(ARGV[0]));
+		if(p.classification.mode!="compatible" || p.classification.migration_restrict_unknown ||
+			p.classification.unknown!="direct" || p.rules.domains!=4 || p.rules.ips!=1 || p.rules.clients!=1)
+			die("selective defaults changed configured rules or intercepted unrelated traffic");
+		for(let family in ["4","6"])for(let protocol in ["tcp","udp","other"])
+			if(p.unknown_fallback[family][protocol]!="direct")die("unselected traffic is not direct");
+		if(index(p.warnings,"compatible_mode_has_no_strict_domain_fail_closed")<0)
+			die("selective mode concealed its DNS classification limits");' "$tmp/selective-defaults"
+	cp "$tmp/strict-options" "$tmp/podkopchik"
+fi
 sed "s/native_direct_grants_confirmed '1'/native_direct_grants_confirmed '0'/" "$tmp/podkopchik" > "$tmp/pending"
 cp "$tmp/podkopchik" "$tmp/confirmed"
 cp "$tmp/pending" "$tmp/podkopchik"
@@ -93,7 +112,9 @@ if command -v uci >/dev/null 2>&1; then
 			die("unknown-only native policy lost the automatic group or protocol guard");' "$tmp/unknown-only"
 	cp "$tmp/with-rules" "$tmp/podkopchik"
 fi
-if command -v nft >/dev/null 2>&1 && [ "$(id -u)" = 0 ]; then
+if [ "${PKC_NATIVE_SKIP_NFT_CHECK:-0}" = 1 ]; then
+	echo 'SKIP: Native generator nft kernel check explicitly disabled for unit-only VM'
+elif command -v nft >/dev/null 2>&1 && [ "$(id -u)" = 0 ]; then
 	ucode -e 'import { readfile } from "fs"; let n=json(readfile(ARGV[0])).nft;
 		print(n.quarantine,n.routing,n.protection,n.dns_redirect);' "$tmp/out" > "$tmp/plan.nft"
 	nft -c -f "$tmp/plan.nft"

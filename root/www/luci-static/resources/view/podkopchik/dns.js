@@ -3,6 +3,8 @@
 'require form';
 'require fs';
 'require ui';
+'require uci';
+'require podkopchik.routing as routing';
 
 function runApply() {
 	return fs.exec_direct('/usr/bin/podkopchikctl', [ 'apply' ]);
@@ -48,13 +50,54 @@ function validateIpv4Cidr(_sectionId, value) {
 }
 
 return view.extend({
-	render: function() {
+	load: function() {
+		return Promise.all([uci.load('podkopchik'), fs.exec_direct('/usr/bin/podkopchikctl', ['native-status'])
+			.then(function(text) { return JSON.parse(text); }).catch(function() { return {}; })]);
+	},
+
+	render: function(data) {
 		var m = new form.Map('podkopchik', _('Podkopchik'));
 		this.map = m;
-		var s = m.section(form.NamedSection, 'main', 'settings', _('DNS'));
+		var nativeMode = uci.get('podkopchik', 'main', 'routing_engine') === 'native';
+		var live = data && data[1] || {};
+		var s = m.section(form.NamedSection, 'main', 'settings', nativeMode ? _('Native DNS') : _('Legacy DNS settings'));
 		s.anonymous = true;
+		var o;
+		if (nativeMode) {
+			s.description = _('Native DNS is part of Native routing. Legacy Xray FakeDNS options do not control this engine.');
+			o = s.option(form.DummyValue, '_native_dns_runtime', _('Active DNS listener'));
+			o.cfgvalue = function() { return live.engine === 'native' && live.phase === 'active' && live.dns && live.dns.listen || _('Active DNS status is unavailable.'); };
 
-		var o = s.option(form.Flag, 'dns_redirect', _('Redirect LAN DNS to router'));
+			o = s.option(form.DummyValue, '_native_dns_pools', _('Active synthetic pools'));
+			o.cfgvalue = function() { return live.engine === 'native' && live.phase === 'active' && live.dns && (live.dns.pools || []).join(', ') || _('Active DNS status is unavailable.'); };
+
+			o = s.option(form.DummyValue, '_native_dns_upstream', _('DNS upstream'));
+			o.cfgvalue = function() { return live.dns && live.dns.protected ? _('DNS-over-TLS through a protected transport') : _('Active DNS status is unavailable.'); };
+
+			o = s.option(form.Value, 'native_dns_port', _('Native DNS port'));
+			o.default = '24253';
+			o.rmempty = false;
+			o.validate = validatePort;
+
+			o = s.option(form.Value, 'native_pool_v4', _('Native synthetic IPv4 pool'));
+			o.rmempty = false;
+			o.validate = validateIpv4Cidr;
+			o.description = _('Use a separately admitted pool. Apply checks live addresses, routes, VPN endpoints and issued FakeDNS pools before activation.');
+
+			o = s.option(form.Value, 'native_pool_v6', _('Native synthetic IPv6 pool'));
+			o.datatype = 'cidr6';
+			o.rmempty = true;
+
+			o = s.option(form.DummyValue, '_native_dns_warning', _('Warning'));
+			o.cfgvalue = function() { return _('Selective routing depends on router DNS. Cached real IPs, third-party DoH and literal IPs can bypass domain-only rules.'); };
+			return m.render();
+		}
+		if (live.engine === 'native' && live.phase !== 'disabled') {
+			o = s.option(form.DummyValue, '_dns_engine_mismatch', _('Warning'));
+			o.cfgvalue = function() { return _('Saved routing engine differs from the active engine. Apply is required.'); };
+		}
+
+		o = s.option(form.Flag, 'dns_redirect', _('Redirect LAN DNS to router'));
 		o.default = '0';
 
 		o = s.option(form.DummyValue, '_dns_warning', _('Warning'));
@@ -119,8 +162,7 @@ return view.extend({
 		}).then(function() {
 			return runApply();
 		}).then(function(res) {
-			if (res)
-				ui.addNotification(null, E('pre', { 'style': 'white-space: pre-wrap' }, res));
+			return routing.notifyApply(res);
 		}).catch(function(err) {
 			var message = err && err.message ? err.message : String(err);
 			ui.addNotification(_('Apply'), E('pre', { 'style': 'white-space: pre-wrap' }, message), 'error');

@@ -1,5 +1,13 @@
 # Acceptance criteria for Podkopchik 0.1.0-beta
 
+Public documentation must distinguish the currently verified Xiaomi Native
+configuration from historical Legacy/preview results. The Russian README and
+[user guide](GUIDE-RU.md) must explain selective routing, Apply confirmation,
+installation/update/uninstall/recovery and the limits of physical acceptance.
+The [publication checkpoint](PUBLICATION-20261108.md) excludes secrets, private
+backups and generated test directories; incomplete 48-hour/QUIC/IPv6/VLESS
+checks must not be promoted to a universal stable-release PASS.
+
 ## Must exist
 
 - Makefile
@@ -540,6 +548,46 @@ Both native classification modes, migration restriction, explicit direct
 consent and source-isolated DNS cache decisions are covered by the
 [classification matrix](NATIVE-CLASSIFICATION.md). Its scoped grant passes
 must not be substituted for the original shared-CDN per-domain regression.
+Normal selective-policy acceptance requires matching UCI/LuCI/generator defaults
+(`compatible`, migration restriction off): unselected IPv4/IPv6 TCP/UDP traffic
+uses Direct while enabled preset/domain/IP/LAN rules keep their targets. Main
+and Backup roles alone must not turn unrelated traffic into protected fallback.
+Tests retain explicit Strict/migration fixtures and check that omitted user
+options select Direct without losing configured rules or hiding DNS-cache/DoH
+limitations. Explicit Strict settings must not be migrated silently.
+The 2026-11-08 Xiaomi correction passed ordinary confirmed Apply with all 81
+domain names, seven IP rules and AWG roles preserved: protected HTTPS remained
+on synthetic routes, both Roblox UDP controls passed directly on physical WAN
+with zero matching main-AWG packets, and the user confirmed gameplay/error-279
+recovery. The intentional DNS restart splits the ongoing resource observation
+into distinct PID/policy segments; it is not a new 48-hour stability verdict.
+LuCI/runtime alignment regression checks:
+
+- Selective/Strict/migration descriptions match the generator contract; an
+  enabled migration restriction never claims unmatched traffic goes Direct.
+- Saved and active policies are separate; invalid/unavailable state does not
+  claim success. Main/Backup labels do not imply all LAN traffic uses a proxy.
+- Native DNS uses Native UCI fields and live listener/pool values; Legacy
+  retains its FakeDNS controls with FakeDNS off by default.
+- Every Save & Apply/preset path calls the existing backend action and surfaces
+  pending confirmation. Status refresh accepts Native's list of cards as DOM.
+- Confirmation stays manual; repair-mode emergency recovery needs an explicit
+  second confirmation and is not described as ordinary timer rollback.
+- Russian coverage includes the shared LuCI module and the rebuilt real LMO.
+
+The [2026-11-08 scoped Xiaomi deployment](LUCI-NATIVE-ALIGNMENT-20261108.md)
+passed static install/restore in a disposable VM, payload/backup SHA256, real
+Native validation and confirmed Apply. UCI, AWG profiles/roles, default route,
+policy rules and boot identity stayed unchanged. Client DNS UDP/TCP, protected
+YouTube/Instagram/X HTTPS, Direct TCP and two Roblox UDP controls passed.
+Interactive browser acceptance remained SKIPPED at an untrusted-certificate
+interstitial; it was not bypassed. This maintenance creates another intentional
+DNS PID segment, not a completed continuous 48-hour stability result.
+The subsequent [explicit retirement and cleanup](AX6000-CLEANUP-20261108.md)
+confirmed transactional Apply before removing the independent emergency service.
+Native validation, protected/direct controls and all three AWG stayed healthy;
+the real observer continued sampling without requiring the absent capsule.
+
 Strict acceptance requires a cached real-address connection to stay on a
 suitable protected transport (or be denied), explicit whole-client/address
 direct controls to remain usable, and all-down/unsupported UDP never to use

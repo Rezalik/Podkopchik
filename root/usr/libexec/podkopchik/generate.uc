@@ -701,8 +701,8 @@ function native_preview(path, review_grants, permanent) {
 			target: mode == 'direct' ? 'direct' : target(rule.target) });
 	}
 	let configured_targets = map([...domains, ...ips, ...clients], row => row.target);
-	let classification = planner.classification({mode:opt(main,'native_classification_mode','strict'),
-		migration_restrict_unknown:boolopt(main,'native_migration_restrict_unknown',true),
+	let classification = planner.classification({mode:opt(main,'native_classification_mode','compatible'),
+		migration_restrict_unknown:boolopt(main,'native_migration_restrict_unknown',false),
 		direct_grants_confirmed:review_grants || boolopt(main,'native_direct_grants_confirmed',false),
 		unknown_action:opt(main,'native_unknown_action','protected')});
 	let automatic_used = index(configured_targets, 'auto_proxy_group') >= 0 || classification.unknown=='protected' && auto!=null || permanent&&auto!=null;
