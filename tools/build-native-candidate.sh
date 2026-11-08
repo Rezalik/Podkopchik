@@ -10,9 +10,38 @@ case "$out" in /*) ;; *) exit 2;; esac
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT HUP INT TERM
 mkdir -p "$out" "$stage/package/root" "$stage/package/i18n/ru" "$stage/package/native-bin"
-sh "$base/tools/build-native-dns.sh" "$stage/arm64-a"
-sh "$base/tools/build-native-dns.sh" "$stage/arm64-b"
-cmp "$stage/arm64-a/podkopchik-native-dns" "$stage/arm64-b/podkopchik-native-dns"
+if [ "${2:-}" = --reuse-helper-from ] && [ -f "${3:-}" ]; then
+	# A source-only release can retain an already verified immutable component.
+	# Never silently reuse it after any change to its source/module/build recipe.
+	node "$base/tools/verify-native-candidate.js" "$3"
+	mkdir "$stage/prior" "$stage/arm64-a"
+	tar -xzf "$3" -C "$stage/prior"
+	# cmd/ contains independent diagnostic executables, not imported by the
+	# packaged main helper. Compare every other source/module file exactly.
+	node - "$base/native/dns" "$stage/prior/native/dns" <<'NODE'
+const fs = require('fs'), path = require('path'), assert = require('assert');
+function source(root, dir = '') {
+ const out = {};
+ for (const e of fs.readdirSync(path.join(root, dir), {withFileTypes:true})) {
+  const rel = path.join(dir, e.name);
+  if (rel === 'cmd') continue;
+  if (e.isDirectory()) Object.assign(out, source(root, rel));
+  else { assert(e.isFile(), 'Unexpected source entry'); out[rel] = fs.readFileSync(path.join(root, rel)).toString('base64'); }
+ }
+ return out;
+}
+assert.deepStrictEqual(source(process.argv[2]), source(process.argv[3]), 'Helper source changed; compile with pinned Go');
+NODE
+	cmp "$base/tools/build-native-dns.sh" "$stage/prior/tools/build-native-dns.sh"
+	prior_hash=$(cat "$stage/prior/NATIVE_DNS_SHA256")
+	cp "$stage/prior/native-bin/$prior_hash" "$stage/arm64-a/podkopchik-native-dns"
+	echo 'Reusing verified helper with identical source/build recipe; no fresh Go compilation claimed.'
+else
+	[ "$#" -le 1 ] || { echo 'Use OUTPUT [--reuse-helper-from VERIFIED_BUNDLE]' >&2; exit 2; }
+	sh "$base/tools/build-native-dns.sh" "$stage/arm64-a"
+	sh "$base/tools/build-native-dns.sh" "$stage/arm64-b"
+	cmp "$stage/arm64-a/podkopchik-native-dns" "$stage/arm64-b/podkopchik-native-dns"
+fi
 hash=$(sha256sum "$stage/arm64-a/podkopchik-native-dns" | awk '{print $1}')
 cp -R "$base/root/." "$stage/package/root/"
 find "$stage/package" -name .DS_Store -delete
@@ -32,11 +61,13 @@ cp "$base/tools/install-native-rc-files.sh" "$base/tools/ax6000-protected-dns-ch
 cp "$base/README.md" "$stage/package/"
 cp "$base/docs/UNIVERSAL-PERMANENT-APPLY.md" "$base/docs/SPEC.md" "$base/docs/ACCEPTANCE.md" "$stage/package/docs/"
 cp "$base/docs/UNIVERSAL-NATIVE-HOUSEHOLD-20261107.md" "$stage/package/docs/"
+cp "$base/docs/GUIDE-RU.md" "$base/docs/LOCAL-RELEASE-WORKFLOW.md" "$base/docs/NATIVE-SESSION-TTL-20261108.md" "$stage/package/docs/"
 find "$stage/package" -name .DS_Store -delete
 [ -z "$(find "$stage/package" -type l -print)" ] || exit 1
+find "$stage/package" -depth -type d -empty -delete
 printf '%s\n' "$hash" > "$stage/package/NATIVE_DNS_SHA256"
 printf '%s\n' 'board=xiaomi,redmi-router-ax6000-stock' 'openwrt=25.12.6' 'architecture=aarch64_cortex-a53' \
-	'activation=explicit-ordinary-apply' 'acceptance=requires-completed-vm-report-and-physical-preflight' > "$stage/package/TARGET"
+	'activation=explicit-ordinary-apply' 'update_protocol=native-staged-v1' 'acceptance=requires-completed-vm-report-and-physical-preflight' > "$stage/package/TARGET"
 find "$stage/package" -type d -exec chmod 755 {} \;
 find "$stage/package" -type f -exec chmod 644 {} \;
 find "$stage/package/root/usr/libexec/podkopchik" -type f \( -name '*.sh' -o -name '*.uc' \) -exec chmod 755 {} \;

@@ -6,6 +6,15 @@ the later permanent Native sections define independent AWG/Xray routing.
 The [2026-11-08 publication snapshot](PUBLICATION-20261108.md) is an RC copy,
 not a main-branch promotion or completed long-duration stability release.
 
+The [2026-11-08 synthetic-session correction](NATIVE-SESSION-TTL-20261108.md)
+separates DNS admission lifetime from connection lifetime. A previously
+admitted, established DNAT tuple may retain its owned transport pin after DNS
+TTL expiry, while the current client policy, address-family support and
+transport health still permit it. New flows to expired/unknown addresses,
+retired pools, all-down paths and traffic without its classifier remain
+fail-closed. This correction is locally verified; router deployment is a
+separate, explicitly approved step.
+
 ## Overview
 
 Podkopchik is an OpenWrt 24.10+ LuCI application for routing selected LAN traffic through Xray VLESS proxy links.
@@ -794,7 +803,7 @@ uninstall.sh must:
 
 Updates
 
-LuCI Updates page must:
+Legacy LuCI Updates page must:
 
 * show current Podkopchik version
 * support update_channel `main` and `stable`
@@ -810,6 +819,24 @@ LuCI Updates page must:
 * install update
 * restart needed services
 * provide rollback command
+
+Native overrides this source/update contract. It accepts only a full AX6000
+stock / OpenWrt 25.12.6 ARM64 bundle from a published `native-rc-*` prerelease,
+selected by published date among the last 20 releases. Missing RC/assets/digest
+is a refusal, never a fallback to `main`, stable Legacy, or source tarballs.
+The installed ucode validator checks GitHub asset SHA256, bounded ustar paths,
+types, owners/modes, duplicates, expansion and complete manifest membership
+before extraction/execution. Member SHA256 and TARGET are checked after extraction.
+Static installation validates all destination paths and backs up prior code in
+tmpfs before writing; write failure compensates static files. UCI, AWG profiles,
+DNS ledger and immutable generations are not replaced. Native runtime locking
+excludes a concurrent Apply. No routing/service/package change occurs at staging.
+LuCI polls a detached job; ordinary Apply and explicit confirmation on Status
+activate the new code with existing Native transactional rollback. Legacy code
+rollback is refused on Native. Updater bootstrap is one explicit full-package
+installation, not an automatic upgrade of an old button by pushing sources.
+No claim of atomic replacement of all flash files across power loss is made.
+See [local release workflow](LOCAL-RELEASE-WORKFLOW.md).
 
 Do not update Xray core automatically in `0.1.0-beta`. Explicit user-requested
 core updates are supported independently of application updates; see below.

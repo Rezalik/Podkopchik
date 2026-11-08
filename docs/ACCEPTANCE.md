@@ -512,7 +512,12 @@ For [release qualification](UNIVERSAL-RELEASE-VM-20261106.md), also verify:
   without a separate approved inventory and ownership check.
 - For [AX6000 acceptance](UNIVERSAL-AX6000-ACCEPTANCE.md), prove a held TCP
   connection survives unchanged Apply but does not cross to another adapter,
-  and an expired lease cannot use its still-existing conntrack entry. The
+  and distinguish DNS expiry from policy revocation: an admitted established
+  DNAT tuple retains its valid transport pin after TTL expiry, while new
+  expired-address flows remain blocked. Transport failure or removal of the
+  classifier must still revoke the established path. This supersedes the old
+  requirement to kill an admitted connection merely because DNS expired; see
+  [the session-lifetime regression](NATIVE-SESSION-TTL-20261108.md). The
   recovery watchdog must keep quarantine and DNS interception if an nft restore
   is rejected. WAN capture must exclude all synthetic and inner tunnel-source
   packets, including locally generated TCP resets. Hardware acceptance and
@@ -654,6 +659,16 @@ Household Native RC, Xiaomi AX6000 / OpenWrt 25.12.6, 2026-11-07:
   native IPv6 transport and full physical emergency restore remain separate.
 
 See [the measured pilot and limitations](UNIVERSAL-NATIVE-HOUSEHOLD-20261107.md).
+
+Native package/update acceptance, 2026-11-08:
+
+- [x] Native check/install dispatch never chooses Legacy/main source archives.
+- [x] Dedicated prerelease/digest/target contract and staged explicit Apply.
+- [x] Native Legacy-code rollback refused; profiles/ledger/generations preserved.
+- [ ] Actual GitHub Actions publication and remote LuCI update on Xiaomi.
+
+VM and local measured results: [local release workflow](LOCAL-RELEASE-WORKFLOW.md).
+These packaging checks do not certify QUIC, video stability or a new physical Apply.
 
 Operational observation, 2026-11-07:
 

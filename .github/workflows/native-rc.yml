@@ -1,0 +1,47 @@
+name: Native RC package
+on:
+  push:
+    branches: ['feature/universal-routing-engine']
+    tags: ['native-rc-*']
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: macos-14
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check feature ancestry
+        run: git merge-base --is-ancestor HEAD origin/feature/universal-routing-engine
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: native/dns/go.sum
+      - name: Workstation checks
+        run: |
+          brew install gettext
+          export PATH="$(brew --prefix gettext)/bin:$PATH"
+          sh tools/check-native-local.sh
+          cd native/dns
+          go test -mod=readonly ./...
+      - name: Reproducible ARM64 bundle
+        run: |
+          sh tools/build-native-candidate.sh "$PWD/.build/rc-a"
+          sh tools/build-native-candidate.sh "$PWD/.build/rc-b"
+          cmp .build/rc-a/*.tar.gz .build/rc-b/*.tar.gz
+          node tools/verify-native-candidate.js .build/rc-a/*.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-ax6000-rc
+          path: .build/rc-a/*
+      - name: Publish prerelease only
+        if: startsWith(github.ref, 'refs/tags/native-rc-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" .build/rc-a/* --prerelease --target "$GITHUB_SHA" \
+            --title "Podkopchik Native RC $GITHUB_REF_NAME" \
+            --notes "Xiaomi AX6000 stock / OpenWrt 25.12.6. RC, not stable. See docs/LOCAL-RELEASE-WORKFLOW.md. Workstation checks do not replace physical acceptance."

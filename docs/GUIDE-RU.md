@@ -1,6 +1,6 @@
 # Инструкция Podkopchik
 
-Инструкция относится к ветке `codex/native-rc-ax6000-20261108` и состоянию
+Инструкция относится к ветке `feature/universal-routing-engine` и состоянию
 Native RC на 8 ноября 2026 года. Это исходная копия приложения, не прошивка
 роутера и не архив с чужими подключениями.
 
@@ -64,15 +64,15 @@ nftables, DNAT, маркировка и policy routing. Xray нужен толь
 Выполняйте на роутере по SSH с правами root:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Rezalik/Podkopchik/codex/native-rc-ax6000-20261108/install.sh -o /tmp/podkopchik-install.sh
-PODKOPCHIK_INSTALL_BRANCH=codex/native-rc-ax6000-20261108 sh /tmp/podkopchik-install.sh
+curl -fsSL https://raw.githubusercontent.com/Rezalik/Podkopchik/feature/universal-routing-engine/install.sh -o /tmp/podkopchik-install.sh
+PODKOPCHIK_INSTALL_BRANCH=feature/universal-routing-engine sh /tmp/podkopchik-install.sh
 ```
 
 Если curl отсутствует, используйте wget для того же URL:
 
 ```sh
-wget -O /tmp/podkopchik-install.sh https://raw.githubusercontent.com/Rezalik/Podkopchik/codex/native-rc-ax6000-20261108/install.sh
-PODKOPCHIK_INSTALL_BRANCH=codex/native-rc-ax6000-20261108 sh /tmp/podkopchik-install.sh
+wget -O /tmp/podkopchik-install.sh https://raw.githubusercontent.com/Rezalik/Podkopchik/feature/universal-routing-engine/install.sh
+PODKOPCHIK_INSTALL_BRANCH=feature/universal-routing-engine sh /tmp/podkopchik-install.sh
 ```
 
 Установщик проверяет место и конфликты, ставит недостающие зависимости штатным
@@ -91,7 +91,7 @@ OpenWrt 25.12 использует apk; названия и доступност
 обычные инструменты сборки и закреплённый Go `1.26.10`.
 
 ```sh
-git clone --branch codex/native-rc-ax6000-20261108 --single-branch https://github.com/Rezalik/Podkopchik.git
+git clone --branch feature/universal-routing-engine --single-branch https://github.com/Rezalik/Podkopchik.git
 cd Podkopchik
 go version
 sh tools/build-native-candidate.sh "$PWD/.build/native-candidate"
@@ -272,7 +272,7 @@ nft list table inet podkopchik_native_gate
 Для Legacy можно использовать ветку этой копии:
 
 ```sh
-uci set podkopchik.main.github_branch='codex/native-rc-ax6000-20261108'
+uci set podkopchik.main.github_branch='feature/universal-routing-engine'
 uci commit podkopchik
 podkopchikctl update-check
 podkopchikctl update-install
@@ -282,10 +282,18 @@ podkopchikctl update-install
 осознанно. Пункт канала `main` означает development-канал; конкретную ветку
 определяет `github_branch`.
 
-Для Native предпочтителен полный проверенный кандидат с совместимым компонентом,
-манифестом и контрольной суммой: preflight, статическая установка, Validate,
-Apply, проверка сети, подтверждение. Не запускайте обновление из старой `main`
-и не меняйте только бинарник или только generated JSON.
+Для Native используйте полный RC `native-rc-*`, собранный на компьютере или
+GitHub Actions. Новый обновлятор сам выбирает Native prerelease, даже если в
+старом UCI остались `update_channel=main` и `github_branch=main`. Он не меняет
+эти настройки и не скачивает Legacy вместо Native. Проверяет SHA256 из GitHub,
+архив до распаковки и манифест; затем только размещает файлы без перезапуска
+маршрутизации. На «Статус» выполните Apply, проверьте сеть и подтвердите его.
+
+Старый обновлятор на уже работающем Xiaomi автоматически от этого не изменится.
+Первый полный пакет устанавливается отдельно после проверки на Mac. Затем
+будущие обновления выполняются через LuCI. Порядок и ограничения:
+[локальная разработка и выпуск](LOCAL-RELEASE-WORKFLOW.md). Пока подходящий
+prerelease не опубликован, новый обновлятор отказывает, а не использует `main`.
 
 Обновление сохраняет UCI и профили, но перед ним всё равно нужен приватный
 план восстановления. Архивы на GitHub не должны содержать ваши ключи.

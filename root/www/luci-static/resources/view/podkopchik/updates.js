@@ -166,11 +166,28 @@ return view.extend({
 		}, _('Main branch update is for development/testing. Stable releases are safer.'));
 
 		function action(args) {
-			return runCommand(args).then(function(res) {
+			function poll(job) {
+				return fs.exec_direct('/usr/bin/podkopchikctl', [ 'update-status' ]).then(function(res) {
+					var state = coreFields(res);
+					output.textContent = res;
+					if (state.job_id != job) throw new Error(_('Update status changed; refresh this page.'));
+					if (state.job_status == 'running')
+						return new Promise(function(resolve) { window.setTimeout(resolve, 1500); }).then(function() { return poll(job); });
+					if (state.job_status != 'done') throw new Error(res);
+					return res;
+				});
+			}
+			var operation = args[0] == 'update-install'
+				? fs.exec_direct('/usr/bin/podkopchikctl', [ 'update-start' ]).then(function(res) { return poll(coreFields(res).job_id); })
+				: fs.exec_direct('/usr/bin/podkopchikctl', args);
+			return operation.then(function(res) {
 				output.textContent = args[0] == 'update-check' ? localizeInfo(res) : res;
 				if (args[0] == 'update-check')
 					warning.style.display = isMainChannel(res) ? '' : 'none';
 				ui.addNotification(null, E('pre', { 'style': 'white-space: pre-wrap' }, res));
+			}).catch(function(err) {
+				output.textContent = err.message || String(err);
+				ui.addNotification(null, E('p', output.textContent), 'error');
 			});
 		}
 

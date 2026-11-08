@@ -1,6 +1,0 @@
-#!/bin/sh
-
-case "${1:-}" in
-	enabled|running) exit 1 ;;
-	*) exit 0 ;;
-esac

@@ -841,6 +841,10 @@ asset_url() {
 }
 
 cmd_update_check() {
+	if native_present || [ "$(uci -q get "$APP.main.routing_engine" 2>/dev/null || true)" = native ]; then
+		sh "$LIB/native_update.sh" check
+		return
+	fi
 	mkdir -p "$TMP_DIR"
 	current="$VERSION"
 	channel="$(update_channel)"
@@ -879,6 +883,10 @@ cmd_update_check() {
 }
 
 cmd_update_install() {
+	if native_present || [ "$(uci -q get "$APP.main.routing_engine" 2>/dev/null || true)" = native ]; then
+		sh "$LIB/native_update.sh" install
+		return
+	fi
 	mkdir -p "$TMP_DIR"
 	update_config_backup=""
 	restore_update_config() {
@@ -961,6 +969,9 @@ cmd_update_install() {
 }
 
 cmd_rollback() {
+	if native_present || [ "$(uci -q get "$APP.main.routing_engine" 2>/dev/null || true)" = native ]; then
+		die "Native uses confirmed generations, not the legacy update archive; abort a pending Apply on Status or restore a verified Native bundle"
+	fi
 	[ -s "$ROLLBACK" ] || die "rollback archive not found"
 	if native_present && ! tar -tzf "$ROLLBACK" | grep -Eq '(^|/)usr/libexec/podkopchik/native_runtime.uc$'; then
 		die "old rollback cannot restore permanent Native routing; use the protected engine recovery procedure first"
@@ -1012,6 +1023,8 @@ case "${1:-}" in
 	shaping-status) cmd_shaping_status ;;
 	update-check) cmd_update_check ;;
 	update-install) cmd_update_install ;;
+	update-start) exec sh "$LIB/update_jobs.sh" start ;;
+	update-status) exec sh "$LIB/update_jobs.sh" status ;;
 	rollback) cmd_rollback ;;
 	xray-status|xray-check|xray-install|xray-rollback)
 		action="$1"; shift

@@ -234,6 +234,16 @@ function render(plan, switching) {
 			for (let r in plan.clients) if (of_family(r.cidr))
 				rule(overrides, proto + ' saddr ' + r.cidr + ' ' + verdict(r.target == 'direct' ? 'blocked' : r.target));
 			if (!switching) push(lines, 'add map inet ' + TABLE + ' ' + map + ' { type ipv' + family + '_addr : ipv' + family + '_addr; flags timeout; size 65536; }');
+			// DNS expiry revokes new admissions, not an already admitted DNAT tuple.
+			// Keep its transport pin; current client overrides and transport health
+			// still apply, and an expired address cannot establish a new flow.
+			let established = proto + ' daddr ' + pool + ' ct direction original ct state established ct status dnat ';
+			rule('classify', lan + established + 'jump ' + overrides);
+			for (let a in values(plan.adapters)) if (a.usable && (v6 ? a.ipv6 : a.ipv4)) {
+				let protocols = a.type == 'vless' ? 'tcp' : '{ tcp, udp }';
+				rule('classify', lan + established + 'meta l4proto ' + protocols + ' ct mark & 0xff000000 ' + a.pin +
+					' meta mark set ' + a.mark + ' counter accept');
+			}
 			for (let i = 0; i < length(plan.domains); i++) {
 				let row = plan.domains[i];
 				if (row.target == 'direct') continue;

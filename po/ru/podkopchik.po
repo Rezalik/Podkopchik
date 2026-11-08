@@ -1720,5 +1720,8 @@ msgstr "Открыть «Состояние»"
 msgid "Request emergency recovery"
 msgstr "Запросить аварийное восстановление"
 
+msgid "Update status changed; refresh this page."
+msgstr "Состояние обновления изменилось; обновите страницу."
+
 msgid "This restores the verified previous protected configuration and may interrupt connections. It is not a routine undo."
 msgstr "Будет восстановлена проверенная предыдущая защищённая конфигурация. Соединения могут прерваться. Это не обычная отмена изменений."

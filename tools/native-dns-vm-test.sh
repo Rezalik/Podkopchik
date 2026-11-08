@@ -801,17 +801,18 @@ grep -qi 'File exists' "$work/rejected.log"
 if rn nft get element inet podkopchik_native s_0011223344556677_m4 '{ 172.31.253.250 }' >/dev/null 2>&1; then fail 'partial kernel commit'; fi
 echo 'PASS: rejected real nft batch left no partial map entry'
 
-# Keep a real conntrack entry open past the untouched lease's TTL plus grace.
+# DNS TTL expires new admission, not an established tuple on its pinned transport.
 v6=$(answer tcp protected.example. AAAA NOERROR 1)
-PKC_NATIVE_LAB=hold ip netns exec "$l" "$bin" -test.run='^TestGuestFixture$' -- "[$v6]:18081" "$work/ttl-ready" "$work/ttl-send" expire >"$work/ttl.log" 2>&1 &
+PKC_NATIVE_LAB=hold ip netns exec "$l" "$bin" -test.run='^TestGuestFixture$' -- "[$v6]:18081" "$work/ttl-ready" "$work/ttl-send" apply >"$work/ttl.log" 2>&1 &
 ttlpid=$!; pids="$pids $ttlpid"
 for i in 1 2 3 4; do [ ! -e "$work/ttl-ready" ] || break; sleep 1; done
 [ -e "$work/ttl-ready" ] || fail 'could not hold IPv6 connection until expiry'
 sleep 33
 if rn nft get element inet podkopchik_native s_0011223344556677_m6 "{ $v6 }" >/dev/null 2>&1; then fail 'expired IPv6 lease still active'; fi
 touch "$work/ttl-send"
-wait "$ttlpid" || { cat "$work/ttl.log"; fail 'IPv6 conntrack outlived DNS lease'; }
+wait "$ttlpid" || { cat "$work/ttl.log"; fail 'DNS expiry interrupted an admitted IPv6 connection'; }
 blocked ln "http://[$v6]:18081/"
+echo 'PASS: established IPv6 session survives DNS expiry; new expired-address flows stay blocked'
 newv6=$(answer tcp protected.example. AAAA NOERROR 1)
 [ -n "$newv6" ] && [ "$newv6" != "$v6" ]
 ok ln "http://[$newv6]:18081/"
