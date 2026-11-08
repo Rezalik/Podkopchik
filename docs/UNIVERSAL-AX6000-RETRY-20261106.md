@@ -22,6 +22,7 @@ external TCP DNS query with the same synthetic A and published the expected
 DNAT mapping. This was a live listener test, not only ledger initialization.
 
 ## Physical results
+
 | Check | Result |
 | --- | --- |
 | Management, scope, watchdog | PASS. Mac and wired `media` reached Xiaomi. Fresh inventory admitted the isolated addresses, hooks and routing identifiers. The watchdog was armed with a 125-second deadline. |
