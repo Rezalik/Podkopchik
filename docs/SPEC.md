@@ -6,6 +6,24 @@ the later permanent Native sections define independent AWG/Xray routing.
 The [2026-11-08 publication snapshot](PUBLICATION-20261108.md) is an RC copy,
 not a main-branch promotion or completed long-duration stability release.
 
+The [ten-stage Native portability plan](NATIVE-PORTABILITY.md) starts with a
+standalone, read-only schema-1 platform inventory and pure assessment module.
+It distinguishes `requirements_met`, `blocked` and `incomplete`, separately
+reports the current AX6000 candidate board guard, and never authorizes install,
+activation or physical acceptance. Stage 1 has no runtime/installer/updater/UI
+integration by itself. Stages 2-5 add common/helper separation, per-board
+schema-2 package manifests for AX6000 stock and Flint 2 on the pinned ARM64
+baseline, shared static admission and a standalone per-router inventory.
+Flint 2 remains a lab target, not a physically accepted release. Neither
+static installation nor inventory runs Apply or migrates the configuration.
+Stages 6-8 add read-only migration readiness, a separate validation of
+saved Legacy settings, and an explicit transactional migration with
+confirmation. Validation failure does not alter the active runtime or
+saved UCI. Migration retires only proven Legacy nft/RPDB ownership; first
+rollback after cutover uses protected Native recovery. LuCI displays
+per-board update availability, including the absence of a matching asset.
+The no-NIC VM matrix does not grant physical device support.
+
 The [2026-11-08 synthetic-session correction](NATIVE-SESSION-TTL-20261108.md)
 separates DNS admission lifetime from connection lifetime. A previously
 admitted, established DNAT tuple may retain its owned transport pin after DNS
@@ -820,10 +838,12 @@ Legacy LuCI Updates page must:
 * restart needed services
 * provide rollback command
 
-Native overrides this source/update contract. It accepts only a full AX6000
-stock / OpenWrt 25.12.6 ARM64 bundle from a published `native-rc-*` prerelease,
-selected by published date among the last 20 releases. Missing RC/assets/digest
-is a refusal, never a fallback to `main`, stable Legacy, or source tarballs.
+Native overrides this source/update contract. It accepts only the full bundle
+for the exact board and pinned OpenWrt 25.12.6 ARM64 baseline from a published
+`native-rc-*` prerelease, selected by published date among the last 20 releases.
+The catalog includes AX6000 stock and Flint 2; Flint 2 has no published
+matching asset yet. Missing RC/assets/digest means no installable update,
+never a fallback to another board, `main`, stable Legacy, or source tarballs.
 The installed ucode validator checks GitHub asset SHA256, bounded ustar paths,
 types, owners/modes, duplicates, expansion and complete manifest membership
 before extraction/execution. Member SHA256 and TARGET are checked after extraction.
@@ -1080,7 +1100,8 @@ LuCI binds its classification controls to the same UCI keys/defaults as the
 generator. Native status exposes the active classification and DNS listener/
 pools separately from configured classification; malformed saved values cannot
 replace a valid active policy in the display. Strict/migration fields are
-Native-only and retained when hidden. The Native DNS page edits `native_dns_port`
+retained when hidden and can be staged in Advanced before switching from
+Legacy when the Native helper is available. The Native DNS page edits `native_dns_port`
 and `native_pool_v4/v6`, never the ignored Legacy FakeDNS switches.
 All LuCI rule/preset Apply paths retain the existing backend Apply call, explain
 pending Native confirmation, and link to Status without automatic confirmation.

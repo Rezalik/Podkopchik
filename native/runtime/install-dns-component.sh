@@ -6,19 +6,22 @@ base=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 root="${PODKOPCHIK_INSTALL_ROOT:-}"
 case "${1:---preflight}" in --preflight|--install) ;; *) echo 'Use --preflight or --install' >&2; exit 2;; esac
 [ "$(id -u)" = 0 ] || { echo 'Root is required' >&2; exit 1; }
-if [ -z "$root" ]; then
-	[ "$(uname -m)" = aarch64 ]
-	board=$(ubus call system board)
-	[ "$(printf '%s' "$board" | jsonfilter -e '@.board_name')" = 'xiaomi,redmi-router-ax6000-stock' ]
-	[ "$(printf '%s' "$board" | jsonfilter -e '@.release.version')" = 25.12.6 ]
-else
+admission=admit
+if [ -n "$root" ]; then
 	case "$root" in /tmp/pkc-component-*) ;; *) echo 'Invalid isolated staging root' >&2; exit 1;; esac
 	[ -d "$root" ] && [ ! -L "$root" ]
+	[ "$(tr -d '\000' < /proc/device-tree/model)" = linux,dummy-virt ]
+	[ "$(ls /sys/class/net)" = lo ]
+	ucode -e 'import {lstat} from "fs"; let s=lstat(ARGV[0]);
+		if(s?.type!="directory"||s.uid!=0||(s.mode&0o777)!=0o700) exit(1);' "$root"
+	admission=verify
 fi
 expected=$(cat "$base/NATIVE_DNS_SHA256")
 [ "${#expected}" = 64 ]
 case "$expected" in *[!a-f0-9]*) exit 1;; esac
 (cd "$base" && sha256sum -c SHA256SUMS >/dev/null)
+lib="$base/root/usr/libexec/podkopchik"
+ucode -L "$lib" "$lib/native_package_check.uc" "$admission" "$lib/native-targets.json" "$base"
 source="$base/native-bin/$expected"
 target="$root/etc/podkopchik/native-bin/$expected"
 ucode -e 'import {lstat} from "fs";
@@ -48,13 +51,11 @@ if [ ! -e "$target" ]; then
 	cp "$source" "$stage"
 	chmod 755 "$stage"
 	[ "$(sha256sum "$stage" | awk '{print $1}')" = "$expected" ]
-	"$stage" -capabilities | jsonfilter -e '@.schema' | grep -qx 3
+	caps=$("$stage" -capabilities)
+	printf '%s\n' "$caps" | ucode -e 'import {stdin} from "fs"; let c=json(stdin.read("all"));
+		if(c?.schema!==3||c.bounded_commands!==true||c.persistent_dns!==true||c.protected_dns!==true) exit(1);'
 	mv "$stage" "$target"
 	trap - EXIT HUP INT TERM
 fi
-launcher="$root/usr/libexec/podkopchik/podkopchik-native-dns"
-cp "$base/root/usr/libexec/podkopchik/podkopchik-native-dns" "$launcher.new.$$"
-chmod 755 "$launcher.new.$$"
-mv "$launcher.new.$$" "$launcher"
 sync
-echo 'Native DNS helper installed. Routing, UCI and running services were not changed.'
+echo 'Immutable Native DNS helper installed. Launcher publication belongs to the static bundle transaction.'

@@ -20,7 +20,14 @@ done
 ucode "$lib/native_update.uc" release "$lib/fixtures/releases.json" Rezalik/Podkopchik > "$work/release"
 grep -qx latest=native-rc-new "$work/release"
 if ucode "$lib/native_update.uc" release "$lib/fixtures/bad-releases.json" Rezalik/Podkopchik >/dev/null 2>&1; then exit 1; fi
-echo 'PASS prerelease selection, digest and ordering'
+ucode "$lib/native_update.uc" release "$lib/fixtures/releases-flint2.json" Rezalik/Podkopchik flint2 > "$work/release"
+grep -qx latest=native-rc-flint-lab "$work/release"
+if ucode "$lib/native_update.uc" release "$lib/fixtures/releases.json" Rezalik/Podkopchik flint2 >/dev/null 2>&1; then exit 1; fi
+ucode "$lib/native_update.uc" release "$lib/fixtures/releases.json" Rezalik/Podkopchik flint2 check > "$work/release"
+grep -qx 'target=flint2' "$work/release"
+grep -qx 'availability=no_compatible_release' "$work/release"
+if grep -q '^archive_url=' "$work/release"; then exit 1; fi
+echo 'PASS per-target prerelease selection, digest and ordering'
 cp "$lib/candidate.tar.gz" "$work/package.tar.gz"
 ucode "$lib/native_update.uc" archive "$work/package.tar.gz"
 mkdir "$work/package"
@@ -63,13 +70,22 @@ rm "$work/bin/cp"
 mkdir "$work/lib"
 cp "$lib/native_update.uc" "$work/lib/"
 cp "$lib/native_update.sh" "$work/lib/"
+for f in native_platform.uc native_platform_probe.uc native_package.uc native_package_check.uc native-targets.json; do
+	cp "$work/package/root/usr/libexec/podkopchik/$f" "$work/lib/"
+done
 cat > "$work/lib/native_runtime.sh" <<'SH'
 #!/bin/sh
 echo '{"pending":null,"recovery_policy":"transactional"}'
 SH
-cat > "$work/bin/cat" <<'SH'
+cat > "$work/bin/ucode" <<'SH'
 #!/bin/sh
-if [ "$*" = /tmp/sysinfo/board_name ]; then echo xiaomi,redmi-router-ax6000-stock; else exec /bin/cat "$@"; fi
+# Only this no-NIC fixture substitutes identity. Verify the real manifest
+# with installed code, and never write outside the isolated root.
+case "${3:-}:${4:-}" in
+	*/native_package_check.uc:device) echo ax6000 ;;
+	*/native_package_check.uc:admit) exec /usr/bin/ucode "$1" "$2" "$3" verify "$5" "$6" ;;
+	*) exec /usr/bin/ucode "$@" ;;
+esac
 SH
 cat > "$work/bin/uci" <<'SH'
 #!/bin/sh
@@ -86,7 +102,7 @@ chmod 755 "$work/bin/"*
 ucode -e 'import {readfile} from "fs";let r=json(readfile(ARGV[0]));
 	for(let v in r)if(v.tag_name=="native-rc-new"){v.assets[0].digest="sha256:"+ARGV[1];v.assets[0].size=+ARGV[2];}printf("%J\n",r);' \
 	"$lib/fixtures/releases.json" "$(sha256sum "$work/package.tar.gz" | awk '{print $1}')" "$(wc -c < "$work/package.tar.gz")" > "$work/releases.json"
-printf '%s\n' '{"phase":"active","pending":null,"repair":false}' > "$root/etc/podkopchik/native-state/runtime.json"
+printf '%s\n' '{"phase":"active","engine":"native","current":"11111111111111111111111111111111","confirmed":"11111111111111111111111111111111","pending":null,"repair":false}' > "$root/etc/podkopchik/native-state/runtime.json"
 export PODKOPCHIK_LIB="$work/lib" PODKOPCHIK_CONFIG_DIR="$root/etc/podkopchik" NATIVE_TEST_WORK="$work"
 PATH="$work/bin:$PATH" sh "$lib/native_update.sh" install
 grep -qx preserved-uci "$root/etc/config/podkopchik"
@@ -103,7 +119,7 @@ if PATH="$work/bin:$PATH" sh "$lib/native_update.sh" install >"$work/result" 2>&
 grep -q 'archive SHA256 mismatch' "$work/result"
 grep -qx do-not-overwrite "$root/etc/init.d/podkopchik"
 mv "$work/good.json" "$work/releases.json"
-printf '%s\n' '{"phase":"active","pending":"pending-fixture","repair":false}' > "$root/etc/podkopchik/native-state/runtime.json"
+printf '%s\n' '{"phase":"active","engine":"native","current":"11111111111111111111111111111111","confirmed":"11111111111111111111111111111111","pending":"pending-fixture","repair":false}' > "$root/etc/podkopchik/native-state/runtime.json"
 if PATH="$work/bin:$PATH" sh "$lib/native_update.sh" install >"$work/result" 2>&1; then exit 1; fi
 grep -q 'not confirmed and active' "$work/result"
 grep -qx do-not-overwrite "$root/etc/init.d/podkopchik"

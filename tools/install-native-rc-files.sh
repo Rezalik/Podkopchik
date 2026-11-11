@@ -7,17 +7,10 @@ root="${PODKOPCHIK_INSTALL_ROOT:-}"
 if [ -n "$root" ]; then
 	case "$root" in /tmp/pkc-component-*) ;; *) exit 2;; esac
 	[ -d "$root" ] && [ ! -L "$root" ]
-else
-	[ "$(cat /tmp/sysinfo/board_name)" = xiaomi,redmi-router-ax6000-stock ]
 fi
 [ "$#" = 1 ] && [ -d "$1/root" ] || exit 2
 base=$(CDPATH= cd -- "$1" && pwd)
 (cd "$base" && sha256sum -c SHA256SUMS >/dev/null)
-if [ -z "$root" ]; then
-	if [ "$(uci -q get podkopchik.main.native_recovery_policy 2>/dev/null || true)" = repair ]; then
-		ucode /etc/podkopchik-native-emergency/recovery.uc verify >/dev/null
-	fi
-fi
 before=$(sha256sum "$root/etc/config/podkopchik")
 sh "$base/install-native-dns.sh" --preflight
 work=$(mktemp -d /tmp/pkc-static-update.XXXXXX)
@@ -49,7 +42,7 @@ while IFS= read -r source; do
 	rel=${source#"$base/root/"}
 	case "$rel" in
 		etc/config/podkopchik) continue ;;
-		etc/init.d/podkopchik|etc/init.d/podkopchik-fakedns|etc/init.d/podkopchik-native-emergency|etc/hotplug.d/iface/95-podkopchik-fakedns|usr/bin/podkopchikctl|usr/libexec/rpcd/podkopchik.awg|usr/libexec/podkopchik/*.uc|usr/libexec/podkopchik/*.sh|usr/libexec/podkopchik/podkopchik-native-dns|lib/upgrade/keep.d/podkopchik-*|usr/share/luci/menu.d/luci-app-podkopchik.json|usr/share/rpcd/acl.d/luci-app-podkopchik.json|www/luci-static/resources/view/podkopchik/*.js|www/luci-static/resources/podkopchik/*.js) ;;
+		etc/init.d/podkopchik|etc/init.d/podkopchik-fakedns|etc/init.d/podkopchik-native-emergency|etc/hotplug.d/iface/95-podkopchik-fakedns|usr/bin/podkopchikctl|usr/libexec/rpcd/podkopchik.awg|usr/libexec/podkopchik/*.uc|usr/libexec/podkopchik/*.sh|usr/libexec/podkopchik/native-targets.json|usr/libexec/podkopchik/podkopchik-native-dns|lib/upgrade/keep.d/podkopchik-*|usr/share/luci/menu.d/luci-app-podkopchik.json|usr/share/rpcd/acl.d/luci-app-podkopchik.json|www/luci-static/resources/view/podkopchik/*.js|www/luci-static/resources/podkopchik/*.js) ;;
 		*) echo "Unexpected RC payload member: $rel" >&2; exit 1 ;;
 	esac
 	printf '%s\n' "$rel" >> "$work/files"
@@ -57,6 +50,7 @@ done < "$work/sources"
 for dir in /usr/share/ucode/luci/i18n /usr/lib/lua/luci/i18n; do
 	printf '%s\n' "${dir#/}/podkopchik.ru.lmo" >> "$work/files"
 done
+static=0
 while IFS= read -r rel; do
 	ucode -e 'import {lstat} from "fs";let parts=split(ARGV[1],"/"),p=ARGV[0];
 		for(let i=0;i<length(parts)-1;i++){p+="/"+parts[i];let s=lstat(p);if(s&&(s.type!="directory"||s.uid!=0||(s.mode&0o022)))die("unsafe static target directory");}
@@ -65,9 +59,20 @@ while IFS= read -r rel; do
 	[ ! -f "$root/$rel" ] || cp -p "$root/$rel" "$work/old/$rel"
 	case "$rel" in */i18n/podkopchik.ru.lmo) source="$base/i18n/ru/podkopchik.ru.lmo" ;; *) source="$base/root/$rel" ;; esac
 	cp "$source" "$work/new/$rel"
-	case "$rel" in etc/init.d/*|etc/hotplug.d/*|usr/bin/*|usr/libexec/*) mode=755 ;; *) mode=644 ;; esac
+	size=$(wc -c < "$work/new/$rel")
+	static=$((static + (size + 4095) / 4096 * 4))
+	case "$rel" in *.json) mode=644 ;; etc/init.d/*|etc/hotplug.d/*|usr/bin/*|usr/libexec/*) mode=755 ;; *) mode=644 ;; esac
 	chmod "$mode" "$work/new/$rel"
 done < "$work/files"
+# Budget the complete staged file set in addition to the immutable helper.
+volume="${root:-/overlay}"
+helper=$(cat "$base/NATIVE_DNS_SHA256")
+extra=0
+if [ ! -f "$root/etc/podkopchik/native-bin/$helper" ]; then
+	extra=$(( ($(wc -c < "$base/native-bin/$helper") + 4095) / 4096 * 4 ))
+fi
+free=$(df -Pk "$volume" | awk 'END {print $4}')
+[ "$free" -ge "$((13824 + static + extra))" ] || { echo 'Insufficient flash for static bundle and Native reserve' >&2; exit 1; }
 # The immutable helper is additive; retain it if an interrupted static update
 # needs retrying. The previous generation keeps its own pinned helper/launcher.
 committing=1

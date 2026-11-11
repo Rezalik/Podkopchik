@@ -60,9 +60,12 @@ if (!acl.includes('"/usr/bin/podkopchikctl cleanup"'))
 
 assertMatch(read('tools/install-native-rc-files.sh'), /www\/luci-static\/resources\/podkopchik\/\*\.js/,
 	'The Native RC installer must include shared LuCI modules, not just views');
-for (const file of ['tools/install-native-rc-files.sh', 'tools/install-luci-alignment.sh']) {
-	assertMatch(read(file), /if \[ "\$\(uci -q get podkopchik\.main\.native_recovery_policy[^\n]+ = repair \]; then\s+ucode \/etc\/podkopchik-native-emergency\/recovery\.uc verify/,
-		'A transactional static-file update must not require a retired emergency capsule');
-}
+assertMatch(read('tools/install-luci-alignment.sh'), /if \[ "\$\(uci -q get podkopchik\.main\.native_recovery_policy[^\n]+ = repair \]; then\s+ucode \/etc\/podkopchik-native-emergency\/recovery\.uc verify/,
+	'The older LuCI-only installer verifies a capsule only for repair mode');
+const gate = read('root/usr/libexec/podkopchik/native_package_check.uc');
+assertMatch(gate, /if\(recovery&&recovery!='transactional'\) policy\.fail\('transactional_recovery_required'\)/,
+	'Static bundle admission must reject repair without accessing its capsule');
+if (/recovery\.uc|native-emergency.*verify/.test(gate+read('tools/install-native-rc-files.sh')))
+	throw new Error('The new static bundle must not require a retired emergency capsule');
 
 console.log('LuCI runtime apply smoke OK');

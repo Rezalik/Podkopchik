@@ -8,6 +8,38 @@ The [publication checkpoint](PUBLICATION-20261108.md) excludes secrets, private
 backups and generated test directories; incomplete 48-hour/QUIC/IPv6/VLESS
 checks must not be promoted to a universal stable-release PASS.
 
+## Native Portability Stage 1
+
+The [portability contract](NATIVE-PORTABILITY.md) must be tested independently
+of existing installer admission. Matching Flint 2, AX6000 and unknown-model
+inventories can meet preliminary requirements, but no result may authorize
+installation/activation or report physical/stability acceptance. Flint 2 must
+still report a mismatch with the existing AX6000 candidate board guard.
+
+Fixtures must cover missing/malformed observations, unvalidated releases,
+architectures and kernels, missing commands, BusyBox ip, configured/live
+offload, missing fw4, exact/below/unknown resource floors and optional versus
+required AWG. Failure takes priority over unknown without hiding uncertainty.
+Release metadata must never execute shell code. Unknown input fields, private
+keys and profile URIs must not be reflected into the compatibility report.
+
+The real ucode module and fixture CLI must run in an isolated OpenWrt VM when
+the workstation lacks ucode. A SKIPPED workstation test or JS static check is
+not a ucode PASS. No router deployment, Apply, service restart, package install,
+emergency mechanism or wider device admission is part of stage 1.
+
+## Native Portability Stages 2-5
+
+- AX6000 and Flint lab archives are independently reproducible and have
+  identical common and helper component digests but distinct board manifests.
+- A crossed board, unknown board, inconsistent manifest, unsuitable kernel,
+  failed or unreadable prerequisite refuses static admission.
+- Static staging preserves UCI, profiles and issued-address state. The
+  helper is additive; the launcher is published with the common files.
+- Configuration review detects potential address, namespace and port
+  conflicts, and does not disclose private observations or change state.
+- VM and fixture evidence is distinct from physical Flint acceptance.
+
 ## Must exist
 
 - Makefile
@@ -669,6 +701,39 @@ Native package/update acceptance, 2026-11-08:
 
 VM and local measured results: [local release workflow](LOCAL-RELEASE-WORKFLOW.md).
 These packaging checks do not certify QUIC, video stability or a new physical Apply.
+
+Native portability stages 6-8, local/no-NIC VM:
+
+- [x] Readiness does not create runtime state and refuses the real VM platform
+  identity. LuCI shows the reason and does not offer an unvalidated migration.
+- [x] Invalid deadline, occupied DNS port and concurrent Legacy Apply refuse
+  migration without changing Legacy UCI, nftables or RPDB.
+- [x] Candidate validation leaves the working Legacy settings in place.
+  Starting the transition and confirming it are separate actions.
+- [x] Confirmed migration retires the owned Legacy nft table and IPv4/IPv6
+  policy routes, preserves unrelated nft/RPDB objects, and answers UDP/TCP DNS.
+- [x] Aborting the first active trial leaves protected Native DNS/routing
+  recovery, not unrestricted Legacy forwarding. Its token cannot be confirmed.
+- [x] VM protected traffic passes dual-stack HTTPS/UDP/QUIC over virtual
+  transports, fails closed when both transports are down, and has zero
+  matching packets on the virtual WAN. Explicit Direct remains usable.
+- [x] An injected nft transaction error restored the last confirmed Native
+  generation on a separate run with a sufficient VM wait budget.
+- [x] Expiry of a real 60-second confirmation window restored the previous
+  confirmed generation and its DNS answer. The expired token was rejected.
+- [ ] The mixed AWG/VLESS VM case is not a PASS: IPv4 HTTPS through VLESS
+  succeeded, but IPv6 HTTPS exceeded the fixture's three-second deadline.
+  The cause and the remaining mixed-case assertions are not established.
+- [x] Updates select only the exact board asset. No matching Flint release
+  disables the install button; AX6000 and source archives are not fallbacks.
+- [x] Verified package statically installed on Flint 2. The later authorized
+  Native migration was confirmed only after primary AWG and IPv4 LAN checks.
+  UDP/TCP DNS, protected YouTube HTTPS, ordinary example.com HTTPS, active
+  validation and synthetic guard passed. User rules and profiles were kept.
+- [ ] Flint VLESS backup, forced failover, IPv6 forwarding, physical QUIC,
+  reboot and long-duration stability remain unverified.
+
+See the [matrix and its scope](NATIVE-PORTABILITY.md#matrix).
 
 Operational observation, 2026-11-07:
 

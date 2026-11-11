@@ -1228,6 +1228,66 @@ msgstr "Приватные ключи хранятся только на роу�
 msgid "Cancel"
 msgstr "Отмена"
 
+msgid "Check Native readiness"
+msgstr "Проверить готовность к Native"
+
+msgid "Validate migration"
+msgstr "Проверить настройки миграции"
+
+msgid "Migrate to Native"
+msgstr "Перейти на Native"
+
+msgid "Legacy to Native migration"
+msgstr "Переход с Legacy на Native"
+
+msgid "Migration requires Legacy without an existing Native generation."
+msgstr "Для миграции нужен Legacy без существующей конфигурации Native."
+
+msgid "Migration requires transactional recovery."
+msgstr "Для миграции требуется транзакционное восстановление."
+
+msgid "Save a Native synthetic pool first."
+msgstr "Сначала сохраните синтетический пул Native."
+
+msgid "This board or firmware is not supported by the Native candidate."
+msgstr "Эта модель или прошивка не поддерживается сборкой Native."
+
+msgid "Native platform requirements are not met."
+msgstr "Не выполнены требования Native к платформе."
+
+msgid "Platform checks passed. Validate the saved configuration next."
+msgstr "Платформа прошла проверку. Теперь проверьте сохранённую конфигурацию."
+
+msgid "Native readiness check unavailable."
+msgstr "Проверка готовности к Native недоступна."
+
+msgid "Saved migration configuration validated."
+msgstr "Сохранённая конфигурация прошла проверку."
+
+msgid "Migration validation failed. Check the saved LAN, profiles, pools and port reservations."
+msgstr "Проверка не прошла. Проверьте сохранённые настройки LAN, профили, пулы и занятые порты."
+
+msgid "Apply the saved settings to the LAN and enable Native routing? Verify DNS and internet access, then confirm on Status."
+msgstr "Применить сохранённые настройки к LAN и включить Native? Проверьте DNS и доступ в интернет, затем подтвердите на странице «Статус»."
+
+msgid "Migration did not return an Apply token. Check Status before retrying."
+msgstr "Миграция не вернула идентификатор применения. Проверьте страницу «Статус» перед повторной попыткой."
+
+msgid "Router target"
+msgstr "Целевая модель роутера"
+
+msgid "Expected package"
+msgstr "Ожидаемый пакет"
+
+msgid "Update availability"
+msgstr "Доступность обновления"
+
+msgid "Compatible release found"
+msgstr "Найдена совместимая версия"
+
+msgid "No compatible Native release is published for this target."
+msgstr "Для этой модели не опубликована совместимая версия Native."
+
 msgid "AWG connection saved."
 msgstr "Подключение AWG сохранено."
 

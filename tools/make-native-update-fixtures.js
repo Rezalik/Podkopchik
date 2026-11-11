@@ -46,3 +46,7 @@ function release(tag, date, changes = {}) {
 const old = release('native-rc-old','2026-11-01'), latest = release('native-rc-new','2026-11-08');
 fs.writeFileSync(path.join(out,'releases.json'),JSON.stringify([old,release('native-rc-draft','2026-11-09',{draft:true}),latest,release('v9','2026-11-10',{prerelease:false})]));
 fs.writeFileSync(path.join(out,'bad-releases.json'),JSON.stringify([release('native-rc-bad','2026-11-09',{assets:[{...latest.assets[0],digest:null}]})]));
+const flint='podkopchik-native-flint2-candidate.tar.gz', flintTag='native-rc-flint-lab';
+fs.writeFileSync(path.join(out,'releases-flint2.json'),JSON.stringify([latest,
+	release(flintTag,'2026-11-07',{assets:[{...latest.assets[0],name:flint,
+		browser_download_url:`https://github.com/${repo}/releases/download/${flintTag}/${flint}`}]})]));

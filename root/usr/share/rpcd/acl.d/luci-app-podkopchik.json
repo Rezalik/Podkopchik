@@ -7,6 +7,7 @@
 			"file": {
 				"/usr/bin/podkopchikctl status": [ "exec" ],
 				"/usr/bin/podkopchikctl native-status": [ "exec" ],
+				"/usr/bin/podkopchikctl native-migration-readiness": [ "exec" ],
 				"/usr/bin/podkopchikctl update-check": [ "exec" ],
 				"/usr/bin/podkopchikctl update-status": [ "exec" ],
 				"/usr/bin/podkopchikctl xray-status": [ "exec" ],
@@ -26,6 +27,8 @@
 			"file": {
 				"/usr/bin/podkopchikctl apply": [ "exec" ],
 				"/usr/bin/podkopchikctl native-confirm *": [ "exec" ],
+				"/usr/bin/podkopchikctl native-migrate-check": [ "exec" ],
+				"/usr/bin/podkopchikctl native-migrate": [ "exec" ],
 				"/usr/bin/podkopchikctl native-abort *": [ "exec" ],
 				"/usr/bin/podkopchikctl health": [ "exec" ],
 				"/usr/bin/podkopchikctl restart": [ "exec" ],

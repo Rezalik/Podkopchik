@@ -989,6 +989,9 @@ cmd_rollback() {
 case "${1:-}" in
 	status) cmd_status ;;
 	native-status) native_runtime status ;;
+	native-migration-readiness) [ "$#" = 1 ] || die 'usage: native-migration-readiness'; native_runtime migration-readiness ;;
+	native-migrate-check) [ "$#" = 1 ] || die 'usage: native-migrate-check'; native_runtime migrate-check ;;
+	native-migrate) [ "$#" = 1 ] || die 'usage: native-migrate'; native_runtime migrate ;;
 	native-emergency)
 		shift
 		emergency="${PKC_EMERGENCY_VM_ROOT:-/etc/podkopchik-native-emergency}/recovery.uc"

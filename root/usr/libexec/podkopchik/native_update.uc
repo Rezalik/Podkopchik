@@ -77,29 +77,34 @@ function install(base) {
 	f = open(root + '/.lock', 'a+', 0o600);
 	if (!f || !f.lock('x')) fail('cannot lock Native runtime');
 	let state = json(readfile(root + '/runtime.json'));
-	if (state.pending || state.repair || state.phase != 'active') fail('Native is not confirmed and active');
+	if (state.pending || state.repair || state.phase!='active'||state.engine!='native'||
+		!match(state.current || '',/^[a-f0-9]{32}$/)||state.confirmed!==state.current) fail('Native is not confirmed and active');
 	let rc = system(['sh', base + '/tools/install-native-rc-files.sh', base]);
 	f.close();
 	if (rc != 0) fail('static installer failed; confirmed generation retained');
 }
-function release(file, repo) {
+function release(file, repo, target_id, allow_empty) {
 	if (!match(repo, /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)) fail('invalid repository');
+	if (index(['ax6000','flint2'],target_id)<0) fail('invalid release target');
+	let asset_name='podkopchik-native-'+target_id+'-candidate.tar.gz';
 	let releases = json(readfile(file)), best;
 	if (type(releases) != 'array') fail('invalid GitHub release response');
 	for (let r in releases) {
 		if (r.draft || !r.prerelease || !match(r.tag_name || '', /^native-rc-[A-Za-z0-9_.-]+$/)) continue;
 		let asset;
-		for (let a in r.assets || []) if (a.name == 'podkopchik-native-ax6000-candidate.tar.gz') asset = a;
+		for (let a in r.assets || []) if (a.name == asset_name) { if(asset) fail('duplicate target asset'); asset = a; }
 		if (!asset || asset.size <= 0 || asset.size > 12582912 || !match(asset.digest || '', /^sha256:[a-f0-9]{64}$/)) continue;
 		let url = 'https://github.com/' + repo + '/releases/download/' + r.tag_name + '/' + asset.name;
 		if (asset.browser_download_url != url) continue;
 		if (!best || r.published_at > best.date) best = {tag:r.tag_name, date:r.published_at, url, digest:substr(asset.digest, 7)};
 	}
-	if (!best) fail('no verified Native RC release asset; source archives cannot update Native');
-	printf('channel=native-rc\nrepo=%s\nlatest=%s\narchive_url=%s\nsha256=%s\nactivation=explicit-ordinary-apply\n', repo, best.tag, best.url, best.digest);
+	if (!best && !allow_empty) fail('no verified Native RC release asset; source archives cannot update Native');
+	printf('channel=native-rc\nrepo=%s\ntarget=%s\nasset=%s\n', repo, target_id, asset_name);
+	if (!best) print('availability=no_compatible_release\n');
+	else printf('availability=available\nlatest=%s\narchive_url=%s\nsha256=%s\nactivation=explicit-ordinary-apply\n', best.tag, best.url, best.digest);
 }
 
 if (ARGV[0] == 'archive') archive(ARGV[1]);
-else if (ARGV[0] == 'release') release(ARGV[1], ARGV[2]);
+else if (ARGV[0] == 'release') release(ARGV[1], ARGV[2], ARGV[3] || 'ax6000', ARGV[4]=='check');
 else if (ARGV[0] == 'install') install(ARGV[1]);
 else fail('invalid action');

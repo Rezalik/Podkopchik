@@ -38,6 +38,7 @@ cp "$base/tools/native-classification-vm-test.sh" "$base/tools/native-classifica
 cp "$base/tools/native-policy-uci-vm-test.sh" "$payload/"
 cp "$base/tools/native-vm-binaries.sh" "$payload/"
 cp "$base/tools/native-permanent-vm-test.sh" "$base/tools/native-permanent-vm-awg.uc" "$payload/"
+cp "$base/tools/native-migration-vm-test.sh" "$base/tools/native-portability-matrix-vm-test.sh" "$base/tools/native-portability-vm-test.sh" "$payload/"
 cp "$base/tools/native-permanent-vm-boot.sh" "$base/tools/native-permanent-vm-resume.sh" "$payload/"
 cp "$base/tools/native-permanent-vm-vless.sh" "$payload/"
 cp "$base/tools/native-permanent-vm-nft-failure.sh" "$payload/"

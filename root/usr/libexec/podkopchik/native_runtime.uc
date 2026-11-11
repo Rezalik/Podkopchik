@@ -82,6 +82,11 @@ function spawn(name,command){let old=instance(name);if(old){
 	// Match procd.sh: legacy respawn is an array of decimal strings, not ints.
 	run(['ubus','call','service','set',sprintf('%J',{name,instances:{main:{command,respawn:['3600','1','0'],limits:{nofile:name=='podkopchik-native-xray'?'16384 16384':'4096 4096'},stdout:true,stderr:true}}})]);}
 function exists_table(name){for(let v in jrun(['nft','-j','list','tables']).nftables || [])if(v.table?.family=='inet'&&v.table.name==name)return v.table;return null;}
+function legacy_table(){
+	let t=exists_table('podkopchik');
+	if(t&&trim(read(TMP+'/routing.env',true) || '')!='podkopchik-routing-v1')fail('unowned legacy table');
+	return t;
+}
 function owned_tables(p){let lines=[];for(let item in [['podkopchik_native','podkopchik-native-'],['podkopchik_native_gate','podkopchik-native-dns-']]){
 	let t=exists_table(item[0]);if(t){let epochs=map(data(ROOT+'/namespaces.json',true) || [],n=>n.epoch);push(epochs,p.epoch);
 		if(index(map(epochs,x=>item[1]+x),t.comment)<0)fail('foreign native table');push(lines,'delete table inet '+item[0]);}}
@@ -228,7 +233,7 @@ function preflight(g,p){
 	if(!p.dns.protected_upstream)fail('unprotected Native DNS upstream refused');
 	let prior=meta(),lines=[];if(prior.current)lines=owned_tables(data(generation(prior.current)+'/plan.json'));
 	else if(exists_table('podkopchik_native')||exists_table('podkopchik_native_gate'))fail('unowned native tables');
-	let legacy=exists_table('podkopchik');if(legacy){if(trim(read(TMP+'/routing.env',true) || '')!='podkopchik-routing-v1')fail('unowned legacy table');push(lines,'delete table inet podkopchik');}
+	if(legacy_table())push(lines,'delete table inet podkopchik');
 	lines=[...lines,...fw4_delete(),p.nft.routing,p.nft.protection,p.nft.dns_redirect,...fw4_rules(p)];
 	atomic(g+'/activate.nft',join('\n',lines)+'\n');nft(read(g+'/activate.nft'),true);
 	let space=net(['df','-Pk','/overlay'],null,true) || net(['df','-Pk',CONF]);let rows=split(trim(space),'\n'),cols=split(replace(rows[length(rows)-1],/[ \t]+/g,' '),' ');
@@ -336,9 +341,39 @@ function kill_legacy(){let s=service('podkopchik')?.podkopchik?.instances || {};
 		if(name=='xray' && (index(cmd,'-config')<0 || index(cmd,CONF+'/config.json')<0))fail('foreign main Xray instance');
 		if(name=='health' && index(join(' ',cmd),'health_check.sh')<0)fail('foreign main health instance');
 		run(['ubus','call','service','delete',sprintf('%J',{name:'podkopchik',instance:name})]);}}
+function migration_legacy_policy(remove){
+	if(exists_table('podkopchik_guard'))fail('Legacy recovery guard is active');
+	let owned=[];
+	for(let family in ['-4','-6']){
+		let state=TMP+(family=='-4'?'/routing.env':'/routing6.env');
+		let marker=family=='-4'?'podkopchik-routing-v1':'podkopchik-routing6-v1';
+		if(trim(read(state,true) || '')!=marker)continue;
+		let rules=filter(jrun(['ip',family,'-j','rule','show']),r=>+r.priority==10991||+r.table==10991);
+		let routes=filter(jrun(['ip',family,'-j','route','show','table','all']),r=>+r.table==10991);
+		if(length(rules)>1||length(routes)>1)fail('Legacy policy reservation changed');
+		for(let r in rules)
+			if(+r.priority!=10991||+r.table!=10991||r.fwmark!='0x100000'||r.src!='all'||
+				length(filter(keys(r),k=>index(['priority','table','fwmark','src'],k)<0)))fail('Legacy policy rule changed');
+		for(let r in routes)
+			if(+r.type!=2||r.dst!='default'||r.dev!='lo'||length(r.flags || [])||
+				(family=='-4'?(+r.scope!=254||+(r.metric ?? 0)!=0):(r.scope!=null||+r.metric!=1024||r.pref!='medium'))||
+				length(filter(keys(r),k=>index(['type','dst','dev','table','scope','flags','metric','pref','protocol'],k)<0))||
+				(r.protocol!=null&&+r.protocol!=3))fail('Legacy policy route changed');
+		push(owned,{family,state,rules,routes});
+	}
+	if(remove)for(let row in owned){
+		if(length(row.rules))net(['ip',row.family,'rule','del','fwmark','0x100000','table','10991','priority','10991']);
+		if(length(row.routes)){
+			let route=row.routes[0];
+			net(['ip',row.family,'route','del','local','default','dev','lo','table','10991',
+				...(route.metric==null?[]:['metric',''+route.metric])]);
+		}
+		fs.unlink(row.state);
+	}
+}
 function capture_legacy(){if(fs.lstat(ROOT+'/legacy/snapshot.json'))return;
 	private_dir(ROOT+'/legacy');let g=ROOT+'/legacy',s=settings();
-	if(exists_table('podkopchik')){copy(CONF+'/config.json',g+'/config.json');atomic(g+'/rules.nft',net(['nft','-s','list','table','inet','podkopchik']));}
+	if(legacy_table()){copy(CONF+'/config.json',g+'/config.json');atomic(g+'/rules.nft',net(['nft','-s','list','table','inet','podkopchik']));}
 	else{save(g+'/snapshot.json',{lan:s.lan_ifname || 'br-lan',active:false});return;}
 	let state=read(TMP+'/state.json',true);if(state)atomic(g+'/state.json',state);
 	let bin=trim(run(['sh','-c','. "$1/xray.sh"; xray_bin','xray',LIB]));
@@ -375,8 +410,9 @@ function activate_impl(g){verify(g);let saved=data(g+'/plan.json'),m=meta();tran
 	// DNS policy is health-independent. Profile/layout edits require Apply.
 	stop('podkopchik-native-dns');stop('podkopchik-native-xray');kill_legacy();
 	policy_routes(p,false);includes(p,true);
-	let lines=owned_tables(saved);if(exists_table('podkopchik'))push(lines,'delete table inet podkopchik');
+	let lines=owned_tables(saved);if(legacy_table())push(lines,'delete table inet podkopchik');
 	lines=[...lines,...fw4_delete(),p.nft.routing,p.nft.protection,p.nft.dns_redirect,...fw4_rules(p)];nft(join('\n',lines)+'\n');
+	if(m.legacy_intent)migration_legacy_policy(true);
 	xray_service(g,p);publish_dns_transport(p);dns_service(g,p);
 	let ready=false;for(let i=0;i<60;i++){
 		if(meta().pending && journal('poll',g)=='rollback')fail('confirmation deadline expired during startup');
@@ -414,8 +450,9 @@ function recover_kernel(g){
 	stop('podkopchik-native-health');stop('podkopchik-native-dns');stop('podkopchik-native-xray');kill_legacy();
 	for(let pool in p.dns.pools)net(['sh',LIB+'/fakedns_guard.sh','register-native',pool],{...state_env(),PODKOPCHIK_UCI_CONFIG_DIR:g+'/uci'});
 	start_transports(g);policy_routes(p,false);includes(p,true);
-	let lines=[...owned_tables(p),...fw4_delete()];if(exists_table('podkopchik'))push(lines,'delete table inet podkopchik');
+	let lines=[...owned_tables(p),...fw4_delete()];if(legacy_table())push(lines,'delete table inet podkopchik');
 	lines=[...lines,p.nft.routing,p.nft.protection,p.nft.dns_redirect,...fw4_rules(p)];nft(join('\n',lines)+'\n');
+	if(m.legacy_intent)migration_legacy_policy(true);
 	xray_service(g,p);publish_dns_transport(p);recovery_dns_service(p);
 	let ready=false;for(let i=0;i<15;i++){if(net([DNS,'-probe',p.dns.listen,'-probe-native'],null,true)!=null){ready=true;break;}system(['sleep','1']);}
 	if(!ready)fail('protected recovery DNS listener unavailable');
@@ -423,7 +460,25 @@ function recover_kernel(g){
 	m.current=substr(g,length(ROOT+'/g-'));m.engine='native';m.phase='recovery';if(!m.repair)m.pending=null;save(META,m);
 	health_service(g);transition([p.lan],false);clear_missing_guard();
 }
+function restore_legacy_intent(before){
+	let c=ctx();
+	for(let k in ['enabled','routing_enabled','routing_engine'])
+		if(c.get('podkopchik','main',k)!=(k=='routing_engine'?'native':'1'))return false;
+	for(let k in ['enabled','routing_enabled','routing_engine']){
+		if(before[k]==null)c.delete('podkopchik','main',k);
+		else c.set('podkopchik','main',k,before[k]);
+	}
+	return !!c.commit('podkopchik');
+}
 function rollback(m){
+	if(m.legacy_intent&&m.phase=='prepared'&&m.boot==boot&&
+		!exists_table('podkopchik_native_transition')&&!exists_table('podkopchik_native_uninitialized')&&
+		restore_legacy_intent(m.legacy_intent)){
+		journal('restored',generation(m.current));
+		save(META,{schema:1,engine:'legacy',phase:'inactive',current:null,confirmed:null,pending:null});
+		stop('podkopchik-native-watch');
+		return;
+	}
 	let p=data(generation(m.current)+'/plan.json');transition([p.lan],true);
 	stop('podkopchik-native-health');
 	let failed=m.pending;
@@ -458,14 +513,57 @@ function persist_candidate(src,id){let dst=generation(id);private_dir(dst);
 	for(let n in ['spec.json','plan.json','dns.json','xray.json','code.json','files.sha256'])copy(src+'/'+n,dst+'/'+n);
 	verify(dst);discard_candidate(src);return dst;
 }
-function prepare(checkonly,output){let s=settings(),prior=meta(),superseded=null;
+function migration_readiness(s,prior,vm){
+	let issues=[], checks=[], target=null;
+	if((s.routing_engine ?? 'legacy')!='legacy'||prior.current||prior.pending)push(issues,'not_legacy');
+	if(s.native_recovery_policy && s.native_recovery_policy!='transactional')push(issues,'transactional_required');
+	if(!s.native_pool_v4&&!s.native_pool_v6)push(issues,'pool_required');
+	if(!helper_available())push(issues,'helper_required');
+	if(!vm){
+		let probe=require('native_platform_probe'), pkg=require('native_package');
+		try{target=pkg.device_target(json(fs.readfile(LIB+'/native-targets.json',16384)),probe.identity());}
+		catch(e){push(issues,'platform_not_supported');}
+		if(target&&index(issues,'helper_required')<0){
+			let c=ctx(),awg_requested=false;
+			c.foreach('podkopchik','proxy',p=>{if(p.enabled!='0'&&p.protocol=='amneziawg')awg_requested=true;});
+			let report=require('native_platform').assess(probe.probe(DNS).collect(awg_requested));
+			checks=map(filter(report.checks,c=>c.status!='pass'),c=>({id:c.id,status:c.status}));
+			if(length(checks))push(issues,'platform_requirements');
+		}
+	}
+	return {ready:!length(issues),target,issues,checks};
+}
+function migration_ports(p){
+	let dns=+(match(p.dns.listen,/:([0-9]+)$/)?.[1] || 0);
+	if(!dns)fail('invalid Native DNS listener');
+	let tcp=[dns,...map(p.xray.inbounds || [],i=>i.port)];
+	for(let kind in ['tcp','tcp6','udp','udp6']){
+		let is_tcp=index(kind,'tcp')==0;
+		let raw=net(['head','-c','262145','/proc/net/'+kind]);
+		let ports=length(raw)>262144?null:require('native_inventory').sockets(raw,is_tcp);
+		if(ports==null)fail('Native listener occupancy is unknown');
+		for(let port in (is_tcp?tcp:[dns]))if(index(ports,port)>=0)fail('Native listener port is already in use: '+port);
+	}
+}
+function prepare(checkonly,output,migrate){let original=migrate?read(UCI_DIR+'/podkopchik'):null,s=settings(),prior=meta(),superseded=null;
+	if(migrate){
+		let readiness=migration_readiness(s,prior,!!NS);
+		if(!readiness.ready)fail('Legacy migration refused: '+join(', ',readiness.issues)+
+			(length(readiness.checks)?' ('+join(', ',map(readiness.checks,c=>c.id))+')':''));
+	}
 	if(prior.pending){if(prior.repair && index(['repair','recovery'],prior.phase)>=0 && !checkonly){superseded=prior.pending;prior.pending=null;}else fail('confirm or abort the pending Apply first');}
 	let repair=s.native_recovery_policy=='repair';if(s.native_recovery_policy && index(['transactional','repair'],s.native_recovery_policy)<0)fail('invalid Native recovery policy');
+	let deadline=s.native_confirm_seconds || '300',seconds=+deadline;
+	if(!repair&&(!match(deadline,/^[0-9]{2,3}$/)||seconds<60||seconds>900))fail('invalid confirmation deadline');
 	if(repair){emergency('verify');let e=json(emergency('status'));if(!e.valid||!e.running||index(['armed','accepted'],e.mode)<0)fail('arm the verified independent emergency management watchdog before repair-mode Apply');}
 	if(!helper_available())fail('install the Native DNS schema 3 protected-upstream component for this router architecture first');
 	let id=nonce(),g=TMP+'/native-candidate-'+id;candidate_path=g;private_dir(g);private_dir(g+'/uci');copy(UCI_DIR+'/podkopchik',g+'/uci/podkopchik');snapshot_profiles(g);
 	if(fs.lstat(UCI_DIR+'/firewall'))copy_code(UCI_DIR+'/firewall',g+'/uci/firewall');
-	let staged=ctx(g+'/uci');staged.set('podkopchik','main','enabled','1');staged.set('podkopchik','main','routing_enabled','1');if(!staged.commit('podkopchik'))fail('cannot persist candidate intent');
+	let intent={enabled:'1',routing_enabled:'1'};
+	if(migrate)intent.routing_engine='native';
+	let before={};
+	let staged=ctx(g+'/uci');for(let key,value in intent){before[key]=s[key] ?? null;staged.set('podkopchik','main',key,value);}
+	if(!staged.commit('podkopchik'))fail('cannot persist candidate intent');
 	let pools=[];for(let raw in [s.native_pool_v4,s.native_pool_v6])if(raw)push(pools,guard.canonical(raw));
 	if(!length(pools))fail('configure and admit a separate native synthetic pool');
 	let namespaces=data(ROOT+'/namespaces.json',true) || [];let identity=join('|',pools),pool=null;
@@ -483,6 +581,11 @@ function prepare(checkonly,output){let s=settings(),prior=meta(),superseded=null
 	let spec=inventory(g,pool,old);save(g+'/spec.json',spec);
 	let p=compile(g);save(g+'/plan.json',p);save(g+'/dns.json',p.dns);save(g+'/xray.json',p.xray);manifest(g);let budget=preflight(g,p);
 	policy_routes(p,false,true);
+	if(migrate){
+		migration_legacy_policy(false);
+		migration_ports(p);
+		if(read(UCI_DIR+'/podkopchik')!=original)fail('saved configuration changed during migration validation');
+	}
 	if(checkonly){if(output)save(output,p);discard_candidate(g);candidate_path=null;return {valid:true,engine:'native',requires_xray:p.requires_xray,lan:p.lan,output,resources:budget};}
 	let code=freeze();save(g+'/code.json',{path:code});manifest(g);
 	g=persist_candidate(g,id);candidate_path=null;
@@ -491,13 +594,20 @@ function prepare(checkonly,output){let s=settings(),prior=meta(),superseded=null
 	if(!fs.lstat(ledger)){if(existing_pool)fail('refusing to reset a previously admitted DNS allocator');net([DNS,'-config',g+'/dns.json','-ledger',ledger,'-init-ledger']);}
 	else if(!instance('podkopchik-native-dns')?.running)net([DNS,'-config',g+'/dns.json','-ledger',ledger,'-check']);
 	if(!prior.current || prior.engine=='legacy')capture_legacy();save(ROOT+'/namespaces.json',namespaces);save(ROOT+'/resources.json',{pins:spec.pins,vless_slots:spec.vless_slots});
-	let seconds=+(s.native_confirm_seconds || '300');if(seconds<60||seconds>900)fail('invalid confirmation deadline');
 	journal(repair?'arm-repair':'arm',g,repair?120:seconds);
-	let m={...prior,previous:prior.current,current:id,pending:id,phase:'prepared',engine:prior.engine || 'legacy',boot,code,repair};save(META,m);
+	let m={...prior,previous:prior.current,current:id,pending:id,phase:'prepared',engine:prior.engine || 'legacy',boot,code,repair,
+		legacy_intent:migrate?before:null};save(META,m);
 	if(superseded)journal('cancel',generation(superseded));
-	let c=ctx();c.set('podkopchik','main','enabled','1');c.set('podkopchik','main','routing_enabled','1');
-	try{if(!c.commit('podkopchik'))fail('cannot record explicit Apply intent');watch_service();}
-	catch(e){save(META,prior);journal('abort',g);journal('restored',g);fail('could not persist Apply intent or arm independent supervisor; previous runtime retained');}
+	let c=ctx(),committed=false;
+	try{
+		if(migrate&&read(UCI_DIR+'/podkopchik')!=original)fail('saved configuration changed during migration preparation');
+		for(let key,value in intent)c.set('podkopchik','main',key,value);
+		if(!c.commit('podkopchik'))fail('cannot record explicit Apply intent');committed=true;
+		watch_service();
+	}catch(e){
+		if(committed&&migrate&&!restore_legacy_intent(before))fail('cannot restore saved Legacy intent; guarded recovery is required');
+		save(META,prior);journal('abort',g);journal('restored',g);fail('could not record Apply intent or start the Native supervisor; previous runtime retained');
+	}
 	return {pending:id,timeout:repair?120:seconds,engine:'native',confirmation_required:true,recovery_policy:repair?'repair':'transactional'};
 }
 function select_state(path){let m=meta();if(m.engine!='native'||index(['active','recovery'],m.phase)<0)return;
@@ -531,7 +641,24 @@ function tick(){let m=meta();if(!m.current)return false;let g=generation(m.curre
 		if(state=='confirmed'){m.confirmed=m.current;m.pending=null;save(META,m);}
 	}
 	if(m.phase=='rollback'){rollback(m);return true;}
-	if(m.phase=='prepared'||m.phase=='activating'){try{activate(g);}catch(e){atomic(TMP+'/native-error',substr(sprintf('%J',e)+'\n'+(fs.readfile(TMP+'/native-last-command.json') || '')+'\n'+(fs.readfile(TMP+'/native-command.err') || ''),0,4096));m=meta();m.phase=m.repair?'repair':'rollback';if(m.repair)m.engine='native';save(META,m);if(!m.repair)rollback(m);}return true;}
+	if(m.phase=='prepared'||m.phase=='activating'){
+		try{
+			if(m.phase=='prepared'&&m.legacy_intent){
+				legacy_table();
+				migration_legacy_policy(false);
+				migration_ports(data(g+'/plan.json'));
+				m.phase='activating';save(META,m);
+			}
+			activate(g);
+		}catch(e){
+			atomic(TMP+'/native-error',substr(sprintf('%J',e)+'\n'+(fs.readfile(TMP+'/native-last-command.json') || '')+'\n'+(fs.readfile(TMP+'/native-command.err') || ''),0,4096));
+			m=meta();
+			if(m.phase=='prepared'&&m.legacy_intent)journal('abort',g);
+			else{m.phase=m.repair?'repair':'rollback';if(m.repair)m.engine='native';save(META,m);}
+			if(!m.repair)rollback(m);
+		}
+		return true;
+	}
 	if(m.phase=='repair')return true;
 	if(m.engine=='native'&&m.phase=='recovery'){
 		let p=data(RUNTIME);if(!exists_table('podkopchik_native')||!exists_table('podkopchik_native_gate'))recover_kernel(g);
@@ -558,6 +685,10 @@ function tick(){let m=meta();if(!m.current)return false;let g=generation(m.curre
 
 const action=ARGV[0];
 if(NS && trim(fs.readfile('/sys/class/dmi/id/sys_vendor') || '')!='QEMU' && replace(fs.readfile('/proc/device-tree/model') || '','\x00','')!='linux,dummy-virt')fail('VM override is forbidden on hardware');
+if(action=='migration-readiness'){
+	printf('%J\n',migration_readiness(settings(),meta(),false));
+	return;
+}
 if(action=='status'&&!fs.lstat(ROOT)){let selected=settings().routing_engine=='native';printf('%J\n',{engine:selected?'native':'legacy',phase:selected?'uninitialized':'inactive',pending:null,ready:false,available:helper_available()});return;}
 if(!fs.lstat(CONF))fs.mkdir(CONF,0o700);if(!fs.lstat(TMP))fs.mkdir(TMP,0o700);
 for(let path in [CONF,TMP]){let s=fs.lstat(path);if(s?.type!='directory'||s.uid!=0||(s.mode&0o022))fail('unsafe coordinator parent directory');}
@@ -565,12 +696,21 @@ private_dir(ROOT);
 function locked(fn){let f=fs.open(ROOT+'/.lock','a+',0o600);if(!f||!f.lock('x'))fail('cannot lock runtime');try{let v=fn();f.close();return v;}catch(e){
 	if(candidate_path){try{discard_candidate(candidate_path);}catch(cleanup_error){}}
 	f.close();die(e.message);}}
+function locked_migration(checkonly){return locked(()=>{
+	// Share the Legacy Apply lock until Native has recorded the pending intent.
+	let path=TMP+'/config-apply.lock';
+	if(!fs.mkdir(path,0o700))fail('another config apply is in progress');
+	try{let result=prepare(checkonly,null,true);fs.rmdir(path);return result;}
+	catch(e){fs.rmdir(path);die(e.message);}
+});}
 if(action=='management-heartbeat'){
 	let m=meta();if(!m.repair||!m.pending||ARGV[1]!=m.pending)fail('repair management token changed');
 	let e=json(emergency('status'));emergency('heartbeat',e.token);journal('repair-renew',generation(m.pending),120);print('Management lease renewed.\n');
 }else if(action=='watch'){
 	for(;;){let keep=locked(tick);if(!keep)return;system(['sleep','2']);}
 }else if(action=='apply')printf('%J\n',locked(()=>prepare(false)));
+else if(action=='migrate')printf('%J\n',locked_migration(false));
+else if(action=='migrate-check')printf('%J\n',locked_migration(true));
 else if(action=='validate')printf('%J\n',locked(()=>prepare(true)));
 else if(action=='generate')printf('%J\n',locked(()=>prepare(true,ARGV[1] || CONF+'/native.generated.json')));
 else if(action=='validate-active')locked(()=>{let m=meta();if(!m.current||m.phase=='disabled')fail('no active native generation');let g=generation(m.current);verify(g);readmit(g);let p=data(RUNTIME,true) || data(g+'/plan.json');preflight(g,p);policy_routes(p,false,true);print('Native active generation is valid.\n');});
@@ -595,7 +735,7 @@ else if(action=='confirm')locked(()=>{let m=meta();if(!m.pending||ARGV[1]!=m.pen
 	if(!healthy(g,p))fail('native listeners or owned firewall permits are not ready for confirmation');
 	if(p.classification.unknown=='protected'&&p.automatic.active=='blocked')fail('protected transport is unavailable for confirmation');
 	net([DNS,'-protected-probe',DNS_STATE,'-probe-name','www.youtube.com']);
-	journal('confirm',g);m.confirmed=m.current;m.pending=null;save(META,m);prune();print('Native Apply confirmed.\n');});
+	journal('confirm',g);m.confirmed=m.current;m.pending=null;m.legacy_intent=null;save(META,m);prune();print('Native Apply confirmed.\n');});
 else if(action=='abort')locked(()=>{let m=meta();if(!m.pending||m.pending!=ARGV[1])fail('Apply token changed');if(m.repair)emergency('request');else journal('abort',generation(m.pending));});
 else if(action=='stop')locked(()=>{let m=meta();if(m.engine!='native')return;let p=data(generation(m.current)+'/plan.json');transition([p.lan],true);stop('podkopchik-native-health');stop('podkopchik-native-dns');stop('podkopchik-native-xray');
 	// A service stop is not permission to send LAN DNS through the ISP.

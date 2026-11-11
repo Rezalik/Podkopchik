@@ -18,10 +18,11 @@ const source = fs.readFileSync('root/www/luci-static/resources/view/podkopchik/a
 const settings = {routing_engine:'legacy'};
 const routing = require('./lib/luci-routing')();
 const page = new Function('view', 'form', 'fs', 'ui', 'uci', '_', 'E', 'routing', source)(
-	{ extend: x => x }, form, {}, { createHandlerFn: () => () => {} }, {get:(_c,_s,k)=>settings[k]}, x => x, () => ({}), routing);
+	{ extend: x => x }, form, {}, { createHandlerFn: () => () => {} }, {get:(_c,_s,k)=>settings[k]}, x => x,
+	() => ({addEventListener() {}}), routing);
 (async () => {
 	await page.render([null,{available:true}]);
-	assert(options.get('routing_engine').values.some(row=>row[0]==='native'));
+	assert(!options.get('routing_engine').values.some(row=>row[0]==='native'), 'Legacy switches only through explicit migration');
 	assert.strictEqual(options.get('routing_engine').default,'legacy');
 	assert(options.get('routing_engine').description.includes('rollback deadline'));
 	assert.strictEqual(options.get('native_pool_v4').retain, true);
@@ -31,9 +32,9 @@ const page = new Function('view', 'form', 'fs', 'ui', 'uci', '_', 'E', 'routing'
 	assert.strictEqual(mode.default, 'compatible');
 	assert(mode.description.includes('only enabled rules and presets'));
 	assert.strictEqual(mode.retain, true);
-	assert.deepStrictEqual(mode.dependencies, [['routing_engine', 'native']]);
+	assert.deepStrictEqual(mode.dependencies, [], 'prepare the saved Native policy while Legacy is still selected');
 	const warning = options.get('_native_compatible_warning');
-	assert.deepStrictEqual(warning.dependencies, [[{routing_engine:'native',native_classification_mode:'compatible',native_migration_restrict_unknown:'0'}, undefined]]);
+	assert.deepStrictEqual(warning.dependencies, [[{native_classification_mode:'compatible',native_migration_restrict_unknown:'0'}, undefined]]);
 	assert(warning.cfgvalue().includes('Cached real IPs'));
 	assert.strictEqual(options.get('native_migration_restrict_unknown').default, '0');
 	assert.strictEqual(options.get('native_direct_grants_confirmed').default, '0');

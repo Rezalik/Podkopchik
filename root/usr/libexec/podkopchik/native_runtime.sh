@@ -5,7 +5,7 @@ LIB="${PODKOPCHIK_LIB:-/usr/libexec/podkopchik}"
 # Boot, recovery and health use the immutable coordinator of the installed
 # generation, not files that a package update may be replacing.
 case "${1:-}" in
- apply|validate|generate) ;;
+ apply|validate|generate|migration-readiness|migrate-check|migrate) ;;
  *)
 	CONF="${PODKOPCHIK_CONFIG_DIR:-/etc/podkopchik}"
 	if [ -f "$CONF/native-state/runtime.json" ]; then

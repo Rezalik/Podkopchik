@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "os": {
+    "id": "OpenWrt",
+    "release": "25.12.6",
+    "target": "mediatek/filogic",
+    "architecture": "aarch64_cortex-a53",
+    "machine": "aarch64",
+    "kernel": "6.12.112",
+    "board": "glinet,gl-mt6000"
+  },
+  "commands": {
+    "ip": true,
+    "nft": true,
+    "fw4": true,
+    "ucode": true,
+    "uci": true,
+    "ubus": true,
+    "jsonfilter": true,
+    "sha256sum": true,
+    "curl": true,
+    "dnsmasq": true,
+    "xray": true,
+    "rpcd": true,
+    "uhttpd": true
+  },
+  "iproute2": true,
+  "bounded_commands": true,
+  "firewall": {
+    "software_offload": false,
+    "hardware_offload": false,
+    "flowtables": 0,
+    "fw4_table": true
+  },
+  "resources": {
+    "mem_available_kib": 853704,
+    "tmp_free_kib": 502968,
+    "overlay_free_kib": 7348192
+  },
+  "awg": {
+    "requested": true,
+    "tools_31": true,
+    "loaded": true
+  }
+}

@@ -30,6 +30,7 @@ config settings 'main'
  option native_pool_v4 '172.31.253.0/24'
  option native_pool_v6 '2001:2::/48'
  option native_dns_port '24253'
+ option native_classification_mode 'strict'
  option native_direct_grants_confirmed '1'
  list native_dns_tls '203.0.113.80:1853@protected.example'
  list native_dns_tls '203.0.113.81:1853@protected.example'
@@ -136,7 +137,11 @@ if [ "${PKC_VM_EMERGENCY:-0}" = 1 ]; then
 	. /mnt/lab/native-emergency-vm-test.sh
 	return
 fi
-ctl apply > "$permanent/apply.json"
+if [ "${PKC_VM_MIGRATION:-0}" = 1 ]; then
+	. /mnt/lab/native-migration-vm-test.sh
+else
+	ctl apply > "$permanent/apply.json"
+fi
 cat "$permanent/apply.json"
 for i in $(seq 1 30); do
 	ctl native-status > "$permanent/status.json"
@@ -147,7 +152,37 @@ cat "$permanent/status.json"
 [ "$(jsonfilter -q -i "$permanent/status.json" -e '@.ready')" = true ] || {
 	logread | tail -15; cat "$permanent/tmp/native-error" "$permanent/tmp/native-last-command.json" "$permanent/tmp/native-command.err"; fail 'permanent Apply not ready'; }
 token=$(jsonfilter -q -i "$permanent/status.json" -e '@.pending')
+if [ "${PKC_VM_FIRST_MIGRATION_ABORT:-0}" = 1 ]; then
+	[ "${PKC_VM_MIGRATION:-0}" = 1 ]
+	ctl native-abort "$token"
+	for attempt in $(seq 1 45); do
+		native_status
+		[ "$(jsonfilter -q -i "$permanent/status.json" -e '@.phase')" != recovery ] || break
+		sleep 1
+	done
+	[ "$(jsonfilter -q -i "$permanent/status.json" -e '@.phase')" = recovery ]
+	[ "$(jsonfilter -q -i "$permanent/status.json" -e '@.ready')" = false ]
+	[ -z "$(jsonfilter -q -i "$permanent/status.json" -e '@.pending')" ]
+	[ "$(uci -c "$permanent/uci" get podkopchik.main.routing_engine)" = native ]
+	if ctl native-confirm "$token" >/dev/null 2>&1; then fail 'aborted first migration confirmed'; fi
+	PKC_NATIVE_LAB=query ln "$bin" -test.run='^TestGuestFixture$' -- 10.19.0.1:53 udp probe.protected.example. A NOERROR 1 > "$permanent/recovery-query"
+	rn nft list table inet podkopchik_native_gate >/dev/null
+	echo 'PASS: first migration abort after cutover retains protected Native recovery, not Legacy forwarding'
+	ctl cleanup
+	return
+fi
 ctl native-confirm "$token"
+if [ "${PKC_VM_MIGRATION:-0}" = 1 ]; then
+	if rn nft list table inet podkopchik >/dev/null 2>&1; then fail 'Legacy table remained'; fi
+	rn nft list table inet migration_keep >/dev/null
+	for family in 4 6; do
+		[ -z "$(rn ip "-$family" route show table 10991 2>/dev/null || true)" ]
+		rn ip "-$family" rule show > "$permanent/migrated-rules$family"
+		if grep -q '^10991:' "$permanent/migrated-rules$family"; then fail 'Legacy RPDB rule remained'; fi
+		grep -q '^11050:' "$permanent/migrated-rules$family"
+	done
+	echo 'PASS: only owned Legacy nft and IPv4/IPv6 routing resources retired'
+fi
 for service in podkopchik-native-watch podkopchik-native-dns podkopchik-native-health; do
 	ubus call service list "{\"name\":\"$service\"}" > "$permanent/respawn.json"
 	[ "$(jsonfilter -q -i "$permanent/respawn.json" -e '@.*.instances.main.respawn.threshold')" = 3600 ]
@@ -174,6 +209,8 @@ if [ "${PKC_VM_ONLY_MIXED:-0}" = 1 ]; then
 	echo 'PASS: mixed VLESS removal verifies numeric RTN_LOCAL ownership and releases only its routing resources'
 	return
 fi
+# The portability matrix can retry only the recovery tail on a slow guest.
+if [ "${PKC_VM_RECOVERY_TAIL_ONLY:-0}" != 1 ] && [ "${PKC_VM_TIMEOUT_ONLY:-0}" != 1 ]; then
 ip netns exec "$w" tcpdump --immediate-mode -U -i external0 -Q in -nn -s 96 -w "$permanent/wan.pcap" \
 	"$pools or host 203.0.113.80 or host 2001:db8:80::1" >"$permanent/wan.log" 2>&1 &
 wan_cap=$!; caps="$caps $wan_cap"
@@ -285,12 +322,14 @@ touch "$permanent/hold-send"
 wait "$hold_pid" || { cat "$permanent/hold.log"; fail 'repeated Apply broke an established tuple'; }
 [ "$(query_native udp probe.protected.example. A NOERROR 1 | sed -n 's/^address=//p')" = "$v4" ]
 echo 'PASS: repeated confirmed Apply preserves live TCP, leases, conntrack pin and synthetic identity'
-. /mnt/lab/native-permanent-vm-nft-failure.sh
-
-if [ -z "${PKC_VM_PERMANENT_STATE:-}" ]; then
-	. /mnt/lab/native-permanent-vm-vless.sh
-	native_status
-	token=$(jsonfilter -q -i "$permanent/status.json" -e '@.confirmed')
+fi
+if [ "${PKC_VM_TIMEOUT_ONLY:-0}" != 1 ]; then
+	. /mnt/lab/native-permanent-vm-nft-failure.sh
+	if [ -z "${PKC_VM_PERMANENT_STATE:-}" ] && [ "${PKC_VM_SKIP_MIXED:-0}" != 1 ]; then
+		. /mnt/lab/native-permanent-vm-vless.sh
+		native_status
+		token=$(jsonfilter -q -i "$permanent/status.json" -e '@.confirmed')
+	fi
 fi
 
 confirmed=$token

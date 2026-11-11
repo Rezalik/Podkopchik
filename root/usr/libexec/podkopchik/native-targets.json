@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "baseline": "filogic-arm64-25.12.6-v1",
+  "platform": {
+    "distribution": "OpenWrt",
+    "release": "25.12.6",
+    "target": "mediatek/filogic",
+    "architecture": "aarch64_cortex-a53",
+    "machine": "aarch64",
+    "kernel": "6.12.112"
+  },
+  "helper": { "abi": "linux-arm64", "capability_schema": 3 },
+  "targets": {
+    "ax6000": {
+      "board": "xiaomi,redmi-router-ax6000-stock",
+      "asset": "podkopchik-native-ax6000-candidate.tar.gz",
+      "track": "existing_rc"
+    },
+    "flint2": {
+      "board": "glinet,gl-mt6000",
+      "asset": "podkopchik-native-flint2-candidate.tar.gz",
+      "track": "lab_candidate"
+    }
+  }
+}

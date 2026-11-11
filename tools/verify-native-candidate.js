@@ -18,7 +18,8 @@ const read = name => execFileSync('tar', ['-xOf', file, name], { maxBuffer: 16 *
 const hash = b => crypto.createHash('sha256').update(b).digest('hex');
 const seen = new Set();
 let unpacked = 0;
-for (const line of read('./SHA256SUMS').toString().trim().split('\n')) {
+const checksumText = read('./SHA256SUMS').toString();
+for (const line of checksumText.trim().split('\n')) {
 	const m = /^([a-f0-9]{64})  (\.\/[A-Za-z0-9_./-]+)$/.exec(line);
 	if (!m || !entries.includes(m[2]) || seen.has(m[2])) throw Error('Invalid manifest');
 	seen.add(m[2]);
@@ -33,6 +34,8 @@ if (!/^[a-f0-9]{64}$/.test(expected)) throw Error('Invalid helper digest');
 const binary = read('./native-bin/' + expected);
 if (hash(binary) !== expected || binary.subarray(0, 4).toString('hex') !== '7f454c46' || binary[4] !== 2 || binary[5] !== 1 || binary.readUInt16LE(18) !== 183)
 	throw Error('Not the verified Linux ARM64 helper');
-if (!read('./root/usr/libexec/podkopchik/podkopchik-native-dns').toString().includes('native-bin/' + expected)) throw Error('Launcher digest mismatch');
+const launcher = '#!/bin/sh\nset -eu\nexec "${PODKOPCHIK_CONFIG_DIR:-/etc/podkopchik}/native-bin/' + expected + '" "$@"\n';
+if (read('./root/usr/libexec/podkopchik/podkopchik-native-dns').toString() !== launcher) throw Error('Launcher digest mismatch');
+const platform = entries.includes('./PLATFORM.json') ? require('./native-package-manifest').verify(read, checksumText, expected) : null;
 console.log(JSON.stringify({ files: seen.size, binary_bytes: binary.length, unpacked_bytes: unpacked,
-	helper_sha256: expected, archive_sha256: hash(fs.readFileSync(file)) }, null, 2));
+	platform, helper_sha256: expected, archive_sha256: hash(fs.readFileSync(file)) }, null, 2));

@@ -7,15 +7,28 @@ export LC_ALL=C TZ=UTC0 COPYFILE_DISABLE=1
 base=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 out="${1:-$base/.build/native-candidate}"
 case "$out" in /*) ;; *) exit 2;; esac
+if [ "$#" -gt 0 ]; then shift; fi
+target=ax6000
+reuse=
+while [ "$#" -gt 0 ]; do
+	[ "$#" -ge 2 ] || exit 2
+	case "$1" in
+		--target) target=$2 ;;
+		--reuse-helper-from) reuse=$2 ;;
+		*) echo 'Use OUTPUT [--target ax6000|flint2] [--reuse-helper-from VERIFIED_BUNDLE]' >&2; exit 2 ;;
+	esac
+	shift 2
+done
+name=$(node "$base/tools/native-package-manifest.js" asset "$target")
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT HUP INT TERM
-mkdir -p "$out" "$stage/package/root" "$stage/package/i18n/ru" "$stage/package/native-bin"
-if [ "${2:-}" = --reuse-helper-from ] && [ -f "${3:-}" ]; then
+mkdir -p "$out" "$stage/package/native-bin"
+if [ -n "$reuse" ]; then
 	# A source-only release can retain an already verified immutable component.
 	# Never silently reuse it after any change to its source/module/build recipe.
-	node "$base/tools/verify-native-candidate.js" "$3"
+	node "$base/tools/verify-native-candidate.js" "$reuse"
 	mkdir "$stage/prior" "$stage/arm64-a"
-	tar -xzf "$3" -C "$stage/prior"
+	tar -xzf "$reuse" -C "$stage/prior"
 	# cmd/ contains independent diagnostic executables, not imported by the
 	# packaged main helper. Compare every other source/module file exactly.
 	node - "$base/native/dns" "$stage/prior/native/dns" <<'NODE'
@@ -37,13 +50,12 @@ NODE
 	cp "$stage/prior/native-bin/$prior_hash" "$stage/arm64-a/podkopchik-native-dns"
 	echo 'Reusing verified helper with identical source/build recipe; no fresh Go compilation claimed.'
 else
-	[ "$#" -le 1 ] || { echo 'Use OUTPUT [--reuse-helper-from VERIFIED_BUNDLE]' >&2; exit 2; }
 	sh "$base/tools/build-native-dns.sh" "$stage/arm64-a"
 	sh "$base/tools/build-native-dns.sh" "$stage/arm64-b"
 	cmp "$stage/arm64-a/podkopchik-native-dns" "$stage/arm64-b/podkopchik-native-dns"
 fi
 hash=$(sha256sum "$stage/arm64-a/podkopchik-native-dns" | awk '{print $1}')
-cp -R "$base/root/." "$stage/package/root/"
+sh "$base/tools/stage-native-common.sh" "$stage/package"
 find "$stage/package" -name .DS_Store -delete
 [ -z "$(find "$stage/package" -type l -print)" ] || { echo 'Symlinks are not permitted in the candidate payload' >&2; exit 1; }
 cp "$stage/arm64-a/podkopchik-native-dns" "$stage/package/native-bin/$hash"
@@ -51,23 +63,22 @@ sed "s/@SHA256@/$hash/g" "$base/native/runtime/native-dns-launcher.sh.in" > "$st
 cp "$base/install.sh" "$stage/package/"
 cp "$base/uninstall.sh" "$stage/package/"
 cp "$base/native/runtime/install-dns-component.sh" "$stage/package/install-native-dns.sh"
-cp "$base/i18n/ru/podkopchik.ru.lmo" "$stage/package/i18n/ru/"
 mkdir -p "$stage/package/native/runtime" "$stage/package/tools" "$stage/package/docs"
 cp -R "$base/native/dns" "$stage/package/native/"
 cp "$base/native/runtime/install-dns-component.sh" "$base/native/runtime/native-dns-launcher.sh.in" "$stage/package/native/runtime/"
 cp "$base/tools/build-native-dns.sh" "$base/tools/build-native-candidate.sh" "$stage/package/tools/"
 cp "$base/tools/verify-native-candidate.js" "$stage/package/tools/"
+cp "$base/tools/stage-native-common.sh" "$base/tools/native-package-manifest.js" "$stage/package/tools/"
 cp "$base/tools/install-native-rc-files.sh" "$base/tools/ax6000-protected-dns-check.sh" "$base/tools/native-live-pool-review.uc" "$stage/package/tools/"
 cp "$base/README.md" "$stage/package/"
 cp "$base/docs/UNIVERSAL-PERMANENT-APPLY.md" "$base/docs/SPEC.md" "$base/docs/ACCEPTANCE.md" "$stage/package/docs/"
 cp "$base/docs/UNIVERSAL-NATIVE-HOUSEHOLD-20261107.md" "$stage/package/docs/"
 cp "$base/docs/GUIDE-RU.md" "$base/docs/LOCAL-RELEASE-WORKFLOW.md" "$base/docs/NATIVE-SESSION-TTL-20261108.md" "$stage/package/docs/"
+cp "$base/docs/NATIVE-PORTABILITY.md" "$stage/package/docs/"
 find "$stage/package" -name .DS_Store -delete
 [ -z "$(find "$stage/package" -type l -print)" ] || exit 1
 find "$stage/package" -depth -type d -empty -delete
 printf '%s\n' "$hash" > "$stage/package/NATIVE_DNS_SHA256"
-printf '%s\n' 'board=xiaomi,redmi-router-ax6000-stock' 'openwrt=25.12.6' 'architecture=aarch64_cortex-a53' \
-	'activation=explicit-ordinary-apply' 'update_protocol=native-staged-v1' 'acceptance=requires-completed-vm-report-and-physical-preflight' > "$stage/package/TARGET"
 find "$stage/package" -type d -exec chmod 755 {} \;
 find "$stage/package" -type f -exec chmod 644 {} \;
 find "$stage/package/root/usr/libexec/podkopchik" -type f \( -name '*.sh' -o -name '*.uc' \) -exec chmod 755 {} \;
@@ -75,10 +86,12 @@ chmod 755 "$stage/package/"*.sh "$stage/package/native-bin/$hash" "$stage/packag
 	"$stage/package/root/usr/bin/podkopchikctl" "$stage/package/root/etc/init.d/"*
 chmod 600 "$stage/package/root/etc/config/podkopchik"
 (cd "$stage/package" && find . -type f ! -name SHA256SUMS | sort | while IFS= read -r path; do sha256sum "$path"; done > SHA256SUMS)
+node "$base/tools/native-package-manifest.js" write "$target" "$stage/package" "$hash"
+chmod 644 "$stage/package/TARGET" "$stage/package/PLATFORM.json" "$stage/package/COMMON_SHA256SUMS"
+(cd "$stage/package" && find . -type f ! -name SHA256SUMS | sort | while IFS= read -r path; do sha256sum "$path"; done > SHA256SUMS)
 find "$stage/package" -exec touch -t 200001010000 {} \;
 (cd "$stage/package" && find . -print | sort > "$stage/file-order" &&
 	tar --no-recursion --format ustar --uid 0 --gid 0 --uname root --gname root -cf "$stage/package.tar" -T "$stage/file-order")
-name=podkopchik-native-ax6000-candidate.tar.gz
 gzip -n -c "$stage/package.tar" > "$out/$name"
 (cd "$out" && sha256sum "$name" > "$name.sha256")
 printf 'ARM64 helper SHA256: %s\nCandidate: %s/%s\n' "$hash" "$out" "$name"

@@ -348,6 +348,12 @@ function store(root, owner, filesystem) {
 		return { connection: public_meta(meta, parsed) };
 	}
 	return {
+		inspect_profile: function(id) {
+			// Diagnostics must not create the store or its lock.
+			safe(fs.dirname(root), 'directory', false);
+			safe(root, 'directory', true);
+			return dispatch('profile', {id});
+		},
 		run: function(method, args) {
 			prepare();
 			let path = root + '/.lock';

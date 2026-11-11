@@ -26,14 +26,17 @@ before=$(jsonfilter -q -i "$permanent/status.json" -e '@.confirmed')
 touch /tmp/pkc-native-nft-failure
 ctl apply > "$permanent/nft-failed-apply.json"
 failed=$(jsonfilter -q -i "$permanent/nft-failed-apply.json" -e '@.pending')
-for attempt in $(seq 1 40); do
+for attempt in $(seq 1 100); do
 	native_status
 	phase=$(jsonfilter -q -i "$permanent/status.json" -e '@.phase')
 	pending=$(jsonfilter -q -i "$permanent/status.json" -e '@.pending') || pending=''
 	[ "$phase" != active ] || [ -n "$pending" ] || break
 	sleep 1
 done
-[ "$phase" = active ] && [ -z "$pending" ]
+[ "$phase" = active ] && [ -z "$pending" ] || {
+	cat "$permanent/status.json"
+	fail 'nft failure recovery did not become active in the VM wait budget'
+}
 [ "$(jsonfilter -q -i "$permanent/status.json" -e '@.confirmed')" = "$before" ]
 [ ! -e /tmp/pkc-native-nft-failure ]
 grep -q 'Injected native nft transaction failure' "$permanent/tmp/native-error"

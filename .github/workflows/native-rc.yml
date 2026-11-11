@@ -33,10 +33,20 @@ jobs:
           sh tools/build-native-candidate.sh "$PWD/.build/rc-b"
           cmp .build/rc-a/*.tar.gz .build/rc-b/*.tar.gz
           node tools/verify-native-candidate.js .build/rc-a/*.tar.gz
+      - name: Reproducible Flint 2 lab bundle
+        run: |
+          sh tools/build-native-candidate.sh "$PWD/.build/flint-a" --target flint2 --reuse-helper-from .build/rc-a/*.tar.gz
+          sh tools/build-native-candidate.sh "$PWD/.build/flint-b" --target flint2 --reuse-helper-from .build/rc-a/*.tar.gz
+          cmp .build/flint-a/*.tar.gz .build/flint-b/*.tar.gz
+          node tools/verify-native-candidate.js .build/flint-a/*.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: native-ax6000-rc
           path: .build/rc-a/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-flint2-lab
+          path: .build/flint-a/*
       - name: Publish prerelease only
         if: startsWith(github.ref, 'refs/tags/native-rc-')
         env:

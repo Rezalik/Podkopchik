@@ -15,6 +15,9 @@ function localizeInfo(text) {
 		'channel': _('Update channel'),
 		'repo': _('Repository'),
 		'branch': _('Branch'),
+		'target': _('Router target'),
+		'asset': _('Expected package'),
+		'availability': _('Update availability'),
 		'latest': _('Latest version'),
 		'archive_url': _('Archive URL'),
 		'sha256_url': _('SHA256 URL'),
@@ -23,6 +26,8 @@ function localizeInfo(text) {
 	};
 
 	var values = {
+		'available': _('Compatible release found'),
+		'no_compatible_release': _('No compatible Native release is published for this target.'),
 		'Development update from branch; no release checksum available.': _('Development update from branch; no release checksum available.')
 	};
 
@@ -37,6 +42,16 @@ function localizeInfo(text) {
 
 function isMainChannel(text) {
 	return /(^|\n)channel=main(\n|$)/.test(text || '');
+}
+
+function installAvailable(text) {
+	// Read only the status header; changelog lines are not release metadata.
+	var fields = coreFields(String(text || '').split('\n\n')[0]);
+	if (fields.channel === 'native-rc')
+		return fields.availability === 'available' && ['ax6000', 'flint2'].indexOf(fields.target) >= 0 &&
+			fields.asset === 'podkopchik-native-' + fields.target + '-candidate.tar.gz' &&
+			/^[a-f0-9]{64}$/.test(fields.sha256 || '') && !!fields.archive_url;
+	return ['main', 'stable'].indexOf(fields.channel) >= 0 && !!fields.archive_url;
 }
 
 function coreFields(text) {
@@ -160,12 +175,18 @@ return view.extend({
 	render: function(data) {
 		var info = data[0];
 		var output = E('pre', { 'class': 'cbi-section', 'style': 'white-space: pre-wrap' }, localizeInfo(info));
+		var install = E('button', {
+			'class': 'btn cbi-button cbi-button-apply',
+			'disabled': !installAvailable(info),
+			'click': ui.createHandlerFn(this, action, [ 'update-install' ])
+		}, _('Install Update'));
 		var warning = E('div', {
 			'class': 'alert-message warning',
 			'style': isMainChannel(info) ? '' : 'display: none'
 		}, _('Main branch update is for development/testing. Stable releases are safer.'));
 
 		function action(args) {
+			if (args[0] === 'update-check') install.disabled = true;
 			function poll(job) {
 				return fs.exec_direct('/usr/bin/podkopchikctl', [ 'update-status' ]).then(function(res) {
 					var state = coreFields(res);
@@ -182,8 +203,10 @@ return view.extend({
 				: fs.exec_direct('/usr/bin/podkopchikctl', args);
 			return operation.then(function(res) {
 				output.textContent = args[0] == 'update-check' ? localizeInfo(res) : res;
-				if (args[0] == 'update-check')
+				if (args[0] == 'update-check') {
 					warning.style.display = isMainChannel(res) ? '' : 'none';
+					install.disabled = !installAvailable(res);
+				}
 				ui.addNotification(null, E('pre', { 'style': 'white-space: pre-wrap' }, res));
 			}).catch(function(err) {
 				output.textContent = err.message || String(err);
@@ -199,10 +222,7 @@ return view.extend({
 					'click': ui.createHandlerFn(this, action, [ 'update-check' ])
 				}, _('Check')),
 				' ',
-				E('button', {
-					'class': 'btn cbi-button cbi-button-apply',
-					'click': ui.createHandlerFn(this, action, [ 'update-install' ])
-				}, _('Install Update')),
+				install,
 				' ',
 				E('button', {
 					'class': 'btn cbi-button',
