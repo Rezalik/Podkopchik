@@ -1054,8 +1054,14 @@ Required CLI
 
 Experimental `native-apply` is limited to the isolated AX6000 canary scope.
 Permanent Native uses a schema-3 protected DoT upstream through AWG or VLESS,
-with numeric endpoint bootstrap separated from client DNS. There is no ISP DNS
-fallback. Explicit `native_recovery_policy=repair` keeps ordinary failures on
+with numeric endpoint bootstrap separated from client DNS. It now retries
+authenticated wire-format HTTPS for the pinned standard
+Cloudflare/Quad9 endpoints if DoT fails. The same protected transport and
+provider IP are retained; custom DoT endpoints are not rewritten. Redirects,
+invalid TLS, mismatched DNS responses and oversized replies are rejected.
+No ISP/system resolver or proxy-environment fallback is allowed.
+See [the incident and tests](NATIVE-DNS-HTTPS-20261119.md).
+Explicit `native_recovery_policy=repair` keeps ordinary failures on
 Native with Strict protection; it requires a separately verified immutable
 management-emergency capsule. Transactional fixed-deadline behavior remains
 the default. Emergency legacy recovery is protected, not unrestricted Direct.

@@ -735,6 +735,23 @@ Native portability stages 6-8, local/no-NIC VM:
 
 See the [matrix and its scope](NATIVE-PORTABILITY.md#matrix).
 
+Protected DNS outage repair, 2026-11-19:
+
+- [x] Same-provider, same-tunnel HTTPS retry with blocked DoT in a no-NIC VM;
+  zero virtual WAN packets and unchanged FD count after 20 queries.
+- [x] TLS and DNS/HTTP validation, response/deadline bounds, no redirects or
+  proxy/system fallback, unchanged custom DoT endpoint policy.
+- [x] Complete Go race suite and actual ARM64 protected DNS tests.
+- [x] Recovery selects the latest confirmed generation and retains its error
+  while still in recovery.
+- [x] Scoped correction installed and confirmed on Xiaomi. Original primary
+  AWG restored without override; LAN UDP/TCP DNS, complete protected/ordinary
+  HTTPS, active validation and synthetic guard passed. Settings and profiles
+  were preserved; no emergency service or physical reboot was used.
+- [ ] Full physical reboot and many-hour stability after this correction.
+
+See [incident evidence and scope](NATIVE-DNS-HTTPS-20261119.md).
+
 Operational observation, 2026-11-07:
 
 - [x] Separate tmpfs-only collector, 48-hour monotonic deadline, two 512 KiB

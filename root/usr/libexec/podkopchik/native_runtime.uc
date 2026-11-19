@@ -488,7 +488,7 @@ function rollback(m){
 		m.current=m.confirmed;m.pending=null;m.phase='activating';m.code=code;save(META,m);
 		if(code!=LIB){if(failed)journal('restored',generation(failed));watch_service();return;}
 		activate(previous);
-	}else recover_kernel(generation(m.previous || m.current));
+	}else recover_kernel(generation(m.confirmed || m.current));
 	if(failed)journal('restored',generation(failed));
 }
 function discard_candidate(g){for(let sub in ['uci','awg']){for(let n in files(g+'/'+sub))fs.unlink(g+'/'+sub+'/'+n);fs.rmdir(g+'/'+sub);}for(let n in files(g))fs.unlink(g+'/'+n);fs.rmdir(g);}
@@ -616,7 +616,8 @@ function select_state(path){let m=meta();if(m.engine!='native'||index(['active',
 	let batch=planner.switch_batch(previous.compiled,next.compiled);
 	nft(batch,true);
 	if(next.xray_needed_now){xray_service(g,next);let ready=false;for(let i=0;i<10;i++){if(xray_ready(g,next)){ready=true;break;}system(['sleep','1']);}if(!ready)fail('VLESS listeners are not ready');}
-	nft(batch);publish_dns_transport(next);if(!next.xray_needed_now)xray_service(g,next);save(RUNTIME,next);fs.unlink(TMP+'/native-error');
+	nft(batch);publish_dns_transport(next);if(!next.xray_needed_now)xray_service(g,next);save(RUNTIME,next);
+	if(m.phase=='active')fs.unlink(TMP+'/native-error');
 }
 function boot_guard(){let m=meta();if(!m.current || settings().routing_enabled=='0')return;
 	let p=data(generation(m.current)+'/plan.json');transition([p.lan],true);

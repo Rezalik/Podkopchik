@@ -243,6 +243,13 @@ legacy restoration. The separately armed repair-policy emergency capsule is
 the final management-recovery path described above; never enable implicit
 direct fallback merely to clear an error.
 
+For the standard Cloudflare/Quad9 DoT endpoints, the helper has a bounded
+HTTPS DNS retry through the same protected transport and provider IP.
+Certificates and wire responses are verified; custom endpoints are unchanged.
+Neither a failed encrypted upstream nor recovery enables direct ISP DNS.
+Protected recovery retains the latest confirmed generation, not an obsolete
+previous version. See [the repair and its measured limits](NATIVE-DNS-HTTPS-20261119.md).
+
 ## Build And Controlled Installation
 
 Build only on the workstation with the pinned Go 1.26.10 toolchain:

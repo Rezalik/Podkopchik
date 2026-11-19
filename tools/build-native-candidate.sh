@@ -75,6 +75,7 @@ cp "$base/docs/UNIVERSAL-PERMANENT-APPLY.md" "$base/docs/SPEC.md" "$base/docs/AC
 cp "$base/docs/UNIVERSAL-NATIVE-HOUSEHOLD-20261107.md" "$stage/package/docs/"
 cp "$base/docs/GUIDE-RU.md" "$base/docs/LOCAL-RELEASE-WORKFLOW.md" "$base/docs/NATIVE-SESSION-TTL-20261108.md" "$stage/package/docs/"
 cp "$base/docs/NATIVE-PORTABILITY.md" "$stage/package/docs/"
+cp "$base/docs/NATIVE-DNS-HTTPS-20261119.md" "$stage/package/docs/"
 find "$stage/package" -name .DS_Store -delete
 [ -z "$(find "$stage/package" -type l -print)" ] || exit 1
 find "$stage/package" -depth -type d -empty -delete

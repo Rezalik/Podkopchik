@@ -32,7 +32,7 @@ func run() error {
 	capabilities := flag.Bool("capabilities", false, "native coordinator compatibility")
 	flag.Parse()
 	if *capabilities {
-		return json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": 3, "persistent_dns": true, "bounded_commands": true, "protected_dns": true})
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"schema": 3, "persistent_dns": true, "bounded_commands": true, "protected_dns": true, "protected_dns_https": true})
 	}
 	if *protected != "" {
 		return protectedProbe(*protected, *probeName)

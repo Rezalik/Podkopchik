@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"regexp"
@@ -115,12 +118,11 @@ func protectedDial(ctx context.Context, t dnsTransport, address string) (net.Con
 	}
 	return c.DialContext(ctx, "tcp", address)
 }
-func (r *protectedResolver) exchange(ctx context.Context, t dnsTransport, e dnsEndpoint, q dns.Question) (*dns.Msg, error) {
+func (r *protectedResolver) secureDial(ctx context.Context, t dnsTransport, e dnsEndpoint) (*tls.Conn, error) {
 	c, err := r.dial(ctx, t, e.Address)
 	if err != nil {
 		return nil, err
 	}
-	defer c.Close()
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = c.SetDeadline(deadline)
 	}
@@ -131,8 +133,40 @@ func (r *protectedResolver) exchange(ctx context.Context, t dnsTransport, e dnsE
 	}
 	secure := tls.Client(c, cfg)
 	if err := secure.HandshakeContext(ctx); err != nil {
+		c.Close()
 		return nil, err
 	}
+	return secure, nil
+}
+
+// Only the default providers have an implicit HTTPS alternative. Custom DoT
+// servers keep their configured identity, address and port unchanged.
+func httpsFallback(e dnsEndpoint) (dnsEndpoint, bool) {
+	a, err := netip.ParseAddrPort(e.Address)
+	if err != nil || a.Port() != 853 {
+		return dnsEndpoint{}, false
+	}
+	switch a.Addr().String() {
+	case "1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001":
+		if e.Name != "one.one.one.one" && e.Name != "cloudflare-dns.com" {
+			return dnsEndpoint{}, false
+		}
+		return dnsEndpoint{Address: netip.AddrPortFrom(a.Addr(), 443).String(), Name: "cloudflare-dns.com"}, true
+	case "9.9.9.9", "149.112.112.112", "2620:fe::fe", "2620:fe::9":
+		if e.Name != "dns.quad9.net" {
+			return dnsEndpoint{}, false
+		}
+		return dnsEndpoint{Address: netip.AddrPortFrom(a.Addr(), 443).String(), Name: e.Name}, true
+	}
+	return dnsEndpoint{}, false
+}
+
+func (r *protectedResolver) exchange(ctx context.Context, t dnsTransport, e dnsEndpoint, q dns.Question) (*dns.Msg, error) {
+	secure, err := r.secureDial(ctx, t, e)
+	if err != nil {
+		return nil, err
+	}
+	defer secure.Close()
 	conn := &dns.Conn{Conn: secure}
 	request := new(dns.Msg).SetQuestion(q.Name, q.Qtype)
 	request.SetEdns0(1232, false)
@@ -141,6 +175,55 @@ func (r *protectedResolver) exchange(ctx context.Context, t dnsTransport, e dnsE
 	}
 	answer, err := conn.ReadMsg()
 	if err != nil || answer.Id != request.Id || !matchingReply(q, answer) || (answer.Rcode != dns.RcodeSuccess && answer.Rcode != dns.RcodeNameError) {
+		return nil, errors.New("invalid protected DNS reply")
+	}
+	return answer, nil
+}
+
+func (r *protectedResolver) exchangeHTTPS(ctx context.Context, t dnsTransport, e dnsEndpoint, q dns.Question) (*dns.Msg, error) {
+	request := new(dns.Msg).SetQuestion(q.Name, q.Qtype)
+	request.SetEdns0(1232, false)
+	wire, err := request.Pack()
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://"+e.Name+"/dns-query", bytes.NewReader(wire))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/dns-message")
+	req.Header.Set("Accept", "application/dns-message")
+	req.Header.Set("Cache-Control", "no-store")
+	transport := &http.Transport{
+		Proxy: nil, DisableKeepAlives: true, DisableCompression: true,
+		MaxResponseHeaderBytes: 8192,
+		DialTLSContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			if network != "tcp" || address != e.Name+":443" {
+				return nil, errors.New("unexpected protected HTTPS destination")
+			}
+			return r.secureDial(ctx, t, e)
+		},
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	response, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	contentType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	if err != nil || contentType != "application/dns-message" || response.StatusCode != http.StatusOK {
+		return nil, errors.New("invalid protected HTTPS response")
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, 65536))
+	if err != nil || len(body) > 65535 {
+		return nil, errors.New("invalid protected HTTPS body")
+	}
+	answer := new(dns.Msg)
+	if answer.Unpack(body) != nil || answer.Id != request.Id || !matchingReply(q, answer) ||
+		(answer.Rcode != dns.RcodeSuccess && answer.Rcode != dns.RcodeNameError) {
 		return nil, errors.New("invalid protected DNS reply")
 	}
 	return answer, nil
@@ -156,29 +239,44 @@ func (r *protectedResolver) query(ctx context.Context, q dns.Question) (*dns.Msg
 			if (addr.Is4() && !t.IPv4) || (addr.Is6() && !t.IPv6) {
 				continue
 			}
-			key := fmt.Sprintf("%s/%s/%d/%d/%s/%s/%s", t.Tag, t.Interface, t.Index, t.Mark, t.Socks, e.Address, e.Name)
-			r.mu.Lock()
-			until := r.failed[key]
-			r.mu.Unlock()
-			if time.Now().Before(until) {
-				continue
+			alternatives := []dnsEndpoint{e}
+			if https, ok := httpsFallback(e); ok {
+				alternatives = append(alternatives, https)
 			}
-			attempt, stop := context.WithTimeout(ctx, 1500*time.Millisecond)
-			answer, err := r.exchange(attempt, t, e, q)
-			stop()
-			if err == nil {
-				return answer, nil
-			}
-			r.mu.Lock()
-			if len(r.failed) >= 128 {
-				clear(r.failed)
-			}
-			// Longer than one complete query budget: retries can reach later
-			// healthy transports instead of repeatedly exhausting it on the first.
-			r.failed[key] = time.Now().Add(5 * time.Second)
-			r.mu.Unlock()
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
+			for i, endpoint := range alternatives {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				key := fmt.Sprintf("%s/%s/%d/%d/%s/%s/%s/%d", t.Tag, t.Interface, t.Index, t.Mark, t.Socks, endpoint.Address, endpoint.Name, i)
+				r.mu.Lock()
+				until := r.failed[key]
+				r.mu.Unlock()
+				if time.Now().Before(until) {
+					continue
+				}
+				attempt, stop := context.WithTimeout(ctx, 1500*time.Millisecond)
+				var answer *dns.Msg
+				var err error
+				if i == 0 {
+					answer, err = r.exchange(attempt, t, endpoint, q)
+				} else {
+					answer, err = r.exchangeHTTPS(attempt, t, endpoint, q)
+				}
+				stop()
+				if err == nil {
+					return answer, nil
+				}
+				r.mu.Lock()
+				if len(r.failed) >= 128 {
+					clear(r.failed)
+				}
+				// Longer than one complete query budget: retries can reach later
+				// healthy transports instead of repeatedly exhausting it on the first.
+				r.failed[key] = time.Now().Add(5 * time.Second)
+				r.mu.Unlock()
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
 			}
 		}
 	}
