@@ -5,6 +5,8 @@ root="$(mktemp -d)"
 trap 'rm -rf "$root"' EXIT HUP INT TERM
 flags="$PWD"
 ucode -L "${UCODE_MODULE_DIR:-/usr/lib/ucode}" -L "$PWD/root/usr/libexec/podkopchik" tests/interception_model_smoke.uc
+mkdir -m 700 "$root/editor"
+ucode -L "${UCODE_MODULE_DIR:-/usr/lib/ucode}" -L "$PWD/tests/ucode" -L "$PWD/root/usr/libexec/podkopchik" tests/awg_editor_lock_smoke.uc "$root/editor"
 ucode -L "${UCODE_MODULE_DIR:-/usr/lib/ucode}" -L "$PWD/tests/ucode" -L "$PWD/root/usr/libexec/podkopchik" tests/awg_network_smoke.uc "$root"
 mkdir "$root/model"
 chmod 700 "$root/model"

@@ -95,6 +95,24 @@ check(renamed.revision == json(old_meta).revision, 'rename preserves config revi
 check(db.run('validate', { id: a.id }).connection.status == 'valid', 'repeat validation');
 let replaced = db.run('replace', { id: a.id, name: 'Replaced', config: replace(base, 'vpn.example:51820', 'new.example:443') }).connection;
 check(replaced.id == a.id && replaced.endpoints[0] == 'new.example:443', 'replace preserves ID and changes config');
+let edit = {id:a.id, revision:replaced.revision, endpoints:'["[2001:db8::1]:65535"]', mtu:'1320', listen_port:'30123'};
+denies('edit_settings', {...edit, endpoints:'[]'}, 'request', 'peer count');
+denies('edit_settings', {...edit, endpoints:'["vpn.example:0"]'}, 'value', 'invalid remote port');
+denies('edit_settings', {...edit, mtu:'575'}, 'value', 'invalid MTU');
+denies('edit_settings', {...edit, listen_port:'65536'}, 'value', 'invalid listen port');
+let edited = db.run('edit_settings', edit).connection;
+let expected = replace(replace(replace(base,'vpn.example:51820','[2001:db8::1]:65535'),'MTU = 1280','MTU = 1320'),'ListenPort = 0','ListenPort = 30123');
+check(db.run('profile',{id:a.id}).parsed.config == awg.parse(expected).config, 'only allowlisted fields changed');
+check(edited.name==replaced.name && index(sprintf('%J',edited),synthetic)<0, 'private settings not returned');
+denies('edit_settings', edit, 'stale', 'stale revision rejected');
+let unset = db.run('edit_settings',{...edit,revision:edited.revision,mtu:'',listen_port:''}).connection;
+check(unset.listen_port=='' && unset.mtu=='', 'unset optional overrides');
+let multi = base + '[Peer]\nPublicKey = ' + b64enc(chr(33) + substr(bytes, 1)) +
+	'\nEndpoint = 198.51.100.42:53\nAllowedIPs = 192.0.2.1/32\n';
+let two = db.run('import',{name:'Two peers',config:multi}).connection;
+db.run('edit_settings',{...edit,id:two.id,revision:two.revision,endpoints:'["vpn.example:51820","198.51.100.42:443"]',mtu:'1280',listen_port:'0'});
+check(db.run('profile',{id:two.id}).parsed.config == awg.parse(replace(multi,'198.51.100.42:53','198.51.100.42:443')).config,'edit second peer preserves all other fields');
+db.run('delete',{id:two.id});
 check(!fs.lstat(root + '/' + a.id + '.' + renamed.revision + '.conf'), 'old revision removed');
 
 // Native flock must release on close; it cannot leave a stale PID lock.

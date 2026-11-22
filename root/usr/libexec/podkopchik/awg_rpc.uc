@@ -6,6 +6,7 @@ const methods = {
 	list: {},
 	import: { name: '', config: '' },
 	replace: { id: '', name: '', config: '' },
+	edit_settings: { id: '', revision: '', endpoints: '', mtu: '', listen_port: '' },
 	validate: { id: '' },
 	rename: { id: '', name: '' },
 	delete: { id: '' },

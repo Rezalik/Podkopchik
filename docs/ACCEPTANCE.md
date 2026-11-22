@@ -1,5 +1,8 @@
 # Acceptance criteria for Podkopchik 0.1.0-beta
 
+AWG editor: changing one server port must preserve the other peers and secrets. Reject stale revisions, invalid ports/MTU and peer count changes. Native save must not restart tunnels or activate the candidate; apply it separately from Status.
+The save must tolerate brief Native watch contention, release the management lock while waiting and leave the profile untouched on timeout or pending Apply.
+
 Public documentation must distinguish the currently verified Xiaomi Native
 configuration from historical Legacy/preview results. The Russian README and
 [user guide](GUIDE-RU.md) must explain selective routing, Apply confirmation,
@@ -70,7 +73,7 @@ emergency mechanism or wider device admission is part of stage 1.
 - Support manual override.
 - Route domain groups to the automatic proxy group, a specific proxy, or direct.
 - Route destination IP/CIDR to proxy groups.
-- Add presets for Telegram, YouTube, Instagram, TikTok, X / Twitter, Discord, OpenAI / ChatGPT / Codex, and Canva.
+- Add presets for Telegram, YouTube, Instagram, TikTok, X / Twitter, Discord, OpenAI / ChatGPT / Codex, Canva, and Sony PlayStation.
 - Presets create ordinary editable `domain_rule` and `ip_rule` sections; they must not introduce a separate routing system.
 - Presets must skip duplicates by rule type, value, and target, and report added and skipped counts.
 - LuCI Save & Apply on routing-affecting pages, including Proxy Links, Domain Groups, IP Rules, Exclusions, LAN Devices, DNS, and Advanced settings, and Add preset on Presets, updates the active runtime state through the Podkopchik apply/cleanup path when routing is active; manual SSH apply is not required.
@@ -113,6 +116,9 @@ emergency mechanism or wider device admission is part of stage 1.
 - Discord preset creates 11 domain entries and no IP entries.
 - OpenAI / ChatGPT / Codex preset creates 14 domain entries and no IP entries.
 - Canva preset creates 10 domain entries and no IP entries.
+- Sony PlayStation creates one editable domain group for `playstation.com`,
+  `playstation.net`, and `sonyentertainmentnetwork.com`, respects the selected
+  target, and adds no IP rules or shared CDN domains.
 - Re-applying the same preset to the same target adds no duplicates.
 - Presets can target the automatic proxy group, an existing proxy group, a specific proxy outbound, or direct.
 - OpenAI / ChatGPT / Codex, Canva, Discord, and CDN domain lists are editable starting points because service hostnames can change.

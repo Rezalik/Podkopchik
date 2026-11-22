@@ -73,7 +73,8 @@ const expected = {
 	twitter: { domains: 19, ips: 0 },
 	discord: { domains: 11, ips: 0 },
 	openai: { domains: 14, ips: 0 },
-	canva: { domains: 10, ips: 0 }
+	canva: { domains: 10, ips: 0 },
+	playstation: { domains: 3, ips: 0 }
 };
 
 for (const key of api.PRESET_ORDER) {
@@ -129,6 +130,20 @@ reset([
 ]);
 api.addPresetToUci('youtube', 'auto_proxy_group');
 assert(domainRules().some(rule => rule.group_tag === 'youtube_2'), 'Preset should avoid duplicate domain group tags');
+
+reset();
+assert(api.PRESET_ORDER.includes('playstation'), 'Sony PlayStation should appear in the preset selector');
+first = api.addPresetToUci('playstation', 'direct');
+assert(first.added === 3 && first.addedIps === 0, 'Sony PlayStation should add only domain rules');
+assert(domainRules()[0].target === 'direct', 'Sony PlayStation should honor the selected target');
+assert(domainRules()[0].group_name === 'Sony PlayStation' && domainRules()[0].group_tag === 'playstation',
+	'Sony PlayStation should create an editable group with a stable tag');
+assert(domainsInRules().sort().join(',') === 'playstation.com,playstation.net,sonyentertainmentnetwork.com',
+	'Sony PlayStation should only match the three PlayStation domain families');
+before = sectionSignature();
+second = api.addPresetToUci('playstation', 'direct');
+assert(second.added === 0 && second.skipped === 3 && sectionSignature() === before,
+	'Reapplying Sony PlayStation to the same target should not alter its rules');
 
 assert(/fs\.exec_direct\('\/usr\/bin\/podkopchikctl',\s*\[\s*'apply'\s*\]\)/.test(source), 'Preset page must call podkopchikctl apply');
 assert(/ui\.changes\.apply/.test(source), 'Preset page must apply LuCI UCI changes');

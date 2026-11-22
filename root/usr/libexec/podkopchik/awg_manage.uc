@@ -11,6 +11,7 @@ const ROOT = options.root || '/etc/podkopchik/awg';
 const TMP = options.tmp || '/tmp/podkopchik';
 const UCI_FILE = options.uci_file || '/etc/config/podkopchik';
 const ACTIVE = options.active || '/etc/podkopchik/config.json';
+const NATIVE_STATE = options.native_state || '/etc/podkopchik/native-state';
 const OWNER = options.owner == null ? 0 : options.owner;
 const cursor = options.cursor || native_cursor;
 const db = options.store || awg.store(ROOT, OWNER);
@@ -351,7 +352,7 @@ function list() {
 	result.ipv6_interception = flags.ipv6;
 	return result;
 }
-function run(method, args) {
+function attempt(method, args) {
 	fs.mkdir(TMP);
 	let parent = fs.lstat(TMP);
 	if (!parent || parent.type != 'directory' || parent.uid != OWNER || (parent.mode & 0o022)) awg.fail('storage');
@@ -360,7 +361,8 @@ function run(method, args) {
 	// Separate role/store operations from interface operations. Never hold the
 	// interface lock while invoking apply, which reconciles interfaces itself.
 	let lock = fs.open(TMP + '/awg-management.lock', 'a+', 0o600);
-	if (!lock || !lock.lock('xn')) awg.fail('busy');
+	if (!lock) awg.fail('storage');
+	if (!lock.lock('xn')) { lock.close(); awg.fail(method == 'edit_settings' ? 'edit_contended' : 'busy'); }
 	try {
 		let result;
 		if (method == 'recover') {
@@ -385,6 +387,29 @@ function run(method, args) {
 			result = apply_changes(ctx, null);
 		}
 		else if (method == 'assign') result = assign(args.tag, args.role, args.priority);
+		else if (method == 'edit_settings') {
+			let ctx = cursor(), native = ctx.get('podkopchik', 'main', 'routing_engine') == 'native';
+			let native_lock;
+			if (native && fs.lstat(NATIVE_STATE)) {
+				native_lock = fs.open(NATIVE_STATE + '/.lock','a+',0o600);
+				if (!native_lock) awg.fail('storage');
+				if (!native_lock.lock('xn')) { native_lock.close(); awg.fail('edit_contended'); }
+			}
+			try {
+				if (fs.lstat(LOCK)) awg.fail('busy');
+				if (native) {
+					let meta = fs.readfile(NATIVE_STATE + '/runtime.json');
+					if (meta && json(meta).pending) awg.fail('busy');
+				} else {
+					let p = awg_proxy(ctx, args.id, false);
+					if ((p && (p.enabled != '0' || active_ref(p.tag))) || runtime(args.id, 'status').running)
+						awg.fail('in_use');
+				}
+				result = db.run(method, args);
+				result.native_staged = native;
+			} catch (e) { if (native_lock) native_lock.close(); die(e.message); }
+			if (native_lock) native_lock.close();
+		}
 		else if (method == 'set_probe') {
 			let settings = net.probe_settings(args), ctx = cursor(), p = awg_proxy(ctx, args.id, true);
 			ctx.set('podkopchik', p['.name'], 'probe_url', settings.url);
@@ -421,6 +446,19 @@ function run(method, args) {
 	} catch (e) { lock.close(); die(e.message); }
 }
 
+function run(method, args) {
+	if (method != 'edit_settings') return attempt(method, args);
+	// Watch and list can briefly own these locks. Wait without holding either
+	// lock, retry only before writing, and recheck pending state and revision.
+	for (let n = 0; ; n++) {
+		try { return attempt(method, args); }
+		catch (e) {
+			if (awg.error(e).code != 'edit_contended') die(e.message);
+			if (n >= 16) awg.fail('busy');
+			(options.wait_for_edit || sleep)(250);
+		}
+	}
+}
 return { run: run, runtime: runtime, recover: recover, validate_ipv6: validate_ipv6 };
 }
 let instance = create();

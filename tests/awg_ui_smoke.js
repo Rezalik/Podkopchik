@@ -9,7 +9,7 @@ String.prototype.format = function(...args) { let i = 0; return this.replace(/%[
 function E(tag, attrs, children) {
 	assert(/^[a-z][a-z0-9]*$/i.test(tag), 'DOM tag must be constant, not user input');
 	return { tag, attrs: attrs || {}, children: [].concat(children || []),
-		value: attrs && attrs.value || '', files: [], style: {},
+		value: attrs && attrs.value || '', min: attrs?.min, max: attrs?.max, files: [], style: {},
 		checked: !!(attrs && Object.hasOwn(attrs, 'checked')),
 		addEventListener(name, fn) { this.attrs[name] = fn; },
 		replaceChildren() { this.children = []; }, appendChild(child) { this.children.push(child); }
@@ -85,7 +85,16 @@ async function settle() { for (let i = 0; i < 20; i++) { await new Promise(r => 
 	assert(calls.some(x => x.method === 'delete' && x.args[0] === item.id));
 	const acl = JSON.parse(fs.readFileSync('root/usr/share/rpcd/acl.d/luci-app-podkopchik.json'))['luci-app-podkopchik'];
 	assert.deepStrictEqual(acl.read.ubus['podkopchik.awg'], ['list']);
-	assert.deepStrictEqual(acl.write.ubus['podkopchik.awg'].slice().sort(), ['assign','check','delete','import','recover','rename','replace','restart','set_interception','set_probe','start','stop','validate']);
+	assert.deepStrictEqual(acl.write.ubus['podkopchik.awg'].slice().sort(), ['assign','check','delete','edit_settings','import','recover','rename','replace','restart','set_interception','set_probe','start','stop','validate']);
+	page.editSettings({...item, revision:'d'.repeat(32), endpoints:['vpn.example:123','[2001:db8::1]:99']});
+	const ports = [];
+	walk(modal, n => { if(n.attrs.type === 'number') ports.push(n); });
+	ports[0].value = '65536';
+	find(modal, n => n.tag === 'button' && text(n) === 'Save').attrs.click(); await settle();
+	assert(!calls.some(x => x.method === 'edit_settings'));
+	ports[0].value = '443';
+	find(modal, n => n.tag === 'button' && text(n) === 'Save').attrs.click(); await settle();
+	assert.deepStrictEqual(calls.find(x => x.method === 'edit_settings').args, [item.id,'d'.repeat(32),'["vpn.example:443","[2001:db8::1]:99"]','','']);
 	page.assignConnection(item);
 	const selects = [];
 	walk(modal, n => { if (n.tag === 'select') selects.push(n); });

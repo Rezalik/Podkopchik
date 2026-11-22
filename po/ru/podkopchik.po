@@ -934,6 +934,9 @@ msgstr "Добавлено"
 msgid "Canva"
 msgstr "Canva"
 
+msgid "Sony PlayStation"
+msgstr "Sony PlayStation"
+
 msgid "Discord"
 msgstr "Discord"
 
@@ -1785,3 +1788,24 @@ msgstr "Состояние обновления изменилось; обнов
 
 msgid "This restores the verified previous protected configuration and may interrupt connections. It is not a routine undo."
 msgstr "Будет восстановлена проверенная предыдущая защищённая конфигурация. Соединения могут прерваться. Это не обычная отмена изменений."
+
+msgid "Server UDP port"
+msgstr "UDP-порт сервера"
+
+msgid "Server address"
+msgstr "Адрес сервера"
+
+msgid "Local listen port"
+msgstr "Локальный порт (ListenPort)"
+
+msgid "Peer %d"
+msgstr "Узел %d"
+
+msgid "Rename or replace .conf"
+msgstr "Переименовать или заменить .conf"
+
+msgid "The profile changed. Refresh the page before editing."
+msgstr "Профиль изменился. Обновите страницу перед редактированием."
+
+msgid "AWG profile saved. To activate it, apply settings on the Status page and confirm after checking connectivity."
+msgstr "Профиль AWG сохранён. Для активации примените настройки на странице статуса и подтвердите их после проверки связи."

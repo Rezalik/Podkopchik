@@ -176,10 +176,20 @@ var PRESETS = {
 			'canva.dev'
 		],
 		ips: []
+	},
+	playstation: {
+		name: 'Sony PlayStation',
+		tag: 'playstation',
+		domains: [
+			'playstation.com',
+			'playstation.net',
+			'sonyentertainmentnetwork.com'
+		],
+		ips: []
 	}
 };
 
-var PRESET_ORDER = [ 'telegram', 'youtube', 'instagram', 'tiktok', 'twitter', 'discord', 'openai', 'canva' ];
+var PRESET_ORDER = [ 'telegram', 'youtube', 'instagram', 'tiktok', 'twitter', 'discord', 'openai', 'canva', 'playstation' ];
 
 function runApply() {
 	return fs.exec_direct('/usr/bin/podkopchikctl', [ 'apply' ]);
@@ -202,6 +212,8 @@ function presetLabel(key) {
 		return _('OpenAI / ChatGPT / Codex');
 	if (key == 'canva')
 		return _('Canva');
+	if (key == 'playstation')
+		return _('Sony PlayStation');
 
 	return key;
 }

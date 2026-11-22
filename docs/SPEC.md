@@ -292,6 +292,12 @@ Required presets:
 * Discord: 11 domain entries, no IP entries in this beta step.
 * OpenAI / ChatGPT / Codex: 14 domain entries, no IP entries in this beta step.
 * Canva: 10 domain entries, no IP entries in this beta step.
+* Sony PlayStation: 3 domain suffixes, no IP entries. The
+  [PlayStation account and Store page](https://www.playstation.com/en-us/your-account-for-playstation/)
+  links to services under `playstation.com` and `sonyentertainmentnetwork.com`.
+  [Console update downloads](https://www.playstation.com/en-us/support/hardware/ps5/system-software/)
+  use `playstation.net`. These suffixes do not cover third-party game
+  servers, shared CDN domains or connections made to literal IP addresses.
 
 The OpenAI / ChatGPT / Codex, Canva, Discord, and CDN-related domain lists can change over time. Presets are a user-editable starting point and are not a permanent guarantee that every future service hostname is covered.
 
@@ -917,6 +923,9 @@ External IP failure leaves that metric empty; it does not invalidate an otherwis
 successful existing reachability test. The UI expires stale success/metrics.
 
 ## AWG 3.1 Configuration Management: Stage 1 Baseline
+
+The current LuCI editor stages per-peer endpoints plus optional interface MTU and ListenPort through a write-only RPC. It checks the displayed profile revision, preserves keys and peer order, and validates the entire candidate before atomically replacing it. A Native save does not modify the active generation; explicit Apply and confirmation are separate.
+Editing retries transient management/runtime lock contention for up to four seconds of waiting before any write. A pending Apply still blocks the edit.
 
 The Stage 1 baseline (superseded by Stages 2–3 below) manages multiple imported profiles without
 changing the VLESS page, UCI routing model, Xray, FakeDNS, nftables or services.

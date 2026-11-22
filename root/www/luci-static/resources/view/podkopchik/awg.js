@@ -7,6 +7,7 @@ var MAX_CONFIG = 65536;
 var callList = rpc.declare({ object: 'podkopchik.awg', method: 'list', expect: { '': {} } });
 var callImport = rpc.declare({ object: 'podkopchik.awg', method: 'import', params: [ 'name', 'config' ], expect: { '': {} } });
 var callReplace = rpc.declare({ object: 'podkopchik.awg', method: 'replace', params: [ 'id', 'name', 'config' ], expect: { '': {} } });
+var callEditSettings = rpc.declare({ object: 'podkopchik.awg', method: 'edit_settings', params: [ 'id', 'revision', 'endpoints', 'mtu', 'listen_port' ], expect: { '': {} } });
 var callRename = rpc.declare({ object: 'podkopchik.awg', method: 'rename', params: [ 'id', 'name' ], expect: { '': {} } });
 var callValidate = rpc.declare({ object: 'podkopchik.awg', method: 'validate', params: [ 'id' ], expect: { '': {} } });
 var callDelete = rpc.declare({ object: 'podkopchik.awg', method: 'delete', params: [ 'id' ], expect: { '': {} } });
@@ -38,6 +39,7 @@ function errorText(result) {
 		name: _('Enter a connection name of at most 128 bytes without control characters.'),
 		id: _('Invalid connection identifier.'),
 		missing: _('This connection no longer exists. Refresh the list.'),
+		stale: _('The profile changed. Refresh the page before editing.'),
 		storage: _('Could not access protected AWG storage. Check permissions and free space.'),
 		busy: _('Another AWG operation is running. Try again.'),
 		limit: _('At most 10 AWG interfaces can be started at the same time.'),
@@ -124,7 +126,8 @@ function connectionCard(item, actions) {
 			E('button', { 'class': 'cbi-button', 'click': function() { actions.check(item); } }, _('Check connection')),
 			E('button', { 'class': 'cbi-button', 'click': function() { actions.assign(item); } }, _('Connection role')),
 			E('button', { 'class': 'cbi-button', 'click': function() { actions.probe(item); } }, _('Check settings')),
-			E('button', { 'class': 'cbi-button', 'click': function() { actions.edit(item); } }, _('Edit')),
+			valid ? E('button', { 'class': 'cbi-button', 'click': function() { actions.settings(item); } }, _('Edit')) : '',
+			E('button', { 'class': 'cbi-button', 'click': function() { actions.edit(item); } }, _('Rename or replace .conf')),
 			E('button', { 'class': 'cbi-button', 'click': function() { actions.validate(item); } }, _('Check configuration')),
 			E('button', { 'class': 'cbi-button cbi-button-negative', 'click': function() { actions.remove(item); } }, _('Delete'))
 		])
@@ -142,11 +145,52 @@ return view.extend({
 			if (!result.ok) throw new Error(errorText(result));
 			ui.hideModal();
 			ui.addNotification(null, E('p', {}, result.native_apply && result.native_apply.confirmation_required
-				? _('Native Apply is pending. Open Status and confirm the configuration before the rollback deadline.') : success), 'info');
+				? _('Native Apply is pending. Open Status and confirm the configuration before the rollback deadline.')
+				: result.native_staged ? _('AWG profile saved. To activate it, apply settings on the Status page and confirm after checking connectivity.') : success), 'info');
 			return callList().then(function(data) { self.updateList(data); });
 		}).catch(function(error) {
 			ui.addNotification(null, E('p', {}, error.message || _('AWG operation failed.')), 'error');
 		}).finally(function() { self.busy = false; });
+	},
+
+	editSettings: function(item) {
+		var self = this, rows = [ E('p', {}, item.name) ];
+		function field(label, type, value, min, max) {
+			var attrs = { type: type, value: value, style: 'width:100%' };
+			if (type == 'number') { attrs.min = min; attrs.max = max; attrs.step = 1; }
+			var input = E('input', attrs);
+			rows.push(E('label', { style: 'display:block;margin:6px 0' }, [ label, input ]));
+			return input;
+		}
+		var peers = item.endpoints.map(function(ep, i) {
+			var pos = ep.lastIndexOf(':');
+			rows.push(E('strong', {}, _('Peer %d').format(i + 1)));
+			return [field(_('Server address'), 'text', ep.slice(0,pos).replace(/^\[|\]$/g,'')),
+				field(_('Server UDP port'), 'number', ep.slice(pos + 1), 1, 65535)];
+		});
+		var mtu = field('MTU', 'number', item.mtu || '', 576, 65535);
+		var listen = field(_('Local listen port'), 'number', item.listen_port || '', 0, 65535);
+		rows.push(E('div', { class: 'right' }, [
+			E('button', { class: 'cbi-button', click: ui.hideModal }, _('Cancel')), ' ',
+			E('button', { class: 'cbi-button cbi-button-positive', click: function() {
+				self.perform(function() {
+					function number(input, optional) {
+						var v = String(input.value);
+						if (input.validity && input.validity.badInput) throw new Error(errorText({error:'value'}));
+						if (v === '' && optional) return '';
+						if (!/^\d+$/.test(v) || +v < +input.min || +v > +input.max) throw new Error(errorText({error:'value'}));
+						return v;
+					}
+					var endpoints = peers.map(function(pair) {
+						var host = pair[0].value.trim().replace(/^\[([^\]]+)\]$/,'$1');
+						if (!host || /[\s\[\]\/]/.test(host)) throw new Error(errorText({error:'value',field:'Endpoint'}));
+						return (host.indexOf(':') >= 0 ? '[' + host + ']' : host) + ':' + number(pair[1],false);
+					});
+					return callEditSettings(item.id, item.revision, JSON.stringify(endpoints), number(mtu,true), number(listen,true));
+				}, _('AWG connection saved.'));
+			} }, _('Save'))
+		]));
+		ui.showModal(_('Edit AWG connection'), rows);
 	},
 
 	editConnection: function(item) {
@@ -241,6 +285,7 @@ return view.extend({
 				assign: function(entry) { self.assignConnection(entry); },
 				probe: function(entry) { self.probeSettings(entry); },
 				edit: function(entry) { self.editConnection(entry); },
+				settings: function(entry) { self.editSettings(entry); },
 				validate: function(entry) { self.perform(function() { return callValidate(entry.id); }, _('Configuration is valid')); },
 				remove: function(entry) {
 					ui.showModal(_('Delete AWG connection'), [

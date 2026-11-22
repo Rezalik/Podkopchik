@@ -285,6 +285,8 @@ function store(root, owner, filesystem) {
 		return { id: meta.id, name: meta.name, protocol: 'AmneziaWG 3.1',
 			created_at: meta.created_at, updated_at: meta.updated_at,
 			checked_at: meta.checked_at, status: validation ? 'valid' : 'invalid',
+			revision: meta.revision, mtu: validation?.interface?.MTU || '',
+			listen_port: validation?.interface?.ListenPort || '',
 			endpoints: validation ? validation.endpoints : [],
 			peer_count: validation ? validation.peer_count : 0 };
 	}
@@ -303,6 +305,30 @@ function store(root, owner, filesystem) {
 				push(result, public_meta(meta, checked));
 			}
 			return { connections: result };
+		}
+		if (method == 'edit_settings') {
+			let profile = dispatch('profile', { id: args.id }), meta = profile.meta, parsed = profile.parsed;
+			if (meta.revision != args.revision) fail('stale');
+			let endpoints;
+			try { endpoints = json(args.endpoints); } catch (e) { fail('request'); }
+			if (type(endpoints) != 'array' || length(endpoints) != parsed.peer_count) fail('request');
+			for (let i, ep in endpoints) {
+				if (type(ep) != 'string' || match(ep, /[[:cntrl:]]/) || !endpoint(ep)) fail('value', 0, 'Endpoint');
+				parsed.peers[i].Endpoint = ep;
+			}
+			for (let k,v in { MTU: args.mtu, ListenPort: args.listen_port }) {
+				if (type(v) != 'string' || (length(v) && (!uint(v, 65535) || match(v, /[^0-9]/) ||
+					(k == 'MTU' && +v < 576)))) fail('value', 0, k);
+				if (length(v)) parsed.interface[k] = v; else delete parsed.interface[k];
+			}
+			let lines = [];
+			for (let i, section in [ parsed.interface, ...parsed.peers ]) {
+				push(lines, i == 0 ? '[Interface]' : '\n[Peer]');
+				for (let k,v in section) push(lines, k + ' = ' + v);
+			}
+			let config = join('\n', lines) + '\n';
+			if (config == parsed.config) return { connection: public_meta(meta, parsed) };
+			return dispatch('replace', { id: meta.id, name: meta.name, config: config });
 		}
 		if (method == 'import' || method == 'replace') {
 			let display_name = name(args.name), parsed = parse(args.config), old = null;
